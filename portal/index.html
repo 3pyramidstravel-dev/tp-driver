@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#4a1214">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Three Pyramids — بوابة المصانع</title>
+  <link rel="icon" type="image/png" href="../shared/icon-192.png">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Cinzel:wght@600;700&display=swap">
+  <link rel="stylesheet" href="../shared/tp.css">
+  <style>
+    body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.35), rgba(30,9,6,.8)), url('../shared/lounge.jpg') center / cover fixed no-repeat, #3b0d0f; }
+    .wrap { width: min(520px, 100%); margin: 0 auto; padding: 22px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+    .top { display: flex; justify-content: center; } .top img { width: 170px; background: rgba(255,248,236,.92); border-radius: 16px; padding: 6px 12px; border: 1px solid rgba(242,212,142,.8); }
+    .hello h1 { font-size: 26px; font-weight: 900; color: var(--maroon-2); }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="app" hidden>
+    <div class="top"><img src="../shared/logo.png" alt="Three Pyramids Travel"></div>
+    <section class="glass card hello" id="hello"></section>
+    <section class="glass card" id="info"></section>
+  </div>
+  <script src="../shared/firebase-config.js"></script>
+  <script src="../shared/core.js"></script>
+  <script src="../shared/perms.js"></script>
+  <script src="../shared/rates.js"></script>
+  <script src="../shared/fb.js"></script>
+  <script src="../shared/session.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
