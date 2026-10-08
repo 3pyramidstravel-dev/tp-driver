@@ -12,7 +12,45 @@
   const S = TP.session, D = TP.D, U = TP.ui, O = TP.ops;
   const state = { day: '', factory: '' };
   let other = { day: null, unsub: null, list: [] };
+  // all-inclusive pay for a covered day (finance enters it by hand — e.g. a trips driver on a line)
+  let pay = { day: null, unsub: null, map: {} };
+  function payFor(day) {
+    if (!S.can('prices.view') || !TP.financeOn(D.settings)) return {};
+    if (pay.day !== day) {
+      if (pay.unsub) pay.unsub();
+      pay = { day, unsub: null, map: {} };
+      pay.unsub = TP.data.watch('dayPay', { where: [['day', '==', day]] }, l => { if (pay.day !== day) return; pay.map = {}; l.forEach(x => { pay.map[x.id] = x; }); TP.rerender(); });
+    }
+    return pay.map;
+  }
+  function openPay(line, doc) {
+    const f = TP.q.company(line.factoryId), steps = O.steps(line, f), ev = doc.events || {}, p = TP.q.person(doc.driverId), cur = pay.map[doc.id];
+    const ot = doc.ot, wait = O.waitMin(ev), fl = O.flags(ev);
+    TP.openModal('أجر اليوم — ' + TP.driverLabel(p), `
+      <div class="banner info" style="margin-bottom:10px">${TP.icon('route')}<span class="grow"><b>${esc(line.name)}</b> — ${esc(f ? f.name : '')} · <bdi dir="ltr">${esc(doc.day)}</bdi> · ${esc(TP.driverKindName(p && p.driverKind))}</span></div>
+      <div class="table-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>${steps.map(st => { const e = ev[st.key]; return `<tr><td>${esc(st.label)}</td><td class="num">${e ? esc(TP.fmtTime(e.at)) : '<span class="muted">—</span>'}</td><td class="small">${e ? [e.auto ? 'تلقائي' : '', e.far ? 'بعيد ' + O.fmtDist(e.dist) : '', e.by === 'staff' ? 'سجلتها الإدارة' : '', O.lateMin(e) >= 10 ? 'اتبعتت متأخر' : ''].filter(Boolean).map(esc).join(' · ') : ''}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="sum-row" style="margin:0 0 12px"><div class="pill"><span>الحالة</span><strong>${esc(O.partName(O.part(ev)))}</strong></div><div class="pill"><span>انتظار المسا</span><strong>${wait} د</strong></div>
+        <div class="pill"><span>السهرة</span><strong>${ot ? esc(O.otTierLabel(ot.tier, D.settings)) + ' — ' + esc((O.OT_STATUS[ot.status] || [''])[0]) : 'مفيش'}</strong></div>${fl.far ? `<div class="pill"><span>ضغطات بعيدة</span><strong>${fl.far}</strong></div>` : ''}</div>
+      <label class="fld">المبلغ الشامل لليوم ده <small>اليوم + الانتظار + السهرة — بيتحسب للسواق ده بس، ومش بيأثر على سعر المصنع</small><input class="input" id="dpAmount" inputmode="decimal" dir="ltr" value="${cur ? esc(cur.amount) : ''}"></label>`, async () => {
+      const amount = U.money('dpAmount');
+      if (!(amount >= 0) || amount === null) { TP.toast('اكتب المبلغ'); return false; }
+      if (!(await S.confirmPin('تأكيد أجر اليوم'))) return false;
+      await TP.fb.set('dayPay/' + doc.id, { driverId: doc.driverId, lineId: doc.lineId, day: doc.day, month: doc.month || O.monthOf(doc.day), amount, setBy: S.person.name, setAt: TP.fb.ts() });
+      TP.audit('daypay.set', `${TP.driverLabel(p)} ${doc.day}`, `${line.name}: ${amount}`);
+      TP.toast('تم حفظ أجر اليوم ✓');
+    }, { wide: true, saveLabel: 'حفظ بالرقم السري' });
+  }
 
+  /** Excuses ("مش راكب") the customers sent for that day — by line. */
+  let exc = { day: null, unsub: null, map: {} };
+  function excFor(day) {
+    if (exc.day !== day) {
+      if (exc.unsub) exc.unsub();
+      exc = { day, unsub: null, map: {} };
+      exc.unsub = TP.data.watch('excused', { where: [['day', '==', day]] }, l => { if (exc.day === day) { exc.map = {}; l.forEach(x => { exc.map[x.lineId] = x; }); TP.rerender(); } });
+    }
+    return exc.map;
+  }
   function docsFor(day) {
     if (day === D.todayKey) return D.todayDays;
     if (other.day !== day) {
@@ -53,6 +91,7 @@
     if (!did) return TP.toast('الخط مالوش سواق — حدد سواق أو بديل الأول');
     TP.openModal(`تسجيل / تصحيح — ${line.name}`, `
       <p class="muted small" style="margin-bottom:10px">${esc(drv ? drv.name : '')} · <bdi dir="ltr">${esc(day)}</bdi>. سيب الخانة فاضية لو الخطوة متعملتش. أي تعديل بيتسجل باسمك وبالسبب.</p>
+      ${TP.isLocked(day) ? `<div class="banner warn" style="margin-bottom:10px">${TP.icon('lock')}<span>اليوم ده اتصدّر للحسابات — أي تعديل هيظهر في التصدير الجاي.</span></div>` : ''}
       <div class="corr">${steps.map(s => { const e = ev[s.key]; return `<label class="corr-row"><span><b>${esc(s.label)}</b>${e ? `<small>${e.by === 'staff' ? 'متسجلة من الإدارة' : e.auto ? 'تلقائي' : 'السواق'}${e.far ? ' · بعيد ' + esc(O.fmtDist(e.dist)) : ''}</small>` : ''}</span>
         <input class="input" type="time" data-step="${s.key}" value="${e ? esc(O.hm(e.at)) : ''}"></label>`; }).join('')}</div>
       <label class="fld" style="margin-top:12px">السبب <small>مطلوب</small><textarea class="input" id="cReason" rows="2" maxlength="300" placeholder="مثال: الموبايل كان فاصل شحن"></textarea></label>`, async () => {
@@ -71,9 +110,12 @@
       }
       if (!n) { TP.toast('مفيش تغيير'); return false; }
       if (!reason) { TP.toast('اكتب السبب'); return false; }
-      if (doc) await TP.fb.update('days/' + doc.id, Object.assign(patch, { updatedAt: TP.fb.ts() }));
+      // a period already exported to the accounts: mark it so it shows in the next export
+      const locked = TP.isLocked(day), fix = TP.lockFix(day, reason);
+      if (doc) await TP.fb.update('days/' + doc.id, Object.assign(patch, fix, { updatedAt: TP.fb.ts() }));
       // merge: if the driver's presses reached the server meanwhile, they are kept
-      else await TP.fb.set('days/' + O.dayId(line.id, day), { lineId: line.id, factoryId: line.factoryId, driverId: did, day, month: O.monthOf(day), events: created, lastKey: 'staff', updatedAt: TP.fb.ts() }, true);
+      else await TP.fb.set('days/' + O.dayId(line.id, day), Object.assign({ lineId: line.id, factoryId: line.factoryId, driverId: did, day, month: O.monthOf(day), events: created, lastKey: 'staff', updatedAt: TP.fb.ts() }, fix), true);
+      if (locked) TP.toast('الفترة دي اتصدّرت — التعديل هيظهر في التصدير الجاي', 'warn');
       TP.audit('day.correct', `${line.name} ${day}`, `${n} خطوة — ${reason}`);
       TP.toast('اتسجل ✓');
     }, { wide: true, saveLabel: 'حفظ' });
@@ -83,16 +125,17 @@
     const cur = line.subDay === day ? line.subDriverId : '';
     const drivers = TP.q.drivers().filter(p => p.active !== false && p.id !== line.driverId);
     TP.openModal(`سواق بديل — ${line.name}`, `
-      <p class="muted small" style="margin-bottom:10px">ليوم <bdi dir="ltr">${esc(day)}</bdi> بس. البديل بياخد الخط بنقطه وضيوفه ولوكيشناته، والسواق الأصلي مش هيسجّل اليوم ده.</p>
-      <label class="fld">البديل<select class="input" id="subD">${U.opts(drivers, cur, p => p.id, p => `${p.name} — ${TP.driverKindName(p.driverKind)}`, 'بدون بديل (السواق الأصلي)')}</select></label>`, async () => {
+      <p class="muted small" style="margin-bottom:10px">ليوم <bdi dir="ltr">${esc(day)}</bdi> بس. البديل بياخد الخط بنقطه وعملائه ولوكيشناته، والسواق الأصلي مش هيسجّل اليوم ده.</p>
+      <label class="fld">البديل<select class="input" id="subD">${U.opts(drivers, cur, p => p.id, p => `${TP.driverLabel(p)} — ${TP.driverKindName(p.driverKind)}`, 'بدون بديل (السواق الأصلي)')}</select></label>`, async () => {
       const sid = U.val('subD');
       const ops = [{ op: 'update', path: 'lines/' + line.id, data: { subDriverId: sid, subDay: sid ? day : '', subBy: S.person.name, subAt: TP.fb.ts() } }];
       const want = sid || line.driverId;
       if (doc && doc.driverId !== want) {
         if (!S.can('times.correct')) { TP.toast('اليوم بدأ بالفعل — محتاج صلاحية تصحيح الأوقات علشان تنقله'); return false; }
-        ops.push({ op: 'update', path: 'days/' + doc.id, data: { driverId: want, updatedAt: TP.fb.ts() } });
+        ops.push({ op: 'update', path: 'days/' + doc.id, data: Object.assign({ driverId: want, updatedAt: TP.fb.ts() }, TP.lockFix(day, 'تغيير السواق')) });
       }
       await TP.fb.batch(ops);
+      TP.wakeTouch && TP.wakeTouch(day);
       TP.audit('line.substitute', line.name, `${day}: ${sid ? (TP.q.person(sid) || {}).name : 'رجوع السواق الأصلي'}`);
       TP.toast('تم ✓');
     }, { saveLabel: 'حفظ' });
@@ -103,7 +146,7 @@
     if (!(await S.confirmPin(status === 'approved' ? 'اعتماد السهرة' : 'تعديل السهرة'))) return false;
     const ot = Object.assign({}, doc.ot || { by: 'staff', reqAt: Date.now() }, { tier, status, decidedBy: S.person.name, decidedAt: Date.now() });
     if (note) ot.note = note; else delete ot.note;
-    await TP.fb.update('days/' + doc.id, { ot, updatedAt: TP.fb.ts() });
+    await TP.fb.update('days/' + doc.id, Object.assign({ ot, updatedAt: TP.fb.ts() }, TP.lockFix(doc.day, 'السهرة: ' + (O.OT_STATUS[status] || [''])[0])));
     const line = TP.q.line(doc.lineId);
     TP.audit('overtime.' + status, `${line ? line.name : doc.lineId} ${doc.day}`, O.otTierLabel(tier, D.settings) + (note ? ' — ' + note : ''));
     TP.toast((O.OT_STATUS[status] || [''])[0] + ' ✓');
@@ -131,9 +174,10 @@
       const fid = U.val('offF');
       await TP.fb.set('dayOff/' + day + '_' + fid, { day, factoryId: fid, type: U.val('offT'), note: U.val('offN'), by: S.person.name, at: TP.fb.ts() });
       TP.audit('dayoff.set', day, fid);
+      TP.wakeTouch && TP.wakeTouch(day);
       TP.toast('تم ✓');
     }, { saveLabel: 'إضافة' });
-    TP.$$('#tp-modal [data-rmoff]').forEach(b => b.onclick = async () => { await TP.fb.remove('dayOff/' + b.dataset.rmoff); TP.closeModal(); TP.toast('اتشال ✓'); });
+    TP.$$('#tp-modal [data-rmoff]').forEach(b => b.onclick = async () => { await TP.fb.remove('dayOff/' + b.dataset.rmoff); TP.closeModal(); TP.toast('اتشال ✓'); TP.wakeTouch && TP.wakeTouch(day); });
   }
 
   /** A substitute is for one day: once that day is over, take it off the line. */
@@ -151,12 +195,12 @@
 
   TP.views.today = {
     deps: null,
-    leave() { if (other.unsub) other.unsub(); other = { day: null, unsub: null, list: [] }; },
+    leave() { if (other.unsub) other.unsub(); other = { day: null, unsub: null, list: [] }; if (exc.unsub) exc.unsub(); exc = { day: null, unsub: null, map: {} }; if (pay.unsub) pay.unsub(); pay = { day: null, unsub: null, map: {} }; },
     render(root) {
       if (!state.day) state.day = D.todayKey || TP.dayKey();
       clearOldSubstitutes();
       const day = state.day, isToday = day === D.todayKey, now = Date.now();
-      const docs = docsFor(day);
+      const docs = docsFor(day), pays = payFor(day), excs = excFor(day);
       const canFix = S.can('times.correct'), canSub = canFix || S.can('wake.supervise'), canOT = S.can('overtime.approve');
       let lines = D.lines.filter(l => l.active !== false && (!state.factory || l.factoryId === state.factory));
       const extra = docs.filter(d => !lines.some(l => l.id === d.lineId) && (!state.factory || d.factoryId === state.factory)).map(d => TP.q.line(d.lineId)).filter(Boolean);
@@ -175,7 +219,7 @@
       root.innerHTML = `
         ${pend.length && (canOT || S.can('tracking.view')) ? `<section class="card"><div class="card-head"><h3>طلبات السهرة</h3><span class="st st-warn">${pend.length}</span></div>
           <div class="table-wrap"><table class="tbl"><tbody>${pend.map(d => { const l = TP.q.line(d.lineId), p = TP.q.person(d.driverId); return `<tr>
-            <td><b>${esc(p ? p.name : '—')}</b><div class="muted small">${esc(l ? l.name : '')}</div></td><td class="mono">${esc(d.day)}</td>
+            <td><b>${esc(TP.driverLabel(p))}</b><div class="muted small">${esc(l ? l.name : '')}</div></td><td class="mono">${esc(d.day)}</td>
             <td>${esc(O.otTierLabel(d.ot.tier, D.settings))}</td><td class="small muted">${esc(TP.ago(d.ot.reqAt))}</td>
             <td class="acts">${canOT ? `<button class="btn btn-primary btn-sm" data-otok="${esc(d.id)}">${TP.icon('check', 16)}اعتماد</button><button class="btn btn-ghost btn-sm" data-otedit="${esc(d.id)}">تعديل</button><button class="btn btn-ghost btn-sm" data-otno="${esc(d.id)}">رفض</button>` : '<span class="muted small">مستني الإدارة المالية</span>'}</td></tr>`; }).join('')}</tbody></table></div></section>` : ''}
         <section class="card">
@@ -203,9 +247,20 @@
               const ot = r.doc && r.doc.ot, ots = ot ? O.OT_STATUS[ot.status] : null;
               const liveWait = r.ev.fe_arr && !r.ev.fe_dep ? Math.max(0, Math.round((now - r.ev.fe_arr.at) / 60000)) : null;
               return `<tr>
-                <td><b>${esc(l.name)}</b><div class="muted small">${esc(f ? f.name : '')}</div><div class="small">${p ? esc(p.name) : '<span class="st st-warn">بدون سواق</span>'}${isSub ? ' <span class="tag gold">بديل</span>' : ''}</div></td>
+                <td><b>${esc(l.name)}</b><div class="muted small">${esc(f ? f.name : '')}</div><div class="small">${p ? esc(TP.driverLabel(p)) : '<span class="st st-warn">بدون سواق</span>'}${isSub ? ' <span class="tag gold">بديل</span>' : ''}</div></td>
                 <td>${pills(O.steps(l, f), r.ev)}</td>
-                <td>${status}${r.flags.far ? `<div><span class="badge-s far">${r.flags.far} بعيد</span></div>` : ''}${r.flags.staff ? `<div><span class="badge-s staff">${r.flags.staff} من الإدارة</span></div>` : ''}${r.flags.late ? `<div><span class="badge-s nogps">${r.flags.late} اتبعتت متأخر</span></div>` : ''}</td>
+                <td>${status}${(() => {
+                  const cs = O.lineCustomers(l); if (!cs.length) return '';
+                  const rd = O.ridersOf(r.doc, excs[l.id]), n = s => cs.filter(c => rd[c.id] && rd[c.id].s === s).length;
+                  return `<div class="small muted">${TP.icon('users', 14)} ${n('picked')}/${cs.length} ركبوا${n('skip') ? ` · ${n('skip')} اعتذر` : ''}${n('noshow') ? ` · <b style="color:var(--danger)">${n('noshow')} مجاش</b>` : ''}</div>`;
+                })()}${r.flags.far ? `<div><span class="badge-s far">${r.flags.far} بعيد</span></div>` : ''}${r.flags.staff ? `<div><span class="badge-s staff">${r.flags.staff} من الإدارة</span></div>` : ''}${r.flags.late ? `<div><span class="badge-s nogps">${r.flags.late} اتبعتت متأخر</span></div>` : ''}${(() => {
+                  if (!r.doc || !r.started) return '';
+                  const dp = pays[r.doc.id], drv = TP.q.person(r.doc.driverId), manual = drv && drv.driverKind === 'external';
+                  if (!TP.financeOn(D.settings)) return '';
+                  if (dp && S.can('prices.view')) return `<div><span class="tag gold">أجر اليوم ${esc(TP.money(dp.amount))}</span>${S.can('prices.edit') ? ` <button class="link" data-pay="${esc(l.id)}">تعديل</button>` : ''}</div>`;
+                  if (!manual) return '';
+                  return `<div><span class="badge-s far">أجر اليوم لسه متحطش</span>${S.can('prices.edit') ? ` <button class="link" data-pay="${esc(l.id)}">حط المبلغ</button>` : ''}</div>`;
+                })()}</td>
                 <td class="num">${r.ev.fe_arr ? (liveWait !== null ? `<span class="st st-warn">${liveWait} د شغال</span>` : O.waitMin(r.ev) + ' د') : '—'}</td>
                 <td>${ot ? `<span class="st ${ots[1]}">${ots[0]}</span><div class="small muted">${esc(O.otTierLabel(ot.tier, D.settings))}</div>` : '—'}</td>
                 ${canFix || canSub || canOT ? `<td class="acts">
@@ -225,6 +280,7 @@
       const guard = p => p && p.catch && p.catch(e => TP.toast(TP.errorText(e), 'warn'));
       root.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => { const r = rowOf(b.dataset.fix); openCorrect(r.l, r.doc, day); });
       root.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => { const r = rowOf(b.dataset.sub); openSub(r.l, r.doc, day); });
+      root.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => { const r = rowOf(b.dataset.pay); if (r && r.doc) openPay(r.l, r.doc); });
       const findDoc = id => docs.find(d => d.id === id) || D.pendingOT.find(d => d.id === id);
       root.querySelectorAll('[data-ot],[data-otedit]').forEach(b => b.onclick = () => openOT(findDoc(b.dataset.ot || b.dataset.otedit)));
       root.querySelectorAll('[data-otok]').forEach(b => b.onclick = () => { const d = findDoc(b.dataset.otok); guard(decideOT(d, 'approved', d.ot.tier, '')); });

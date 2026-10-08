@@ -121,6 +121,7 @@
     S._started = true;
     S.ready = true;
     startHeartbeat();
+    if (first) setTimeout(() => TP.push.refresh().catch(() => {}), 1500);
     if (first) opts.onReady && opts.onReady(S);
     document.dispatchEvent(new CustomEvent('tp:session'));
   }
@@ -319,6 +320,33 @@
     });
   }
 
+  /* ---------- push notifications for this device ---------- */
+  TP.push = {
+    /** 'granted' | 'default' | 'denied' | 'unsupported' */
+    state() { return ('Notification' in window && 'serviceWorker' in navigator) ? Notification.permission : 'unsupported'; },
+    /** Ask for permission (button tap) and store this device's token. */
+    async enable() {
+      const token = await TP.fb.pushToken(true).catch(e => { console.warn('push', e); return null; });
+      if (!token) return false;
+      if (!S.device || S.device.fcm !== token) {
+        await TP.fb.update('devices/' + S.uid, { fcm: token, fcmAt: TP.fb.ts() }).catch(e => console.warn('fcm save', e));
+        // a new phone / new token: let the cloud alarm pick it up for today and tomorrow
+        const d0 = TP.dayKey(TP.now()), d1 = TP.ops ? TP.ops.addDays(d0, 1) : null;
+        [d0, d1].filter(Boolean).forEach(day => {
+          if (opts.kind === 'driver') TP.fb.set('wake/' + day, { rebuildDriver: true, day }, true).catch(() => {});
+          else if (TP.wakeTouch && ['wake.supervise', 'times.correct', 'lines.manage', 'missions.manage', 'settings.edit'].some(p => S.can(p))) TP.wakeTouch(day);
+        });
+      }
+      document.dispatchEvent(new CustomEvent('tp:push-state'));
+      return true;
+    },
+    /** Silent refresh at start when already allowed (tokens can change). */
+    async refresh() { if (TP.push.state() === 'granted') return TP.push.enable(); return false; }
+  };
+
+  /** Prices, statements and profit inside the platform (switch in the settings; off = operations only). */
+  TP.financeOn = settings => !!(settings && settings.financeOn === true);
+
   /* ---------- audit trail ---------- */
   TP.audit = function (action, target, details) {
     if (!S.ready) return Promise.resolve();
@@ -335,6 +363,11 @@
     wakeResponseMin: 5,            // no "صباح الخير" after 5 min → supervisor bell
     wakeEscalateMin: 8,            // still unhandled 8 min after the alarm → management
     nightCheckTime: '22:00',
+    readyReminderTime: '21:00',    // "جاهز لبكره" reminder push
+    wakeSecondMin: 2,              // second ring
+    watchLateCount: 3,             // late this many times in 30 days → "تحت المتابعة"
+    watchSupMin: 2,                // …then the supervisor is called after 2 minutes
+    wakeGiveUpMin: 180,            // stop chasing 3 hours after the job time
     lowBatteryPct: 20,
     gpsEveryMin: 3,
     geofenceM: 300,
@@ -342,8 +375,20 @@
     morningAutoLeadMin: 90,        // auto-recording of morning steps starts 90 min before the line's time
     eveningAutoWindowMin: 30,      // evening factory arrival is auto-recorded only from 30 min before the return time
     dayRolloverHour: 5,            // an unfinished day stays "today" until 5 AM
-    airportLeadMin: 75,            // tourism driver leaves 1h15 before landing
-    airportFreeWaitMin: 60,        // airport trip includes the first hour of waiting
+    airportFreeWaitMin: 60,        // airport price includes the first hour of waiting (prices only)
+    airportDepartLeadMin: 180,     // a traveller reaches the airport 3 hours before any flight
+    airportArriveEarlyMin: 30,     // the driver is at the airport 30 min before landing
+    airportDriveMin: 75,           // default drive from the pickup to the airport (editable per trip)
+    homeAirports: 'CAI,SPX',       // "our" airports: leaving from them = توصيل, landing in them = استقبال
+    flightMonthlyLimit: 190,       // automatic flight look-ups per month (free plan ≈ 400 units, ~2 per look-up) — then by hand
+    /* phase 4 — customers & tracking */
+    maxCustomersPerCar: 3,         // private cars: 3 customers per line at most
+    noShowWaitMin: 5,              // "مجاش" shows after waiting this long at the point
+    nearLeadMin: 45,               // the first point's customers hear "في الطريق ليك" from this long before the line time
+    liveEverySec: 60,              // car position sent to the customer while it comes to him
+    opsPhone: '',                  // operations number shown on the customer page
+    /* phase 6 — accounts */
+    financeOn: false,              // prices & statements inside the platform (off = operations only + Excel export)
     overtimeTierEnds: ['21:00', '23:00', '24:00'],
     taxPct: 3,
     expiryWarnDays: 30

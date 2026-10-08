@@ -132,3 +132,25 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .set-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- phase 4–6: customers, driver photo, reports, print ---------- */
+.cust-box { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.cust-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+.cust-row.two { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; }
+.cust-row .input { min-height: 40px; padding: 8px 10px; }
+.photo-pick { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.photo-prev { width: 76px; height: 76px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--cream); color: var(--muted); border: 2px solid var(--gold); flex: none; }
+.photo-prev img { width: 100%; height: 100%; object-fit: cover; }
+.photo-pick label.btn { cursor: pointer; }
+.print-head { display: none; }
+.tbl.rep td.num, .tbl.rep th { white-space: nowrap; }
+@media (max-width: 700px) { .cust-row, .cust-row.two { grid-template-columns: minmax(0, 1fr) auto; } .cust-row [data-c=phone], .cust-row [data-c=home] { grid-column: 1; } }
+@media print {
+  body { background: #fff !important; }
+  .ct-side, .ct-top, #alerts, .no-print, .acts, .tp-toast, #tp-modal { display: none !important; }
+  .ct { display: block; } .ct-main { padding: 0; }
+  .card { box-shadow: none; border: 0; padding: 0; background: #fff; }
+  .print-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #7a1f22; }
+  .print-head img { width: 140px; } .print-head b { display: block; font-size: 20px; color: #5c1619; } .print-head span { color: #6f5a4c; }
+  .table-wrap { overflow: visible; } .table-wrap .tbl { min-width: 0 !important; font-size: 11px; }
+}

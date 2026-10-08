@@ -20,15 +20,18 @@
   fb.load = function () {
     if (loading) return loading;
     loading = (async () => {
+      // the customer page reads its one trip by its secret link — it does not sign in
       const [appMod, authMod, fsMod] = await Promise.all([
         import(SDK + 'firebase-app.js'),
-        import(SDK + 'firebase-auth.js'),
+        fb.noAuth ? null : import(SDK + 'firebase-auth.js'),
         import(SDK + 'firebase-firestore.js')
       ]);
       A = authMod; F = fsMod;
-      const app = appMod.initializeApp(window.TP_FIREBASE_CONFIG);
-      auth = A.getAuth(app);
-      try { await A.setPersistence(auth, A.browserLocalPersistence); } catch (e) { /* default persistence */ }
+      const app = fb.app = appMod.initializeApp(window.TP_FIREBASE_CONFIG);
+      if (A) {
+        auth = A.getAuth(app);
+        try { await A.setPersistence(auth, A.browserLocalPersistence); } catch (e) { /* default persistence */ }
+      }
       // Driver phones keep a local copy and queue presses made without internet (sent when it returns).
       db = null;
       if (fb.offline && F.initializeFirestore && F.persistentLocalCache) {
@@ -41,6 +44,30 @@
     })();
     loading.catch(() => { loading = null; });
     return loading;
+  };
+
+  /* ---------- push notifications (wake-up alarm, supervisor bells) ---------- */
+  let M = null, messaging = null, swReg;
+  /** Is web push possible on this phone/browser? */
+  fb.pushSupported = async function () {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
+    try { M = M || await import(SDK + 'firebase-messaging.js'); return await M.isSupported(); } catch (e) { return false; }
+  };
+  /** Returns this device's push token (asks for permission only when `ask`). Foreground messages → 'tp:push'. */
+  fb.pushToken = async function (ask) {
+    if (!(await fb.pushSupported())) return null;
+    if (Notification.permission !== 'granted') {
+      if (!ask) return null;
+      if ((await Notification.requestPermission()) !== 'granted') return null;
+    }
+    if (swReg === undefined) { try { swReg = await navigator.serviceWorker.register(TP.siteUrl('firebase-messaging-sw.js')); } catch (e) { console.warn('service worker', e); swReg = null; } }
+    if (!messaging) {
+      messaging = M.getMessaging(fb.app);
+      M.onMessage(messaging, p => document.dispatchEvent(new CustomEvent('tp:push', { detail: p })));
+    }
+    const opts = { vapidKey: self.TP_VAPID_KEY };
+    if (swReg) opts.serviceWorkerRegistration = swReg;
+    return M.getToken(messaging, opts);
   };
 
   /* ---------- auth ---------- */

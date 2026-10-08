@@ -6,7 +6,7 @@
 (function (TP) {
   'use strict';
 
-  TP.VERSION = '2.0.0-phase2';
+  TP.VERSION = '4.0.0';
   /** Phone clock correction (ms) measured against the server; kept for offline use. */
   TP.clockSkew = 0;
   try { TP.clockSkew = Number(JSON.parse(localStorage.getItem('tp-clock-skew'))) || 0; } catch (e) { /* blocked */ }
@@ -31,6 +31,50 @@
     const a = new Uint8Array(8);
     (window.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : a.forEach((_, i) => { a[i] = Math.random() * 256; });
     return (prefix ? prefix + '-' : '') + Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+  };
+  /** Unguessable link token (22 chars ≈ 128 bits) — whoever holds it may see that one trip. */
+  TP.token = function (n) {
+    const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', a = new Uint8Array(n || 22);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a); else a.forEach((_, i) => { a[i] = Math.random() * 256; });
+    return Array.from(a, b => A[b % A.length]).join('');
+  };
+  /** Egyptian mobile → international digits for WhatsApp (01x… → 201x…). */
+  TP.phoneIntl = function (ph) {
+    let d = TP.latinDigits(ph || '').replace(/[^\d+]/g, '');
+    if (d.startsWith('+')) d = d.slice(1);
+    if (d.startsWith('00')) d = d.slice(2);
+    if (/^0\d{10}$/.test(d)) d = '2' + d;
+    return /^\d{8,15}$/.test(d) ? d : '';
+  };
+  TP.waLink = (phone, text) => { const n = TP.phoneIntl(phone); return n ? `https://wa.me/${n}?text=${encodeURIComponent(text || '')}` : ''; };
+  TP.telLink = phone => { const d = TP.latinDigits(phone || '').replace(/[^\d+]/g, ''); return d ? 'tel:' + d : ''; };
+  /** Address of a page of the platform (every app lives one folder below the site root). */
+  TP.siteUrl = path => new URL('../' + (path || ''), location.href).href;
+  /** The customer's own link. */
+  TP.custUrl = token => TP.siteUrl('c/#' + token);
+  /** A photo from the phone → small JPEG data-URL (kept inside the database, no storage service). */
+  TP.compressImage = function (file, maxSide, quality, square) {
+    return new Promise((resolve, reject) => {
+      if (!file || !/^image\//.test(file.type || '')) return reject(new Error('not-image'));
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('read'));
+      fr.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('decode'));
+        img.onload = () => {
+          let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+          if (square) { const m = Math.min(sw, sh); sx = (sw - m) / 2; sy = (sh - m) / 2; sw = sh = m; }
+          const k = Math.min(1, (maxSide || 800) / Math.max(sw, sh));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+          resolve(c.toDataURL('image/jpeg', quality || 0.72));
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
   };
   /** Random 3-digit activation code (100–999). */
   TP.newCode = function () {
@@ -179,8 +223,20 @@
     const c = modalCancel; modalSave = null; modalCancel = null;
     if (cancelled && c) c();
   };
+  /** Yes/no question in its own layer — safe to use while a form dialog is open (the form stays as it is). */
   TP.confirm = (title, message, okLabel, danger) => new Promise(res => {
-    TP.openModal(title, `<p class="modal-text">${esc(message)}</p>`, () => { res(true); }, { saveLabel: okLabel || 'تأكيد', danger, onCancel: () => res(false), noFocus: true });
+    let o = $('#tp-confirm');
+    if (!o) { o = document.createElement('div'); o.id = 'tp-confirm'; o.className = 'tp-overlay'; o.style.zIndex = 340; o.setAttribute('role', 'alertdialog'); o.setAttribute('aria-modal', 'true'); document.body.appendChild(o); }
+    o.innerHTML = `<div class="tp-modal-card" style="width:min(440px,100%)"><h3>${esc(title)}</h3><p class="modal-text">${esc(message)}</p>
+      <div class="tp-modal-actions"><button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="tp-confirm-ok">${esc(okLabel || 'تأكيد')}</button><button type="button" class="btn btn-ghost" id="tp-confirm-no">إلغاء</button></div></div>`;
+    o.classList.add('show');
+    const done = v => { o.classList.remove('show'); o.innerHTML = ''; document.removeEventListener('keydown', key, true); res(v); };
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+    document.addEventListener('keydown', key, true);
+    $('#tp-confirm-ok', o).onclick = () => done(true);
+    $('#tp-confirm-no', o).onclick = () => done(false);
+    o.onclick = e => { if (e.target === o) done(false); };
+    setTimeout(() => { const b = $('#tp-confirm-ok', o); if (b) b.focus(); }, 30);
   });
 
   /* ---------- friendly errors ---------- */

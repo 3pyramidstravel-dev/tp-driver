@@ -91,3 +91,31 @@ body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.45)
 .history { font-size: 13px; }
 .history summary { cursor: pointer; font-weight: 800; color: var(--maroon); padding: 6px 0; }
 @media (max-width: 380px) { .act b { font-size: 17px; } .dv-logo { width: 60px; } }
+
+/* wake-up */
+.wake-card { display: flex; flex-direction: column; gap: 10px; }
+.wake-row { display: flex; align-items: center; gap: 12px; }
+.wake-time { font-size: 30px; font-weight: 900; color: var(--maroon-2); line-height: 1.1; }
+.wake-ov { position: fixed; inset: 0; z-index: 250; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px; text-align: center;
+  background: radial-gradient(circle at 50% 30%, rgba(242,212,142,.35), transparent 60%), linear-gradient(180deg, #4a1214, #1e0707); color: #fff; }
+.wake-ov h1 { font-size: 34px; font-weight: 900; color: var(--gold-2); }
+.wake-ov p { font-size: 17px; font-weight: 700; color: #f3dcc0; line-height: 1.7; }
+.wake-ov .sun { font-size: 70px; animation: pulse 1.2s ease-in-out infinite; border-radius: 50%; }
+.wake-ov .big { width: min(340px, 90%); min-height: 96px; border-radius: 28px; font-size: 28px; font-weight: 900; border: 3px solid #fff3cf; color: var(--maroon-3); background: linear-gradient(180deg, #fbe3a6, var(--gold) 60%, #b07a2c); box-shadow: 0 0 0 10px rgba(212,162,76,.25), 0 20px 40px rgba(0,0,0,.4); }
+
+/* ---------- customers, trips, name sign ---------- */
+.custs { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 2px; }
+.cust { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 16px; background: #fff; border: 1px solid var(--line); }
+.cust-n { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cust-n b { font-size: 15px; }
+.cust-n .st { align-self: flex-start; }
+.cust-a { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cust-a .btn.armed { background: var(--gold); color: var(--maroon-3); }
+.flight { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0; padding: 8px 12px; border-radius: 14px; background: #fff8ec; border: 1px solid #efd29a; font-size: 13px; }
+.flight b { font-weight: 900; }
+.ms-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.exp-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; font-weight: 700; }
+.sign-ov { position: fixed; inset: 0; z-index: 400; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 24px; text-align: center; }
+.sign-ov img { width: min(260px, 60vw); }
+.sign-names { font-size: clamp(38px, 11vw, 96px); font-weight: 900; color: #5c1619; line-height: 1.2; }
+.sign-sub { font-family: var(--caps); letter-spacing: 6px; color: #a8742a; font-weight: 700; }

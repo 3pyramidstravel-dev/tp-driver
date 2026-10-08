@@ -8,6 +8,7 @@
   <title>Three Pyramids — تطبيق السائق</title>
   <link rel="icon" type="image/png" href="../shared/icon-192.png">
   <link rel="apple-touch-icon" href="../shared/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Cinzel:wght@600;700&display=swap">
@@ -27,6 +28,7 @@
       <section id="tab-missions" class="dv-tab" hidden></section>
       <section id="tab-account" class="dv-tab" hidden></section>
     </main>
+    <div class="wake-ov" id="wakeOv" hidden></div>
     <nav class="dv-nav" aria-label="القائمة">
       <button type="button" data-tab="today" class="on"><i data-icon="route"></i><span>النهارده</span></button>
       <button type="button" data-tab="missions"><i data-icon="file"></i><span>المشاوير</span><b class="dv-badge" id="mBadge" hidden></b></button>
@@ -38,6 +40,8 @@
   <script src="../shared/perms.js"></script>
   <script src="../shared/rates.js"></script>
   <script src="../shared/ops.js"></script>
+  <script src="../shared/wakecore.js"></script>
+  <script src="../shared/flightcore.js"></script>
   <script src="../shared/fb.js"></script>
   <script src="../shared/session.js"></script>
   <script src="app.js"></script>

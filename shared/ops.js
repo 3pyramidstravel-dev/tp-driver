@@ -62,12 +62,41 @@
   ops.KEY_RE = /^(p[0-9]_(arr|dep)|fm_arr|fe_arr|fe_dep|end)$/;
   ops.dayId = (lineId, day) => lineId + '_' + day;
 
-  /** Ordered steps of a line day. `factory` is the companies doc (for its location). */
-  ops.steps = function (line, factory) {
-    const out = [];
+  /** Customers of a point (older lines kept plain guest names). */
+  ops.custsOf = p => (p && Array.isArray(p.customers)) ? p.customers : ((p && p.guests) || []).map(n => ({ name: n }));
+  /** Every customer of a line, with the index of his point. */
+  ops.lineCustomers = line => (line.points || []).flatMap((p, i) => ops.custsOf(p).map(c => Object.assign({ pointIdx: i, pointName: p.name, pointLoc: p.location || null }, c)));
+  /**
+   * Who rode: the driver records `picked.{custId}` / `noshow.{custId}` on the day or trip; an excuse ("مش راكب")
+   * comes only from the customer himself (`excused/{lineId}_{day}`, written by the cloud alarm) — the driver cannot write one.
+   * Returns { s: picked | noshow | skip, at, n, … } or null. Riding beats an excuse.
+   */
+  ops.riderOf = (doc, cid, exc) => {
+    const g = k => doc && doc[k] && typeof doc[k] === 'object' ? doc[k][cid] : null;
+    if (g('noshow')) return Object.assign({ s: 'noshow' }, g('noshow'));
+    if (g('picked')) return Object.assign({ s: 'picked' }, g('picked'));
+    const e = exc && exc.c && exc.c[cid];
+    return e ? Object.assign({ s: 'skip' }, e) : null;
+  };
+  /** custId → rider for everyone recorded on a day / trip (+ its excuses). */
+  ops.ridersOf = (doc, exc) => {
+    const ids = new Set([].concat(Object.keys((doc && doc.picked) || {}), Object.keys((doc && doc.noshow) || {}), Object.keys((exc && exc.c) || {})));
+    const out = {}; ids.forEach(id => { out[id] = ops.riderOf(doc, id, exc); }); return out;
+  };
+  /** Did the customer say "مش راكب" for `day` (his answers, copied to his link by the cloud alarm)? */
+  ops.skipsOn = (t, day) => !!(t && t.skips && typeof t.skips === 'object' && t.skips[day]);
+  /**
+   * Ordered steps of a line day. `factory` is the companies doc (for its location).
+   * `skip` = point indexes the car does not need to pass today (every customer there said "مش راكب")
+   * unless the driver already recorded something there.
+   */
+  ops.steps = function (line, factory, skip, events) {
+    const out = [], ev = events || {};
     (line.points || []).slice(0, 10).forEach((p, i) => {
-      out.push({ key: `p${i}_arr`, phase: 'm', kind: 'arr', target: 'point', i, name: p.name, loc: p.location, guests: p.guests || [], label: `وصلت ${p.name}`, short: `وصول ${i + 1}` });
-      out.push({ key: `p${i}_dep`, phase: 'm', kind: 'dep', target: 'point', i, name: p.name, loc: p.location, guests: p.guests || [], label: `اتحركت من ${p.name}`, short: `تحرك ${i + 1}` });
+      if (skip && skip.has && skip.has(i) && !ev[`p${i}_arr`] && !ev[`p${i}_dep`]) return;
+      const custs = ops.custsOf(p), guests = custs.map(c => c.name).filter(Boolean);
+      out.push({ key: `p${i}_arr`, phase: 'm', kind: 'arr', target: 'point', i, name: p.name, loc: p.location, custs, guests, label: `وصلت ${p.name}`, short: `وصول ${i + 1}` });
+      out.push({ key: `p${i}_dep`, phase: 'm', kind: 'dep', target: 'point', i, name: p.name, loc: p.location, custs, guests, label: `اتحركت من ${p.name}`, short: `تحرك ${i + 1}` });
     });
     const fl = factory && factory.location, fname = (factory && factory.name) || 'المصنع';
     out.push({ key: 'fm_arr', phase: 'm', kind: 'arr', target: 'factory', name: fname, loc: fl, label: 'وصلت المصنع (الصبح)', short: 'المصنع ص', note: 'كده اتحسب نص يوم' });
@@ -124,11 +153,51 @@
 
   /* ---------- missions ---------- */
   ops.MISSION_STEPS = [
-    { key: 'start', label: 'بدأت المشوار', short: 'بدأ' },
+    { key: 'start', label: 'اتحركت للمشوار', short: 'اتحرك' },
+    { key: 'pickup', label: 'وصلت مكان العميل', short: 'عند العميل' },
     { key: 'arrive', label: 'وصلت الوجهة', short: 'وصل' },
     { key: 'done', label: 'خلصت المشوار', short: 'خلص' }
   ];
+  ops.MISSION_KEYS = ops.MISSION_STEPS.map(x => x.key);
+  /** The steps of one trip, worded for its kind (airport pickup = the arrivals hall). */
+  ops.missionSteps = function (m) {
+    const arr = m && m.type === 'airport' && m.flight && m.flight.dir === 'arr', dep = m && m.type === 'airport' && m.flight && m.flight.dir === 'dep';
+    return ops.MISSION_STEPS.map(x => {
+      const o = Object.assign({}, x);
+      if (arr && x.key === 'pickup') { o.label = 'وصلت المطار'; o.short = 'في المطار'; }
+      if (dep && x.key === 'arrive') { o.label = 'وصلت المطار'; o.short = 'المطار'; }
+      o.loc = x.key === 'pickup' ? (m && m.from && m.from.location) : x.key === 'arrive' ? (m && m.to && m.to.location) : null;
+      return o;
+    });
+  };
   ops.MISSION_STATUS = { assigned: ['متعيّن', 'st-info'], active: ['شغال', 'st-warn'], done: ['خلص', 'st-ok'], cancelled: ['ملغي', 'st-off'] };
+
+  /* ---------- customers: where their car is (what the customer link shows) ---------- */
+  ops.TRACK = {
+    idle: ['مستني', 'st-off'], near: ['العربية في الطريق', 'st-info'], arrived: ['العربية وصلت', 'st-warn'],
+    picked: ['ركب', 'st-ok'], dropped: ['وصل', 'st-ok'], evening: ['العربية مستنياه للرجوع', 'st-warn'], done: ['خلص', 'st-ok'],
+    skip: ['مش راكب النهارده', 'st-off'], noshow: ['مجاش', 'st-danger'], cancelled: ['اتلغى', 'st-off']
+  };
+  /** Minutes until the car reaches the point: from earlier days on the same stretch when known, else distance ÷ speed. */
+  ops.etaMin = function (fix, target, opts) {
+    const o = opts || {}, d = ops.dist(fix, target);
+    if (d === null) return null;
+    if (d <= (o.radius || 300)) return 0;
+    const road = d * 1.35;                                   // straight line → road
+    let speed = Number(o.speedKmh) || 0;                       // measured on the way
+    speed = speed >= 12 ? Math.min(speed, 80) : 32;            // town average when standing / unknown
+    let m = road / (speed * 1000 / 60);
+    if (o.histMin && o.histDist && o.histDist > 0) m = (m + o.histMin * Math.min(1.5, d / o.histDist)) / 2;  // blend with the usual time
+    return Math.max(1, Math.round(m));
+  };
+  /** The usual minutes of a stretch (previous point left → this point reached) over earlier days. */
+  ops.usualLeg = function (days, i) {
+    const list = (days || []).map(d => {
+      const e = d.events || {}, a = e[`p${i}_arr`], b = i === 0 ? null : e[`p${i - 1}_dep`];
+      return a && b && a.at > b.at ? (a.at - b.at) / 60000 : null;
+    }).filter(x => x && x < 180).sort((x, y) => x - y);
+    return list.length ? list[Math.floor(list.length / 2)] : null;
+  };
 
   /* ---------- incidents ---------- */
   ops.INCIDENT_KINDS = [
@@ -144,16 +213,20 @@
    * days: day docs of the driver for the month · missions: his missions of the month
    * missionPay: {missionId: amount} · rateHistory: driverRates history · adjustments: advances & deductions
    */
-  ops.statement = function ({ days, missions, missionPay, rateHistory, adjustments }) {
+  ops.statement = function ({ days, missions, missionPay, rateHistory, adjustments, dayPay, manualDays }) {
     const r2 = TP.round2;
     const out = { rows: [], missionRows: [], adjustments: [], full: 0, half: 0, waitMin: 0, otCount: 0, daysTotal: 0, waitTotal: 0, otTotal: 0, missionsTotal: 0, gross: 0, deductTotal: 0, net: 0, missingRates: 0, unpricedMissions: 0 };
     (days || []).slice().sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)).forEach(d => {
       const part = ops.part(d.events);
       const otOk = d.ot && d.ot.status === 'approved';
-      if (!part && !otOk) return;
-      const rate = TP.rateAt(rateHistory || [], d.day);
-      const row = { day: d.day, lineId: d.lineId, part, waitMin: ops.waitMin(d.events), otTier: otOk ? d.ot.tier : 0, noRate: !rate, dayAmt: 0, waitAmt: 0, otAmt: 0 };
-      if (rate) {
+      // a day priced by hand (e.g. a trips driver covering a line): one all-inclusive amount
+      const manual = dayPay && dayPay[d.id] !== undefined && dayPay[d.id] !== null ? Number(dayPay[d.id]) : null;
+      if (!part && !otOk && manual === null) return;
+      const rate = manualDays ? null : TP.rateAt(rateHistory || [], d.day);
+      const row = { day: d.day, lineId: d.lineId, part, waitMin: ops.waitMin(d.events), otTier: otOk ? d.ot.tier : 0, noRate: manual === null && !rate, manual: manual !== null, dayAmt: 0, waitAmt: 0, otAmt: 0 };
+      if (manual !== null) {
+        row.dayAmt = manual;
+      } else if (rate) {
         row.dayAmt = part ? TP.calc.dayAmount(Number(rate.lineDay) || 0, part) : 0;
         row.waitAmt = TP.calc.waitAmount(row.waitMin, rate.waitHour);
         row.otAmt = otOk ? TP.calc.overtimeAmount(d.ot.tier, [rate.ot1, rate.ot2, rate.ot3]) : 0;
@@ -200,7 +273,7 @@
     } else {
       h += '<p class="muted small" style="margin-top:12px">الحساب المالي عند الإدارة.</p>';
     }
-    if (d.rows.length) h += `<details class="history" style="margin-top:14px"><summary>تفاصيل الأيام (${d.rows.length})</summary><table class="stmt"><tbody>${d.rows.map(r => `<tr><td><bdi dir="ltr">${esc(r.day)}</bdi> — ${esc(ops.partName(r.part))}${r.waitMin ? ` · انتظار ${r.waitMin} د` : ''}${r.otTier ? ' · سهرة' : ''}${money && r.noRate ? ' <span class="badge-s far">بدون سعر</span>' : ''}</td><td>${money ? esc(TP.money(r.total)) : ''}</td></tr>`).join('')}</tbody></table></details>`;
+    if (d.rows.length) h += `<details class="history" style="margin-top:14px"><summary>تفاصيل الأيام (${d.rows.length})</summary><table class="stmt"><tbody>${d.rows.map(r => `<tr><td><bdi dir="ltr">${esc(r.day)}</bdi> — ${esc(ops.partName(r.part))}${r.waitMin ? ` · انتظار ${r.waitMin} د` : ''}${r.otTier ? ' · سهرة' : ''}${money && r.noRate ? ' <span class="badge-s far">بدون سعر</span>' : ''}${money && r.manual ? ' <span class="badge-s staff">مبلغ شامل</span>' : ''}</td><td>${money ? esc(TP.money(r.total)) : ''}</td></tr>`).join('')}</tbody></table></details>`;
     if (d.missionRows.length) h += `<details class="history" style="margin-top:8px"><summary>تفاصيل المشاوير (${d.missionRows.length})</summary><table class="stmt"><tbody>${d.missionRows.map(r => `<tr><td><bdi dir="ltr">${esc(r.day)}</bdi> — ${esc(r.title || 'مشوار')}</td><td>${money ? (r.amount === null ? '<span class="muted">لسه</span>' : esc(TP.money(r.amount))) : ''}</td></tr>`).join('')}</tbody></table></details>`;
     return h;
   };

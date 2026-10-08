@@ -11,21 +11,46 @@
   <link rel="stylesheet" href="../shared/tp.css">
   <style>
     body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.35), rgba(30,9,6,.8)), url('../shared/lounge.jpg') center / cover fixed no-repeat, #3b0d0f; }
-    .wrap { width: min(520px, 100%); margin: 0 auto; padding: 22px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+    .wrap { width: min(640px, 100%); margin: 0 auto; padding: 22px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
     .top { display: flex; justify-content: center; } .top img { width: 170px; background: rgba(255,248,236,.92); border-radius: 16px; padding: 6px 12px; border: 1px solid rgba(242,212,142,.8); }
     .hello h1 { font-size: 26px; font-weight: 900; color: var(--maroon-2); }
+    .p-tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+    .p-tabs .chip { background: rgba(255,250,240,.94); }
+    .p-tabs .chip.active { background: linear-gradient(135deg, var(--maroon), var(--maroon-2)); }
+    #info { display: flex; flex-direction: column; gap: 14px; }
+    #info .card { margin: 0; }
+    .dv-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .dv-h h2 { font-size: 19px; font-weight: 900; color: var(--maroon-2); }
+    .dv-h .sub { color: var(--muted); font-weight: 700; font-size: 13px; }
+    .p-custs { display: flex; flex-direction: column; gap: 6px; }
+    .p-cust { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+    .p-cust:first-child { border-top: 0; }
+    .p-new { display: flex; flex-direction: column; gap: 10px; }
+    .act { width: 100%; display: flex; align-items: center; gap: 14px; text-align: start; padding: 14px 16px; border-radius: 20px; border: 1px solid rgba(242,212,142,.6); color: #fff; background: linear-gradient(135deg, #9a2c2f, var(--maroon) 40%, var(--maroon-2) 75%, #45100f); }
+    .act .ic { color: var(--gold-2); } .act b { display: block; font-size: 17px; } .act small { display: block; color: #f3dcc0; font-size: 12px; }
+    .p-sheet { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: #fff; margin-bottom: 8px; font-weight: 800; }
+    .p-h3 { font-size: 16px; font-weight: 900; color: var(--maroon-2); margin: 14px 0 8px; }
+    .p-tools { display: flex; gap: 8px; margin-top: 14px; }
+    .month-pick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .banner { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 16px; font-weight: 800; font-size: 14px; }
+    .banner.warn { background: #fff4dc; border: 1px solid #efd29a; color: #6b4510; }
+    @media print { body { background: #fff !important; } .top, .hello, .p-tabs, .p-tools, .dv-h button { display: none !important; } .glass { box-shadow: none; border: 0; background: #fff; } }
   </style>
 </head>
 <body>
   <div class="wrap" id="app" hidden>
     <div class="top"><img src="../shared/logo.png" alt="Three Pyramids Travel"></div>
     <section class="glass card hello" id="hello"></section>
-    <section class="glass card" id="info"></section>
+    <nav class="p-tabs" id="tabs" aria-label="الأقسام"></nav>
+    <div id="info"></div>
   </div>
   <script src="../shared/firebase-config.js"></script>
   <script src="../shared/core.js"></script>
   <script src="../shared/perms.js"></script>
   <script src="../shared/rates.js"></script>
+  <script src="../shared/ops.js"></script>
+  <script src="../shared/flightcore.js"></script>
+  <script src="../shared/xlsx.js"></script>
   <script src="../shared/fb.js"></script>
   <script src="../shared/session.js"></script>
   <script src="app.js"></script>

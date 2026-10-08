@@ -10,7 +10,9 @@
   const NAV = [
     { id: 'overview', label: 'لوحة التحكم', icon: 'home', eyebrow: 'OPERATIONS CONTROL' },
     { id: 'today', label: 'يوم الخطوط', icon: 'route', any: ['tracking.view', 'times.correct', 'overtime.approve', 'wake.supervise'], eyebrow: 'LIVE DAY BOARD', badge: () => S.can('overtime.approve') ? TP.D.pendingOT.length : 0 },
-    { id: 'missions', label: 'المشاوير', icon: 'file', any: ['missions.manage', 'tracking.view', 'prices.view', 'times.correct'], eyebrow: 'MISSIONS' },
+    { id: 'missions', label: 'المشاوير والمطار', icon: 'plane', any: ['missions.manage', 'tracking.view', 'prices.view', 'times.correct', 'airport.manage'], eyebrow: 'MISSIONS & AIRPORT' },
+    { id: 'requests', label: 'طلبات المصانع والمصاريف', icon: 'file', any: ['missions.manage', 'lines.manage', 'airport.manage', 'advances.manage'], eyebrow: 'REQUESTS & EXPENSES', badge: () => TP.D.factoryRequests.length + TP.D.expensesPending.length },
+    { id: 'wake', label: 'الصحيان', icon: 'alarm', any: ['wake.supervise', 'tracking.view', 'times.correct'], eyebrow: 'WAKE-UP', badge: () => TP.q.wakeNeedsAction().length },
     { id: 'incidents', label: 'البلاغات', icon: 'bell', any: ['tracking.view'], eyebrow: 'SOS & INCIDENTS', badge: () => TP.D.incidents.length },
     { sep: true },
     { id: 'devices', label: 'الأجهزة والدخول', icon: 'device', any: ['devices.manage', 'tracking.view'], eyebrow: 'ACCESS & DEVICES', badge: () => TP.D.requests.filter(r => r.status === 'matched').length },
@@ -20,18 +22,17 @@
     { id: 'lines', label: 'الخطوط', icon: 'route', any: ['lines.manage'], eyebrow: 'FIXED LINES' },
     { id: 'drivers', label: 'السواقين', icon: 'steering', any: ['drivers.manage'], eyebrow: 'DRIVERS' },
     { id: 'vehicles', label: 'العربيات', icon: 'car', any: ['vehicles.manage'], eyebrow: 'FLEET' },
-    { id: 'prices', label: 'الأسعار', icon: 'money', any: ['prices.view', 'airport.prices'], eyebrow: 'PRICING' },
-    { id: 'advances', label: 'السلف والخصومات', icon: 'money', any: ['advances.manage'], eyebrow: 'ADVANCES & DEDUCTIONS' },
+    { id: 'prices', label: 'الأسعار', icon: 'money', any: ['prices.view', 'airport.prices'], eyebrow: 'PRICING', finance: true },
+    { id: 'advances', label: 'السلف والخصومات', icon: 'money', any: ['advances.manage'], eyebrow: 'ADVANCES & DEDUCTIONS', finance: true },
     { sep: true },
-    { label: 'الصحيان', icon: 'alarm', soon: 'المرحلة 3' },
-    { label: 'المطار والرحلات', icon: 'plane', soon: 'المرحلة 4' },
-    { label: 'التقارير والأرباح', icon: 'chart', soon: 'المرحلة 5' },
+    { id: 'reports', label: 'التقارير والتصدير', icon: 'chart', any: ['reports.attendance', 'reports.finance', 'month.close'], eyebrow: 'REPORTS & EXPORT' },
     { sep: true },
     { id: 'settings', label: 'الإعدادات', icon: 'settings', any: ['settings.edit'], eyebrow: 'SETTINGS' },
     { id: 'audit', label: 'سجل العمليات', icon: 'history', any: ['audit.view'], eyebrow: 'AUDIT TRAIL' },
     { id: 'account', label: 'حسابي', icon: 'user', eyebrow: 'MY ACCOUNT' }
   ];
-  const allowed = n => !n.any || n.any.some(p => S.can(p));
+  // prices & statements show only while the accounts are on (settings) — the data stays protected either way
+  const allowed = n => (!n.any || n.any.some(p => S.can(p))) && (!n.finance || TP.financeOn(TP.D.settings));
 
   TP.views = TP.views || {};
   let current = null;
@@ -67,7 +68,7 @@
   }
 
   /* ---------- alerts on every page: open SOS / incidents and overtime waiting for approval ---------- */
-  const seenIncidents = new Set();
+  const seenIncidents = new Set(), seenWake = new Set();
   let audio = null;
   function ring(urgent) {
     try {
@@ -90,7 +91,18 @@
       D.incidents.forEach(x => { if (!seenIncidents.has(x.id)) { seenIncidents.add(x.id); fresh = true; if (x.kind === 'sos') urgent = true; } });
       if (fresh) ring(urgent);
     }
+    if (S.can('wake.supervise') || S.can('times.correct')) {
+      const need = TP.q.wakeNeedsAction();
+      if (need.length) {
+        const r = need[0];
+        h += `<a class="banner danger alert-link" href="#/wake">${TP.icon('alarm')}<span class="grow">${need.length > 1 ? need.length + ' سواقين مصحيوش — ' : 'مصحيش: '}${esc(TP.driverLabel({ code: r.e.code, name: r.e.name }))} (${esc(r.e.job.label)})</span><b>الصحيان</b></a>`;
+        const fresh = need.filter(x => !seenWake.has(x.day + x.pid));
+        fresh.forEach(x => seenWake.add(x.day + x.pid));
+        if (fresh.length) ring(true);
+      }
+    }
     if (S.can('overtime.approve') && D.pendingOT.length) h += `<a class="banner warn alert-link" href="#/today">${TP.icon('clock')}<span class="grow">${D.pendingOT.length} طلب سهرة مستني موافقتك</span><b>راجع</b></a>`;
+    if (D.factoryRequests.length) h += `<a class="banner warn alert-link" href="#/requests">${TP.icon('file')}<span class="grow">${D.factoryRequests.length} طلب من المصانع مستني</span><b>راجع</b></a>`;
     el.innerHTML = h;
   }
 
@@ -117,12 +129,24 @@
   }
   TP.rerender = () => scheduleRender();
 
-  document.addEventListener('tp:data', e => { if (e.detail === 'incidents' || e.detail === 'pendingOT') renderAlerts(); scheduleRender(e.detail); });
+  let cardTimer = null;
+  document.addEventListener('tp:data', e => {
+    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending'].includes(e.detail)) { renderAlerts(); renderNav(); }
+    if (e.detail === 'settings' && current && NAV.find(n => n.id === current && n.finance) && !TP.financeOn(TP.D.settings)) { go(); return; }
+    // driver cards (what customers see) follow names, codes and cars
+    if (['people', 'cards', 'vehicles', 'lines'].includes(e.detail) && TP.actions.syncCards) { clearTimeout(cardTimer); cardTimer = setTimeout(() => TP.actions.syncCards(), 1200); }
+    scheduleRender(e.detail);
+  });
+  document.addEventListener('tp:push', e => {   // a push while the Control Tower is open
+    const n = (e.detail && e.detail.notification) || {};
+    if (n.title) TP.toast(n.title, 'warn');
+    ring(true);
+  });
   setInterval(() => { if (S.ready && TP.D.todayKey && TP.dayKey() !== TP.D.todayKey) TP.data.start(); }, 60000);   // a new day
   window.addEventListener('hashchange', go);
   window.addEventListener('online', () => $('#live').classList.remove('off'));
   window.addEventListener('offline', () => $('#live').classList.add('off'));
-  setInterval(() => { if (current === 'devices' || current === 'overview' || current === 'today') scheduleRender(); }, 30000); // refresh "online now" & countdowns
+  setInterval(() => { if (current === 'devices' || current === 'overview' || current === 'today' || current === 'wake') scheduleRender(); if (S.ready) { renderAlerts(); renderNav(); } }, 30000); // refresh "online now" & countdowns
 
   let permsKey = null;
   document.addEventListener('tp:session', () => {

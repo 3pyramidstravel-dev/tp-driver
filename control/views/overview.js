@@ -29,8 +29,8 @@
         [D.companies.length > 0, 'ضيف المصانع', '#/factories', 'factories.manage'],
         [drivers.length > 0, 'ضيف السواقين', '#/drivers', 'drivers.manage'],
         [D.vehicles.length > 0, 'ضيف العربيات', '#/vehicles', 'vehicles.manage'],
-        [D.lines.length > 0, 'ضيف الخطوط بنقطها وضيوفها', '#/lines', 'lines.manage'],
-        [Object.keys(D.factoryRates).length > 0, 'حط أسعار المصانع والسواقين', '#/prices', 'prices.edit'],
+        [D.lines.length > 0, 'ضيف الخطوط بنقطها وعملائها', '#/lines', 'lines.manage'],
+        ...(TP.financeOn(D.settings) ? [[Object.keys(D.factoryRates).length > 0, 'حط أسعار المصانع والسواقين', '#/prices', 'prices.edit']] : []),
         [TP.q.staff().length > 1, 'ضيف فريق الإدارة وHR المصانع', '#/staff', 'staff.manage']
       ].filter(s => S.can(s[3]));
       const pendingSetup = setupSteps.filter(s => !s[0]);
@@ -53,8 +53,12 @@
             ${notActivated.length && S.can('devices.manage') ? `<p class="muted small" style="margin-top:10px">${notActivated.length} سواق لسه مفعّلوش التطبيق على موبايلاتهم.</p>` : ''}</section>` : ''}
           <section class="card"><div class="card-head"><h3>رخص وتأمينات</h3><span class="muted small">خلال ${warn} يوم</span></div>
             ${exp.length ? `<div class="table-wrap"><table class="tbl"><tbody>${exp.slice(0, 12).map(e => `<tr><td>${esc(e.what)}</td><td>${U.expiry(e.day)}</td></tr>`).join('')}</tbody></table></div>` : U.empty('كله سليم')}</section>
-          <section class="card"><div class="card-head"><h3>الجاي في المشروع</h3></div>
-            ${[['المرحلة 3', 'الصحيان وجرس المشرف'], ['المرحلة 4', 'المطار ومتابعة الرحلات'], ['المرحلة 5', 'بوابة المصانع والتقارير والأرباح'], ['المرحلة 6', 'أجزاء الأندرويد: المنبّه والـ GPS في الخلفية']].map(([a, b]) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><span class="tag gold">${a}</span> ${esc(b)}</div>`).join('')}</section>
+          ${(() => {
+            const links = [['#/requests', 'طلبات المصانع والمصاريف', D.factoryRequests.length + D.expensesPending.length, ['missions.manage', 'lines.manage', 'airport.manage', 'advances.manage']],
+              ['#/missions', 'المشاوير والمطار', 0, ['missions.manage', 'tracking.view', 'times.correct', 'airport.manage']], ['#/reports', 'التقارير والتصدير', 0, ['reports.attendance', 'reports.finance', 'month.close']]]
+              .filter(l => l[3].some(p => S.can(p)));
+            return links.length ? `<section class="card"><div class="card-head"><h3>اختصارات</h3></div>${links.map(([h, l, n]) => `<a href="${h}" style="display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit;font-weight:800"><span>${esc(l)}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</section>` : '';
+          })()}
         </div>`;
     }
   };
