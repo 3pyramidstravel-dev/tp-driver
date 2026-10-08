@@ -8,6 +8,7 @@
   const S = TP.session;
   const D = TP.D = {
     people: [], devices: [], codes: [], requests: [], companies: [], lines: [], vehicles: [],
+    todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '',
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
     loaded: {}
   };
@@ -28,7 +29,7 @@
     start() {
       TP.data.stop();
       const can = S.can;
-      if (can('staff.manage') || can('drivers.manage') || can('devices.manage') || can('tracking.view') || can('factories.manage') || can('prices.view') || can('lines.manage') || can('airport.prices') || can('missions.manage') || can('wake.supervise') || can('reports.attendance')) {
+      if (can('staff.manage') || can('drivers.manage') || can('devices.manage') || can('tracking.view') || can('factories.manage') || can('prices.view') || can('lines.manage') || can('airport.prices') || can('missions.manage') || can('wake.supervise') || can('reports.attendance') || can('times.correct') || can('overtime.approve') || can('advances.manage') || can('reports.finance')) {
         sub('people', 'people', null, l => l.sort(byName));
       }
       if (can('devices.manage') || can('tracking.view') || can('staff.manage') || can('drivers.manage')) sub('devices', 'devices', null);
@@ -37,7 +38,7 @@
         sub('requests', 'activationRequests', null);
       }
       sub('companies', 'companies', null, l => l.sort(byName));
-      if (can('lines.manage') || can('tracking.view') || can('wake.supervise') || can('missions.manage') || can('reports.attendance')) sub('lines', 'lines', null, l => l.sort(byName));
+      if (can('lines.manage') || can('tracking.view') || can('wake.supervise') || can('missions.manage') || can('reports.attendance') || can('times.correct') || can('overtime.approve')) sub('lines', 'lines', null, l => l.sort(byName));
       sub('vehicles', 'vehicles', null, l => l.sort((a, b) => String(a.plate).localeCompare(String(b.plate))));
       if (can('prices.view')) {
         sub('factoryRates', 'factoryRates', null, toMap);
@@ -46,8 +47,20 @@
       if (can('prices.view') || can('airport.prices')) sub('airportRates', 'airportRates', null, toMap);
       unsubs.push(TP.fb.onDoc('system/settings', s => { D.settings = Object.assign({}, TP.DEFAULT_SETTINGS, s || {}); emit('settings'); }, () => emit('settings')));
       if (can('audit.view')) sub('audit', 'audit', { orderBy: ['at', 'desc'], limit: 300 });
+      /* phase 2 — the working day */
+      const today = D.todayKey = TP.dayKey();
+      if (TP.staffSeesDays(S.perms)) {
+        sub('todayDays', 'days', { where: [['day', '==', today]] });
+        sub('pendingOT', 'days', { where: [['ot.status', '==', 'pending']] }, l => l.sort((a, b) => (a.ot.reqAt || 0) - (b.ot.reqAt || 0)));
+      }
+      if (can('tracking.view')) sub('incidents', 'incidents', { where: [['status', '==', 'open']] }, l => l.sort((a, b) => (b.at || 0) - (a.at || 0)));
+      sub('dayOff', 'dayOff', { where: [['day', '>=', TP.ops.addDays(today, -1)]] });
     },
-    stop() { unsubs.forEach(u => { try { u(); } catch (e) { /* ignore */ } }); unsubs = []; D.loaded = {}; }
+    stop() { unsubs.forEach(u => { try { u(); } catch (e) { /* ignore */ } }); unsubs = []; D.loaded = {}; },
+    /** One extra live query owned by a view (closed when the view is left). */
+    watch(colPath, opts, cb) {
+      return TP.fb.onCol(colPath, opts, cb, err => { console.warn(colPath, err && err.code); cb([]); });
+    }
   };
 
   /* ---------- lookups ---------- */

@@ -20,7 +20,7 @@
       { key: 'lines.manage', label: 'إدارة الخطوط والنقط والضيوف' },
       { key: 'drivers.manage', label: 'إدارة السواقين' },
       { key: 'vehicles.manage', label: 'إدارة العربيات والرخص' },
-      { key: 'times.correct', label: 'تصحيح أوقات السواقين (بسبب)' }
+      { key: 'times.correct', label: 'تسجيل وتصحيح أوقات السواقين والبديل (بسبب)' }
     ] },
     { group: 'المطار', items: [
       { key: 'airport.manage', label: 'مأموريات المطار ومتابعة الرحلات' },
@@ -48,7 +48,7 @@
     { id: 'finance', name: 'المدير المالي', perms: ['prices.view', 'prices.edit', 'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'reports.attendance', 'audit.view', 'tracking.view'] },
     { id: 'airports', name: 'مدير المطارات', perms: ['airport.manage', 'airport.prices', 'missions.manage', 'tracking.view', 'drivers.manage'] },
     { id: 'operations', name: 'مدير التشغيل', perms: ['tracking.view', 'wake.supervise', 'missions.manage', 'lines.manage', 'drivers.manage', 'vehicles.manage', 'times.correct', 'reports.attendance'] },
-    { id: 'supervisor', name: 'مشرف الحركة', perms: ['tracking.view', 'wake.supervise', 'reports.attendance'] },
+    { id: 'supervisor', name: 'مشرف الحركة', perms: ['tracking.view', 'wake.supervise', 'times.correct', 'reports.attendance'] },
     { id: 'custom', name: 'مخصص', perms: [] }
   ];
 
@@ -65,6 +65,8 @@
   TP.SENSITIVE = ['all', 'staff.manage', 'devices.manage', 'prices.view', 'prices.edit', 'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'airport.prices'];
   TP.isSensitive = perms => Array.isArray(perms) && perms.some(p => TP.SENSITIVE.includes(p));
   TP.needsPin = perms => Array.isArray(perms) && (perms.includes('all') || perms.some(p => TP.MONEY_PERMS.includes(p)));
+  /** Who sees the working day (same list as staffDays() in firestore.rules). */
+  TP.staffSeesDays = perms => ['tracking.view', 'times.correct', 'wake.supervise', 'reports.attendance', 'reports.finance', 'prices.view', 'overtime.approve'].some(p => TP.has(perms, p));
   /** Granting staff.manage needs devices.manage too (deactivation touches devices). */
   TP.normalizePerms = function (list) {
     let out = Array.from(new Set((list || []).filter(p => p === 'all' || TP.PERM_KEYS.includes(p))));

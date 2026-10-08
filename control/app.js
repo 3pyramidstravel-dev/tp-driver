@@ -9,6 +9,10 @@
   /* perm: one key, or any of a list. Items marked phase are shown as "coming". */
   const NAV = [
     { id: 'overview', label: 'لوحة التحكم', icon: 'home', eyebrow: 'OPERATIONS CONTROL' },
+    { id: 'today', label: 'يوم الخطوط', icon: 'route', any: ['tracking.view', 'times.correct', 'overtime.approve', 'wake.supervise'], eyebrow: 'LIVE DAY BOARD', badge: () => S.can('overtime.approve') ? TP.D.pendingOT.length : 0 },
+    { id: 'missions', label: 'المشاوير', icon: 'file', any: ['missions.manage', 'tracking.view', 'prices.view', 'times.correct'], eyebrow: 'MISSIONS' },
+    { id: 'incidents', label: 'البلاغات', icon: 'bell', any: ['tracking.view'], eyebrow: 'SOS & INCIDENTS', badge: () => TP.D.incidents.length },
+    { sep: true },
     { id: 'devices', label: 'الأجهزة والدخول', icon: 'device', any: ['devices.manage', 'tracking.view'], eyebrow: 'ACCESS & DEVICES', badge: () => TP.D.requests.filter(r => r.status === 'matched').length },
     { id: 'staff', label: 'الموظفين والصلاحيات', icon: 'shield', any: ['staff.manage'], eyebrow: 'PEOPLE & PERMISSIONS' },
     { sep: true },
@@ -17,8 +21,8 @@
     { id: 'drivers', label: 'السواقين', icon: 'steering', any: ['drivers.manage'], eyebrow: 'DRIVERS' },
     { id: 'vehicles', label: 'العربيات', icon: 'car', any: ['vehicles.manage'], eyebrow: 'FLEET' },
     { id: 'prices', label: 'الأسعار', icon: 'money', any: ['prices.view', 'airport.prices'], eyebrow: 'PRICING' },
+    { id: 'advances', label: 'السلف والخصومات', icon: 'money', any: ['advances.manage'], eyebrow: 'ADVANCES & DEDUCTIONS' },
     { sep: true },
-    { label: 'المهام والمشاوير', icon: 'file', soon: 'المرحلة 2' },
     { label: 'الصحيان', icon: 'alarm', soon: 'المرحلة 3' },
     { label: 'المطار والرحلات', icon: 'plane', soon: 'المرحلة 4' },
     { label: 'التقارير والأرباح', icon: 'chart', soon: 'المرحلة 5' },
@@ -50,14 +54,44 @@
     const nav = NAV.find(n => n.id === want && !n.soon);
     const id = nav && allowed(nav) && TP.views[want] ? want : 'overview';
     if (id !== want) history.replaceState(null, '', '#/' + id);
+    if (current && current !== id && TP.views[current] && TP.views[current].leave) { try { TP.views[current].leave(); } catch (e) { console.warn(e); } }
     current = id;
     const meta = NAV.find(n => n.id === id);
     $('#vTitle').textContent = meta.label;
     $('#vEyebrow').textContent = meta.eyebrow || '';
     document.title = meta.label + ' — Three Pyramids Control Tower';
     renderNav();
+    renderAlerts();
     render();
     window.scrollTo(0, 0);
+  }
+
+  /* ---------- alerts on every page: open SOS / incidents and overtime waiting for approval ---------- */
+  const seenIncidents = new Set();
+  let audio = null;
+  function ring(urgent) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const n = urgent ? 8 : 3;
+      for (let i = 0; i < n; i++) {
+        const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + i * 0.28;
+        o.type = 'square'; o.frequency.value = i % 2 ? 880 : 660; g.gain.value = 0.07;
+        o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + 0.2);
+      }
+    } catch (e) { /* no sound available */ }
+  }
+  function renderAlerts() {
+    const el = $('#alerts'); if (!el) return;
+    const D = TP.D; let h = '';
+    if (S.can('tracking.view') && D.incidents.length) {
+      const i = D.incidents[0];
+      h += `<a class="banner danger alert-link" href="#/incidents">${TP.icon('bell')}<span class="grow">${D.incidents.length > 1 ? D.incidents.length + ' بلاغات مفتوحة — ' : ''}${esc(TP.ops.incidentName(i.kind))}: ${esc(i.driverName || '')} (${esc(TP.ago(i.at))})</span><b>افتح</b></a>`;
+      let fresh = false, urgent = false;
+      D.incidents.forEach(x => { if (!seenIncidents.has(x.id)) { seenIncidents.add(x.id); fresh = true; if (x.kind === 'sos') urgent = true; } });
+      if (fresh) ring(urgent);
+    }
+    if (S.can('overtime.approve') && D.pendingOT.length) h += `<a class="banner warn alert-link" href="#/today">${TP.icon('clock')}<span class="grow">${D.pendingOT.length} طلب سهرة مستني موافقتك</span><b>راجع</b></a>`;
+    el.innerHTML = h;
   }
 
   function render() {
@@ -83,11 +117,12 @@
   }
   TP.rerender = () => scheduleRender();
 
-  document.addEventListener('tp:data', e => scheduleRender(e.detail));
+  document.addEventListener('tp:data', e => { if (e.detail === 'incidents' || e.detail === 'pendingOT') renderAlerts(); scheduleRender(e.detail); });
+  setInterval(() => { if (S.ready && TP.D.todayKey && TP.dayKey() !== TP.D.todayKey) TP.data.start(); }, 60000);   // a new day
   window.addEventListener('hashchange', go);
   window.addEventListener('online', () => $('#live').classList.remove('off'));
   window.addEventListener('offline', () => $('#live').classList.add('off'));
-  setInterval(() => { if (current === 'devices' || current === 'overview') scheduleRender(); }, 30000); // refresh "online now" & countdowns
+  setInterval(() => { if (current === 'devices' || current === 'overview' || current === 'today') scheduleRender(); }, 30000); // refresh "online now" & countdowns
 
   let permsKey = null;
   document.addEventListener('tp:session', () => {

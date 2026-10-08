@@ -6,7 +6,12 @@
 (function (TP) {
   'use strict';
 
-  TP.VERSION = '1.0.0-phase1';
+  TP.VERSION = '2.0.0-phase2';
+  /** Phone clock correction (ms) measured against the server; kept for offline use. */
+  TP.clockSkew = 0;
+  try { TP.clockSkew = Number(JSON.parse(localStorage.getItem('tp-clock-skew'))) || 0; } catch (e) { /* blocked */ }
+  /** The real time, even when the phone's clock is wrong. */
+  TP.now = () => Date.now() + (TP.clockSkew || 0);
   TP.TZ = 'Africa/Cairo';
 
   const $ = (s, r) => (r || document).querySelector(s);

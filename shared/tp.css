@@ -139,6 +139,26 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 
+/* ---------- day badges & summary pills ---------- */
+.badge-s { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 8px; font-size: 11.5px; font-weight: 800; }
+.badge-s.auto { background: var(--info-bg); color: var(--info); }
+.badge-s.far { background: var(--warn-bg); color: var(--warn); }
+.badge-s.staff { background: #efe7f7; color: #5a3a8a; }
+.badge-s.nogps { background: #ece8e5; color: #5b5048; }
+.sum-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pill { flex: 1 1 120px; padding: 10px 12px; border-radius: 14px; background: var(--cream); border: 1px solid var(--line); }
+.pill span { display: block; font-size: 12px; color: var(--muted); font-weight: 800; }
+.pill strong { font-size: 18px; font-weight: 900; color: var(--maroon-2); }
+
+/* ---------- driver statement (driver app + Control Tower) ---------- */
+.stmt { width: 100%; border-collapse: collapse; font-size: 14px; }
+.stmt td { padding: 9px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+.stmt td:last-child { text-align: end; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stmt tr.total td { font-weight: 900; font-size: 15px; border-top: 2px solid var(--line-strong); color: var(--maroon-2); }
+.stmt tr.minus td:last-child { color: var(--danger); }
+.stmt tr.net td { font-size: 19px; font-weight: 900; color: #fff; background: linear-gradient(135deg, var(--maroon), var(--maroon-2)); }
+.stmt tr.net td:first-child { border-radius: 0 12px 12px 0; padding-inline-start: 12px; } .stmt tr.net td:last-child { border-radius: 12px 0 0 12px; padding-inline-end: 12px; }
+
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }
   .kpi { padding: 13px; } .kpi strong { font-size: 22px; } .kpi-ic { width: 40px; height: 40px; }

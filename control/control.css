@@ -100,6 +100,23 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
 .set-row b { display: block; font-weight: 900; }
 .set-row small { color: var(--muted); font-weight: 700; line-height: 1.6; }
 
+/* live day board */
+.sp-row { display: flex; flex-wrap: wrap; gap: 4px; min-width: 260px; }
+.sp { display: inline-flex; flex-direction: column; align-items: center; min-width: 52px; padding: 3px 6px; border-radius: 9px; background: #f1ebe3; color: #8a7a6c; font-size: 10.5px; font-weight: 800; border: 1px solid transparent; line-height: 1.3; }
+.sp b { font-size: 12px; direction: ltr; }
+.sp.on { background: var(--ok-bg); color: var(--ok); }
+.sp.on.auto { background: var(--info-bg); color: var(--info); }
+.sp.on.far { background: var(--warn-bg); color: var(--warn); border-color: #e9c77f; }
+.sp.on.staff { background: #efe7f7; color: #5a3a8a; }
+.sp.on.nogps, .sp.on.late { border-color: #b8aaa0; border-style: dashed; }
+.corr { display: flex; flex-direction: column; gap: 6px; }
+.corr-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.corr-row b { display: block; font-size: 14px; } .corr-row small { color: var(--muted); font-weight: 700; font-size: 12px; }
+.request-card.sos { border-color: #d33a35; background: #fff4f2; animation: sosPulse 1.2s ease-in-out infinite; }
+@keyframes sosPulse { 50% { box-shadow: 0 0 0 6px rgba(211,58,53,.18); } }
+.alert-link { text-decoration: none; }
+.alert-link b { white-space: nowrap; }
+
 @media (max-width: 1100px) { .split { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) {
   .table-wrap .tbl { min-width: 720px; }
@@ -112,5 +129,6 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
   .ct-nav a.soon { display: none; }
   .ct-me { margin-top: 0; flex: none; padding: 6px 10px; }
   .ct-main { padding: 18px 14px 40px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .set-row { grid-template-columns: 1fr; }
 }

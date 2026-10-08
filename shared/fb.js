@@ -29,7 +29,13 @@
       const app = appMod.initializeApp(window.TP_FIREBASE_CONFIG);
       auth = A.getAuth(app);
       try { await A.setPersistence(auth, A.browserLocalPersistence); } catch (e) { /* default persistence */ }
-      db = F.getFirestore(app);
+      // Driver phones keep a local copy and queue presses made without internet (sent when it returns).
+      db = null;
+      if (fb.offline && F.initializeFirestore && F.persistentLocalCache) {
+        try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+        catch (e) { console.warn('offline cache unavailable', e); db = null; }
+      }
+      if (!db) db = F.getFirestore(app);
       fb.loaded = true;
       return fb;
     })();

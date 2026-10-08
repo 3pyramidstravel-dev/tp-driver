@@ -17,7 +17,11 @@
     ] },
     { title: 'المتابعة والمكان', items: [
       ['gpsEveryMin', 'إرسال مكان السواق كل كام دقيقة (أثناء المهمة)', 'أقل من 3 بيقرب من الحد المجاني اليومي', 'int', 1, 15],
-      ['geofenceM', 'المسافة المقبولة لزرار "وصلت" (متر)', 'لو أبعد من كده الضغطة بتتعلّم للمشرف', 'int', 50, 2000]
+      ['geofenceM', 'المسافة المقبولة لزرار "وصلت" (متر)', 'لو أبعد من كده الضغطة بتتسجل بعلامة تحذير للإدارة', 'int', 50, 2000],
+      ['autoGps', 'التسجيل التلقائي بالموقع', 'التطبيق يسجل الوصول والتحرك لوحده وهو مفتوح (لو السواق نسي يدوس)', 'bool'],
+      ['morningAutoLeadMin', 'التسجيل التلقائي الصبح يبدأ قبل ميعاد الخط بكام دقيقة', '', 'int', 15, 240],
+      ['eveningAutoWindowMin', 'وصول المصنع المسا يتسجل تلقائي من قبل ميعاد الرجوع بكام دقيقة', 'علشان الانتظار ميتحسبش وهو راكن في المصنع من بدري', 'int', 0, 180],
+      ['dayRolloverHour', 'اليوم اللي لسه مخلصش يفضل مفتوح لحد الساعة', 'للمسا اللي بيعدّي نص الليل (5 = 5 الفجر)', 'int', 0, 10]
     ] },
     { title: 'المطار', items: [
       ['airportLeadMin', 'سواق السياحة يتحرك قبل وصول الطيارة بكام دقيقة', '75 = ساعة وربع', 'int', 15, 240],
@@ -34,6 +38,7 @@
     for (const g of GROUPS) for (const [k, label, , type, min, max] of g.items) {
       const raw = U.val('s_' + k);
       if (type === 'time') { if (!/^\d{2}:\d{2}$/.test(raw)) return TP.toast(`"${label}" محتاج وقت`); out[k] = raw; continue; }
+      if (type === 'bool') { out[k] = U.checked('s_' + k); continue; }
       const n = TP.num(raw);
       if (!isFinite(n) || n < min || n > max || (type === 'int' && n % 1)) return TP.toast(`"${label}" لازم يكون بين ${min} و ${max}`);
       out[k] = n;
@@ -53,7 +58,9 @@
     deps: ['settings'],
     render(root) {
       const s = D.settings, ends = s.overtimeTierEnds || ['21:00', '23:00', '24:00'];
-      const input = (k, type, min, max, step) => type === 'time'
+      const input = (k, type, min, max, step) => type === 'bool'
+        ? `<label class="check"><input type="checkbox" id="s_${k}" ${s[k] !== false ? 'checked' : ''}><span>شغال</span></label>`
+        : type === 'time'
         ? `<input class="input" id="s_${k}" type="time" value="${esc(s[k])}">`
         : `<input class="input" id="s_${k}" type="number" inputmode="decimal" dir="ltr" min="${min}" max="${max}" step="${step || 1}" value="${esc(s[k])}">`;
       root.innerHTML = GROUPS.map(g => `<section class="card"><div class="card-head"><h3>${esc(g.title)}</h3></div>

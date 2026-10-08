@@ -58,10 +58,24 @@
     });
   };
 
+  /* ---------- phone clock check: compare the server time of our own heartbeat with the phone's clock ---------- */
+  let lastSeenMs = null, beatAt = 0;
+  function measureClock(dev) {
+    const v = dev && dev.lastSeen, ms = v && typeof v.toMillis === 'function' ? v.toMillis() : null;
+    if (ms === null || ms === lastSeenMs) return;
+    lastSeenMs = ms;
+    if (!beatAt || Date.now() - beatAt > 30000) return;   // only a value written by our own heartbeat just now
+    const skew = ms - Date.now();
+    TP.clockSkew = Math.abs(skew) < 5000 ? 0 : skew;
+    TP.store.set('tp-clock-skew', TP.clockSkew);
+    document.dispatchEvent(new CustomEvent('tp:clock'));
+  }
+
   function watchDevice() {
     if (unsubDevice) unsubDevice();
     unsubDevice = TP.fb.onDoc('devices/' + S.uid, async dev => {
       S.device = dev;
+      measureClock(dev);
       if (!dev) {
         stopSession();
         if (wasIn) { wasIn = false; TP.toast('تم إزالة هذا الجهاز من النظام', 'warn'); }
@@ -126,6 +140,7 @@
       try {
         if (navigator.getBattery) { const b = await navigator.getBattery(); data.battery = Math.round(b.level * 100); }
       } catch (e) { /* not available */ }
+      beatAt = Date.now();
       TP.fb.update('devices/' + S.uid, data).catch(() => {});
     };
     send();
@@ -323,6 +338,10 @@
     lowBatteryPct: 20,
     gpsEveryMin: 3,
     geofenceM: 300,
+    autoGps: true,                 // app records arrive/leave by itself while it is open
+    morningAutoLeadMin: 90,        // auto-recording of morning steps starts 90 min before the line's time
+    eveningAutoWindowMin: 30,      // evening factory arrival is auto-recorded only from 30 min before the return time
+    dayRolloverHour: 5,            // an unfinished day stays "today" until 5 AM
     airportLeadMin: 75,            // tourism driver leaves 1h15 before landing
     airportFreeWaitMin: 60,        // airport trip includes the first hour of waiting
     overtimeTierEnds: ['21:00', '23:00', '24:00'],

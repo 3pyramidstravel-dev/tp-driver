@@ -39,6 +39,7 @@
         ${TP.needsPin(S.perms) && p.pinIsDefault ? `<div class="banner warn">${TP.icon('lock')}<span class="grow">رقمك السري لسه 1234 — غيّره من صفحة حسابي.</span><a class="btn btn-ghost btn-sm" href="#/account">غيّره دلوقتي</a></div>` : ''}
         ${waiting.length && S.can('devices.manage') ? `<div class="banner danger">${TP.icon('device')}<span class="grow">${waiting.length} جهاز مستني موافقتك عشان يدخل.</span><a class="btn btn-primary btn-sm" href="#/devices">راجع الطلبات</a></div>` : ''}
         <div class="kpis">
+          ${TP.staffSeesDays(S.perms) ? kpi('', 'route', 'خطوط اشتغلت النهارده', D.todayDays.filter(d => d.events && Object.keys(d.events).length).length + ' / ' + D.lines.filter(l => l.active !== false).length, '#/today') : ''}
           ${kpi('ok', 'wifi', 'متصلين الآن', online.length, (S.can('devices.manage') || S.can('tracking.view')) ? '#/devices' : '')}
           ${kpi('', 'steering', 'السواقين', drivers.length, S.can('drivers.manage') ? '#/drivers' : '')}
           ${kpi('', 'factory', 'المصانع', D.companies.length, S.can('factories.manage') ? '#/factories' : '')}
@@ -53,7 +54,7 @@
           <section class="card"><div class="card-head"><h3>رخص وتأمينات</h3><span class="muted small">خلال ${warn} يوم</span></div>
             ${exp.length ? `<div class="table-wrap"><table class="tbl"><tbody>${exp.slice(0, 12).map(e => `<tr><td>${esc(e.what)}</td><td>${U.expiry(e.day)}</td></tr>`).join('')}</tbody></table></div>` : U.empty('كله سليم')}</section>
           <section class="card"><div class="card-head"><h3>الجاي في المشروع</h3></div>
-            ${[['المرحلة 2', 'تطبيق السائق: الخط الثابت والمشاوير والسهرة وحسابي'], ['المرحلة 3', 'الصحيان وجرس المشرف'], ['المرحلة 4', 'المطار ومتابعة الرحلات'], ['المرحلة 5', 'بوابة المصانع والتقارير والأرباح'], ['المرحلة 6', 'أجزاء الأندرويد: المنبّه والـ GPS في الخلفية']].map(([a, b]) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><span class="tag gold">${a}</span> ${esc(b)}</div>`).join('')}</section>
+            ${[['المرحلة 3', 'الصحيان وجرس المشرف'], ['المرحلة 4', 'المطار ومتابعة الرحلات'], ['المرحلة 5', 'بوابة المصانع والتقارير والأرباح'], ['المرحلة 6', 'أجزاء الأندرويد: المنبّه والـ GPS في الخلفية']].map(([a, b]) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><span class="tag gold">${a}</span> ${esc(b)}</div>`).join('')}</section>
         </div>`;
     }
   };
