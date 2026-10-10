@@ -176,7 +176,7 @@
   function flightHtml(f) {
     if (!f || !f.no) return '';
     const t = FL.when(f);
-    return `<div class="c-flight">✈ <b dir="ltr">${esc(f.no)}</b>${f.other ? ` · ${f.dir === 'arr' ? 'جاية من' : 'رايحة'} ${esc(f.other)}` : ''}${t ? ` · ${f.dir === 'arr' ? 'الهبوط' : 'الإقلاع'} <b>${esc(TP.fmtTime(t))}</b>` : ''}${f.terminal ? ` · صالة <b>${esc(f.terminal)}</b>` : ''}${f.status ? ` · ${esc(FL.statusName(f.status))}` : ''}</div>`;
+    return `<div class="c-flight">✈ <b dir="ltr">${esc(f.no)}</b>${f.other ? ` · ${f.dir === 'arr' ? 'جاية من' : 'رايحة'} ${esc(f.other)}` : ''}${t ? ` · ${f.dir === 'arr' ? 'الهبوط' : 'الإقلاع'} <b>${esc(TP.fmtTime(t))}</b>` : ''}${f.terminal ? ` · صالة <b>${esc(f.terminal)}</b>` : ''}${f.status ? ` · ${esc(FL.statusName(f.status))}` : ''}${f.status ? '<small style="display:block;opacity:.6;font-size:11px">بيانات الرحلات: AeroDataBox</small>' : ''}</div>`;
   }
   function render() {
     const d = st.doc, m = main();

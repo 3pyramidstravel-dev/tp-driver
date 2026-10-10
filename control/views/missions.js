@@ -156,7 +156,8 @@
     if (fl.alert === 'nokey' || fl.alert === 'limit' || fl.alert === 'error') warn = '<span class="badge-s far">البحث الأوتوماتيك واقف — اكتب الميعاد بإيدك</span>';
     if (fl.status === 'Canceled' || fl.status === 'CanceledUncertain') warn = '<span class="badge-s far">الرحلة ممكن تكون اتلغت — اتأكد</span>';
     const radar = ` <a class="small" href="https://www.flightradar24.com/data/flights/${encodeURIComponent(fl.no.toLowerCase())}" target="_blank" rel="noopener">FlightRadar ↗</a>`;
-    return parts.join(' · ') + (warn ? ' ' + warn : '') + radar;
+    const src = fl.src === 'api' ? ' <span class="muted small">· بيانات الرحلات: AeroDataBox</span>' : '';
+    return parts.join(' · ') + (warn ? ' ' + warn : '') + radar + src;
   }
   TP.actions.flightLine = flightLine;
 
@@ -314,7 +315,7 @@
           <div class="toolbar-end">${U.filterBox('missionsQ', 'بحث بالوصف أو السواق أو رقم الرحلة', U.filters.missions)}${canEdit ? `<button class="btn btn-primary" id="addM">${TP.icon('plus', 18)}مشوار جديد</button>` : ''}</div>
         </div>
         <div class="chips" style="margin-bottom:12px">${[['', 'الكل'], ['regular', 'مشاوير'], ['airport', '✈ مطار']].map(([k, l]) => `<button class="chip ${state.type === k ? 'active' : ''}" data-type="${k}">${l}</button>`).join('')}<span style="width:12px"></span>${filters.map(([k, l]) => `<button class="chip ${state.filter === k ? 'active' : ''}" data-filter="${k}">${l}</button>`).join('')}</div>
-        ${state.type === 'airport' ? `<p class="muted small" style="margin-bottom:10px">${TP.icon('plane', 15)} البحث الأوتوماتيك عن الرحلات الشهر ده: ${usage} من ${limit}. بعد كده الميعاد بيتكتب باليد.</p>` : ''}
+        ${state.type === 'airport' ? `<p class="muted small" style="margin-bottom:10px">${TP.icon('plane', 15)} البحث الأوتوماتيك عن الرحلات الشهر ده: ${usage} من ${limit}. بعد كده الميعاد بيتكتب باليد. <span class="muted">بيانات الرحلات: AeroDataBox</span></p>` : ''}
         ${list.length ? `<div class="table-wrap"><table class="tbl">
           <thead><tr><th>الميعاد</th><th>المشوار</th><th>السواق</th><th>من → إلى</th><th>الحالة</th>${seePrice ? '<th>سعر المصنع</th><th>أجر السواق</th>' : ''}<th></th></tr></thead>
           <tbody>${list.map(m => {

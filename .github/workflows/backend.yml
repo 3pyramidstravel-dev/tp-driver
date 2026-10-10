@@ -1,0 +1,50 @@
+# Publishes the Firestore rules and the cloud alarm whenever they change on main.
+# Needs three repository secrets (Settings → Secrets and variables → Actions):
+#   FIREBASE_SA            the Firebase service-account JSON
+#   CLOUDFLARE_API_TOKEN   a Cloudflare token made from the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account id
+# Until a secret is added, its job just skips (no failure).
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml']
+  workflow_dispatch:
+
+concurrency: { group: backend, cancel-in-progress: false }
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Publish Firestore rules
+        env: { FIREBASE_SA: '${{ secrets.FIREBASE_SA }}' }
+        run: node backend/deploy-rules.mjs
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Cloudflare secrets
+        id: cf
+        env: { T: '${{ secrets.CLOUDFLARE_API_TOKEN }}', A: '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}' }
+        run: if [ -n "$T" ] && [ -n "$A" ]; then echo "ok=1" >> "$GITHUB_OUTPUT"; else echo "Cloudflare secrets not set — skipping"; fi
+      - name: Deploy the cloud alarm
+        if: steps.cf.outputs.ok == '1'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy
+      - name: Check it answers
+        if: steps.cf.outputs.ok == '1'
+        run: |
+          sleep 10
+          out=$(curl -s https://tp-alarm.3pyramidstravel.workers.dev/check)
+          echo "$out"
+          echo "$out" | grep -q '"ok":true'

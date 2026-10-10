@@ -553,7 +553,7 @@
     const t = TP.flight.when(fl);
     return `<div class="flight"><b dir="ltr">✈ ${esc(fl.no)}</b><span>${fl.dir === 'arr' ? 'استقبال' : 'توصيل'}${fl.other ? (fl.dir === 'arr' ? ' — جاية من ' : ' — رايحة ') + esc(fl.other) : ''}</span>
       ${t ? `<span>${fl.dir === 'arr' ? 'الهبوط' : 'الإقلاع'} <b>${esc(TP.fmtTime(t))}</b>${fl.delayMin >= 10 ? ` <span class="badge-s far">متأخرة ${fl.delayMin} د</span>` : ''}</span>` : '<span class="muted">الميعاد لسه جاي</span>'}
-      ${fl.terminal ? `<span>صالة <b>${esc(fl.terminal)}</b></span>` : ''}${fl.status ? `<span class="muted">${esc(TP.flight.statusName(fl.status))}</span>` : ''}</div>`;
+      ${fl.terminal ? `<span>صالة <b>${esc(fl.terminal)}</b></span>` : ''}${fl.status ? `<span class="muted">${esc(TP.flight.statusName(fl.status))}</span>` : ''}${fl.src === 'api' ? '<span class="muted" style="font-size:11px">بيانات الرحلات: AeroDataBox</span>' : ''}</div>`;
   }
   function renderMissions() {
     const root = TP.$('#tab-missions'), today = TP.dayKey(TP.now());

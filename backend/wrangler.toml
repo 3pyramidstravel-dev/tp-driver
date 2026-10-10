@@ -1,0 +1,10 @@
+# The cloud alarm (Cloudflare Worker "tp-alarm"). GitHub deploys it — see .github/workflows/backend.yml
+name = "tp-alarm"
+main = "tp-alarm.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+# keep anything set by hand in the Cloudflare dashboard (the secrets GOOGLE_SA and FLIGHT_KEY are never touched)
+keep_vars = true
+
+[triggers]
+crons = ["* * * * *"]

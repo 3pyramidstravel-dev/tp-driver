@@ -1,0 +1,643 @@
+rules_version = '2';
+
+// ============================================================================
+//  Three Pyramids Driver Platform — Firestore security rules (Phase 1)
+//
+//  Every person reaches the data from an APPROVED DEVICE:
+//    devices/{authUid} = { personId, kind: staff|driver|hr, perms[], factoryId,
+//                          driverKind, active }
+//  A device is created only by someone holding "devices.manage", and its
+//  perms/kind/factory MUST equal the person record — nobody can hand a device
+//  more power than its person has. Only holders of "all" can grant the top
+//  permissions ("all", "staff.manage").
+//
+//  Prices are split by audience so a reader physically cannot receive the
+//  other side's numbers:
+//    factoryRates/{factoryId}  → price viewers + that factory's HR only
+//    driverRates/{driverId}    → price viewers + that driver only (never tourism)
+//
+//  Phase 2 adds the working day: days/ (one per line per day), missions/,
+//  mission prices (missionDriver/ · missionFactory/), adjustments/ (advances &
+//  deductions), dayOff/ and incidents/ (SOS). A driver can only ADD a press —
+//  never change or delete one — and the press keeps the phone's time so
+//  presses made without internet are sent later with their real time.
+//
+//  Phase 4–6 add customers and their secret links (track/), driver cards,
+//  ratings, factory requests, driver expenses, monthly factory sheets and
+//  the export lock. A customer link is a 128-bit random token: whoever holds
+//  it may read that one trip and answer it — nothing else.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function devPath(uid) { return /databases/$(database)/documents/devices/$(uid); }
+    function personPath(pid) { return /databases/$(database)/documents/people/$(pid); }
+    function statePath() { return /databases/$(database)/documents/system/state; }
+    function me() { return get(devPath(request.auth.uid)).data; }
+    function isActive() {
+      return signedIn() && exists(devPath(request.auth.uid)) && me().active == true;
+    }
+    function isStaff() { return isActive() && me().kind == 'staff'; }
+    function can(p) { return isStaff() && (('all' in me().perms) || (p in me().perms)); }
+    function isTop(data) { return data.perms.hasAny(['all', 'staff.manage']); }
+    // Anyone whose permissions show money or give top power may only get a device from the GM.
+    function isSensitive(data) {
+      return data.perms.hasAny(['all', 'staff.manage', 'devices.manage', 'prices.view', 'prices.edit',
+        'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'airport.prices']);
+    }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function bootstrapping() { return !exists(statePath()) && existsAfter(statePath()); }
+
+    // ---------- system ----------
+    match /system/state {
+      allow read: if signedIn();
+      // One-time setup: the general manager creates the first account with the
+      // setup key from the setup guide. After that this document exists forever.
+      allow create: if signedIn()
+        && !exists(statePath())
+        && hashing.sha256(request.resource.data.setupKey).toHexString().lower()
+           == '968207175936608f65ca266d7332961e8fa8b808b78b3eccd6156bd0dc7a9994'
+        && getAfter(devPath(request.auth.uid)).data.perms == ['all']
+        && getAfter(devPath(request.auth.uid)).data.active == true;
+      allow update, delete: if false;
+    }
+
+    match /system/settings {
+      allow read: if isActive();
+      allow write: if can('settings.edit');
+    }
+
+    // ---------- people (staff, drivers, factory HR) ----------
+    match /people/{pid} {
+      allow read: if can('staff.manage') || can('drivers.manage') || can('devices.manage')
+        || can('tracking.view') || can('factories.manage') || can('lines.manage')
+        || can('prices.view') || can('airport.prices') || can('missions.manage')
+        || can('wake.supervise') || can('reports.attendance')
+        || can('times.correct') || can('overtime.approve') || can('advances.manage') || can('reports.finance')
+        || (isActive() && me().personId == pid);
+
+      allow create: if
+        // first-ever account during setup
+        (bootstrapping() && request.resource.data.type == 'staff'
+          && request.resource.data.perms == ['all'])
+        // staff / HR accounts
+        || (can('staff.manage') && (!isTop(request.resource.data) || can('all')))
+        // drivers (never carry staff permissions)
+        || (can('drivers.manage') && request.resource.data.type == 'driver'
+            && request.resource.data.perms.size() == 0);
+
+      allow update: if
+        (can('staff.manage') && (!isTop(resource.data) || can('all'))
+          && (!isTop(request.resource.data) || can('all')))
+        || (can('drivers.manage') && resource.data.type == 'driver'
+            && request.resource.data.type == 'driver'
+            && request.resource.data.perms.size() == 0)
+        // anyone may flag that they changed their own PIN (the PIN itself lives in pins/)
+        || (isActive() && me().personId == pid
+            && changed().hasOnly(['pinChangedAt', 'pinIsDefault', 'wakeLeadMin'])
+            // a driver may move his own wake-up time (30 min – 6 h before the job)
+            && (!('wakeLeadMin' in changed()) || (request.resource.data.wakeLeadMin is int
+                && request.resource.data.wakeLeadMin >= 30 && request.resource.data.wakeLeadMin <= 360)));
+
+      allow delete: if (can('staff.manage') && (!isTop(resource.data) || can('all')))
+        || (can('drivers.manage') && resource.data.type == 'driver');
+    }
+
+    // ---------- PIN hashes: readable ONLY by their owner ----------
+    // Kept apart from people/ so nobody who can list people can try to crack a PIN.
+    match /pins/{pid} {
+      allow read: if isActive() && me().personId == pid;
+      allow create, update: if (isActive() && me().personId == pid)
+        || can('staff.manage')
+        || (can('drivers.manage') && getAfter(personPath(pid)).data.type == 'driver')
+        || bootstrapping();
+      allow delete: if can('staff.manage')
+        || (can('drivers.manage') && get(personPath(pid)).data.type == 'driver');
+    }
+
+    // ---------- devices (one per approved phone / browser) ----------
+    match /devices/{uid} {
+      function matchesPerson() {
+        let p = getAfter(personPath(request.resource.data.personId)).data;
+        return request.resource.data.perms == p.perms
+          && request.resource.data.kind == p.type
+          && request.resource.data.get('factoryId', null) == p.get('factoryId', null)
+          && request.resource.data.get('driverKind', null) == p.get('driverKind', null)
+          && p.active == true;
+      }
+      allow read: if (signedIn() && request.auth.uid == uid)
+        || can('devices.manage') || can('tracking.view') || can('staff.manage') || can('drivers.manage');
+
+      allow create: if
+        (bootstrapping() && request.auth.uid == uid
+          && request.resource.data.perms == ['all'] && request.resource.data.kind == 'staff'
+          && request.resource.data.active == true && matchesPerson())
+        || (can('devices.manage') && matchesPerson()
+            && (!isSensitive(request.resource.data) || can('all')));
+
+      allow update: if
+        // permission sync after a person is edited
+        (can('staff.manage') && matchesPerson() && (!isTop(request.resource.data) || can('all')))
+        // driver records are edited by "drivers.manage" — keep their devices in sync
+        || (can('drivers.manage') && resource.data.kind == 'driver' && matchesPerson())
+        // suspend / remove access
+        || (can('devices.manage') && changed().hasOnly(['active', 'removedAt', 'removedBy', 'note']))
+        // the device itself reports presence & health only
+        || (signedIn() && request.auth.uid == uid && resource.data.active == true
+            && changed().hasOnly(['lastSeen', 'battery', 'appVersion', 'platform',
+                                  'alarmOk', 'permsOk', 'screen', 'fcm', 'fcmAt']));
+
+      allow delete: if can('devices.manage')
+        || (can('drivers.manage') && resource.data.kind == 'driver');
+    }
+
+    // ---------- activation (3-digit code + approval) ----------
+    match /activationCodes/{cid} {
+      allow read, write: if can('devices.manage');
+    }
+
+    match /activationRequests/{uid} {
+      function validCode() { return request.resource.data.code is string
+                                    && request.resource.data.code.matches('^[0-9]{3}$'); }
+      allow read: if (signedIn() && request.auth.uid == uid) || can('devices.manage');
+      allow create: if signedIn() && request.auth.uid == uid && validCode()
+        && request.resource.data.keys().hasOnly(['code', 'attempts', 'status', 'device', 'createdAt', 'updatedAt'])
+        && request.resource.data.attempts == 1
+        && request.resource.data.status == 'pending';
+      allow update: if
+        (signedIn() && request.auth.uid == uid && validCode()
+          && resource.data.attempts < 5
+          && request.resource.data.attempts == resource.data.attempts + 1
+          && request.resource.data.status == 'pending'
+          && changed().hasOnly(['code', 'attempts', 'status', 'device', 'updatedAt', 'personId', 'personName']))
+        || can('devices.manage');
+      allow delete: if can('devices.manage') || (signedIn() && request.auth.uid == uid);
+    }
+
+    // ---------- operations master data ----------
+    match /companies/{fid} {
+      // factory HR sees only its own factory (clients must not see each other)
+      allow read: if isActive() && (me().kind != 'hr' || me().factoryId == fid);
+      allow write: if can('factories.manage');
+    }
+
+    match /lines/{lid} {
+      allow read: if can('lines.manage') || can('tracking.view') || can('wake.supervise')
+        || can('missions.manage') || can('reports.attendance') || can('times.correct') || can('overtime.approve')
+        || (isActive() && me().kind == 'driver'
+            && (resource.data.driverId == me().personId || resource.data.subDriverId == me().personId))
+        || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
+      allow write: if can('lines.manage');
+      // a substitute driver for one day (the substitute takes the line's points, guests and day)
+      allow update: if (can('times.correct') || can('wake.supervise'))
+        && changed().hasOnly(['subDriverId', 'subDay', 'subBy', 'subAt']);
+    }
+
+    match /vehicles/{vid} {
+      allow read: if isStaff();
+      allow write: if can('vehicles.manage');
+    }
+
+    // ---------- prices (segregated by audience, effective-dated history) ----------
+    match /factoryRates/{fid} {
+      allow read: if can('prices.view')
+        || (isActive() && me().kind == 'hr' && me().factoryId == fid);
+      allow write: if can('prices.edit');
+    }
+
+    match /airportRates/{fid} {
+      allow read: if can('prices.view') || can('airport.prices')
+        || (isActive() && me().kind == 'hr' && me().factoryId == fid);
+      allow write: if can('prices.edit') || can('airport.prices');
+    }
+
+    match /driverRates/{did} {
+      function isExternal() { return get(personPath(did)).data.get('driverKind', '') == 'external'; }
+      allow read: if can('prices.view')
+        || (can('airport.prices') && isExternal())
+        || (isActive() && me().kind == 'driver' && me().personId == did
+            && me().get('driverKind', '') != 'tourism');
+      allow write: if can('prices.edit') || (can('airport.prices') && isExternal());
+    }
+
+    // ---------- audit trail (append-only) ----------
+    match /audit/{aid} {
+      allow read: if can('audit.view');
+      allow create: if isActive()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    // ======================= Phase 2 — the working day =======================
+    function isDriver() { return isActive() && me().kind == 'driver'; }
+    function linePath(lid) { return /databases/$(database)/documents/lines/$(lid); }
+    function nowMs() { return request.time.toMillis(); }
+    // One button press from the phone. "at" is the phone's time of the press:
+    // at most 10 minutes ahead of the server and up to 48 hours old (sent after being offline).
+    // "sv" is the server's own time of receipt, so a press sent late (offline) is visible to management.
+    function pressOk(e) {
+      return e.keys().hasOnly(['at', 'sv', 'lat', 'lng', 'acc', 'dist', 'far', 'auto', 'noGps', 'by'])
+        && e.by == 'driver' && e.at is int && e.sv == request.time
+        && e.at <= nowMs() + 600000 && e.at >= nowMs() - 172800000;
+    }
+    // midnight UTC of 'YYYY-MM-DD' in ms (Cairo midnight is 2–3 hours earlier)
+    function utcMidnight(day) {
+      let p = day.split('-');
+      return timestamp.date(int(p[0]), int(p[1]), int(p[2])).toMillis();
+    }
+    // a press belongs to its day: from Cairo midnight to the next morning (evenings past midnight)
+    function inDay(at, day, before, after) {
+      return at >= utcMidnight(day) - before && at <= utcMidnight(day) + after;
+    }
+    // the update adds exactly one new press (key = lastKey) and changes nothing else in the map
+    function addsOnlyLastKey(after, before) {
+      let df = after.events.diff(before);
+      return after.lastKey is string
+        && df.changedKeys().size() == 0 && df.removedKeys().size() == 0
+        && df.addedKeys().size() == 1 && df.addedKeys().hasOnly([after.lastKey])
+        && pressOk(after.events[after.lastKey]);
+    }
+    function monthOf(day) { return day.split('-')[0] + '-' + day.split('-')[1]; }
+    // who rode: picked.{customerId} = {at, n} · noshow.{customerId} = {at, n, lat, lng, acc}. Only added, never removed.
+    // (An excuse — "مش راكب" — comes only from the customer: excused/, written by the cloud alarm.)
+    function ridersOk(d, before) {
+      return (!('picked' in d) || (d.picked is map && d.picked.size() <= 12 && d.picked.keys().hasAll(before.get('picked', {}).keys())))
+        && (!('noshow' in d) || (d.noshow is map && d.noshow.size() <= 12 && d.noshow.keys().hasAll(before.get('noshow', {}).keys())));
+    }
+    function staffDays() {
+      return can('tracking.view') || can('times.correct') || can('wake.supervise') || can('reports.attendance')
+        || can('reports.finance') || can('prices.view') || can('overtime.approve') || can('month.close');
+    }
+
+    match /days/{did} {
+      // the driver of the line — unless a substitute was set for that day, then only the substitute
+      function worksLine(d) {
+        let line = get(linePath(d.lineId)).data;
+        let subToday = line.get('subDay', '') == d.day && line.get('subDriverId', '') != '';
+        return d.factoryId == line.factoryId
+          && ((line.driverId == me().personId && !subToday)
+              || (line.get('subDriverId', '') == me().personId && line.get('subDay', '') == d.day));
+      }
+      function linePressOk(d, before) {
+        return d.lastKey is string && d.lastKey.matches('^(p[0-9]_(arr|dep)|fm_arr|fe_arr|fe_dep|end)$')
+          && addsOnlyLastKey(d, before)
+          && inDay(d.events[d.lastKey].at, d.day, 10800000, 108000000)
+          // the evening and the end of day only after the morning factory arrival
+          && (!(d.lastKey in ['fe_arr', 'fe_dep', 'end']) || ('fm_arr' in before))
+          // evening waiting: leaving after arriving, at most 6 hours
+          && (d.lastKey != 'fe_dep' || !('fe_arr' in before)
+              || (d.events.fe_dep.at >= before.fe_arr.at && d.events.fe_dep.at - before.fe_arr.at <= 21600000));
+      }
+      function otRequestOk(d, before) {
+        return d.ot.keys().hasOnly(['tier', 'status', 'reqAt', 'by'])
+          && d.ot.status == 'pending' && d.ot.by == 'driver' && d.ot.tier in [1, 2, 3] && d.ot.reqAt is int
+          && d.ot.reqAt <= nowMs() + 600000 && d.ot.reqAt >= nowMs() - 172800000
+          && ('fm_arr' in before.events);
+      }
+      allow read: if staffDays()
+        || (isDriver() && resource.data.driverId == me().personId)
+        || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
+      allow create: if
+        (can('times.correct') && (!('ot' in request.resource.data) || can('overtime.approve')))
+        || (isDriver()
+            && request.resource.data.driverId == me().personId
+            && request.resource.data.keys().hasOnly(['lineId', 'factoryId', 'driverId', 'day', 'month', 'events', 'lastKey', 'updatedAt', 'picked', 'noshow'])
+            && ridersOk(request.resource.data, {})
+            && request.resource.data.day is string
+            && request.resource.data.day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && did == request.resource.data.lineId + '_' + request.resource.data.day
+            && request.resource.data.month == monthOf(request.resource.data.day)
+            && worksLine(request.resource.data)
+            && linePressOk(request.resource.data, {}));
+      allow update: if
+        // operations (times.correct) record / correct with a reason; overtime only with overtime.approve
+        (can('times.correct') && (!('ot' in changed()) || can('overtime.approve')))
+        // finance approves, edits or cancels overtime
+        || (can('overtime.approve') && changed().hasOnly(['ot', 'updatedAt', 'lateFix']))
+        // the driver adds one press, or asks for overtime once
+        || (isDriver() && resource.data.driverId == me().personId
+            && request.resource.data.driverId == me().personId
+            && changed().hasOnly(['events', 'lastKey', 'updatedAt', 'ot', 'picked', 'noshow'])
+            && (('events' in changed()) ? linePressOk(request.resource.data, resource.data.events) : !('lastKey' in changed()))
+            && (!('ot' in changed()) || (!('ot' in resource.data) && otRequestOk(request.resource.data, resource.data)))
+            && ridersOk(request.resource.data, resource.data));
+      allow delete: if can('times.correct');
+    }
+
+    // ---------- missions (one-off trips) — prices live in separate documents ----------
+    match /missions/{mid} {
+      function missionStepOk() {
+        return resource.data.status in ['assigned', 'active']
+          && request.resource.data.lastKey in ['start', 'pickup', 'arrive', 'done']
+          && addsOnlyLastKey(request.resource.data, resource.data.events)
+          && inDay(request.resource.data.events[request.resource.data.lastKey].at, resource.data.day, 43200000, 129600000)
+          && ((request.resource.data.lastKey == 'done' && request.resource.data.status == 'done')
+              || (request.resource.data.lastKey != 'done' && request.resource.data.status == 'active'));
+      }
+      allow read: if can('missions.manage') || can('tracking.view') || can('times.correct')
+        || can('reports.attendance') || can('prices.view') || can('reports.finance') || can('airport.manage') || can('month.close')
+        || (isDriver() && resource.data.driverId == me().personId)
+        || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
+      allow create, delete: if can('missions.manage');
+      allow update: if can('missions.manage')
+        || (can('times.correct') && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt']))
+        // the wake-up supervisor hands the trip to a substitute
+        || (can('wake.supervise') && changed().hasOnly(['driverId', 'subFrom', 'updatedAt']))
+        || (isDriver() && resource.data.driverId == me().personId
+            && resource.data.status in ['assigned', 'active', 'done']
+            && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt', 'picked', 'noshow', 'cashGot'])
+            && (('events' in changed()) ? missionStepOk() : (!('lastKey' in changed()) && !('status' in changed())))
+            && ridersOk(request.resource.data, resource.data)
+            // a private customer paid cash: once, the agreed amount, with the server time
+            && (!('cashGot' in changed()) || (!('cashGot' in resource.data) && ('cash' in resource.data)
+                && request.resource.data.cashGot.keys().hasOnly(['at', 'sv', 'amount'])
+                && request.resource.data.cashGot.amount == resource.data.cash.amount && request.resource.data.cashGot.sv == request.time)));
+    }
+    match /missionDriver/{mid} {
+      allow read: if can('prices.view')
+        || (isDriver() && resource.data.driverId == me().personId && me().get('driverKind', '') != 'tourism');
+      allow create, update: if can('prices.edit');
+      allow delete: if can('prices.edit') || can('missions.manage');
+    }
+    match /missionFactory/{mid} {
+      allow read: if can('prices.view')
+        || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
+      allow create, update: if can('prices.edit');
+      allow delete: if can('prices.edit') || can('missions.manage');
+    }
+
+    // ---------- advances & deductions (management only; the driver sees his own) ----------
+    match /adjustments/{aid} {
+      allow read: if can('advances.manage') || can('prices.view') || can('reports.finance')
+        || (isDriver() && resource.data.driverId == me().personId && me().get('driverKind', '') != 'tourism');
+      allow create, update: if can('advances.manage')
+        && request.resource.data.type in ['advance', 'deduction']
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0
+        && request.resource.data.day is string
+        && request.resource.data.month == monthOf(request.resource.data.day);
+      allow delete: if can('advances.manage');
+    }
+
+    // ---------- days off / cancelled days ----------
+    match /dayOff/{oid} {
+      allow read: if isActive();
+      allow write: if can('lines.manage') || can('times.correct');
+    }
+
+    // ---------- SOS & incident reports ----------
+    match /incidents/{iid} {
+      allow read: if can('tracking.view') || (isDriver() && resource.data.driverId == me().personId);
+      allow create: if isDriver()
+        && request.resource.data.driverId == me().personId
+        && request.resource.data.status == 'open'
+        && request.resource.data.kind in ['sos', 'breakdown', 'accident', 'other']
+        && request.resource.data.keys().hasOnly(['driverId', 'driverName', 'phone', 'kind', 'note', 'lat', 'lng', 'acc', 'lineId', 'at', 'status', 'createdAt']);
+      allow update: if can('tracking.view')
+        && changed().hasOnly(['status', 'handledBy', 'handledAt', 'handlerNote']);
+    }
+
+    // ======================= Phase 3 — drivers & the wake-up =======================
+    // every driver has a fixed code; the registry makes a code impossible to give twice
+    match /driverCodes/{code} {
+      allow read: if isStaff();
+      allow create: if can('drivers.manage') && code.matches('^[0-9]+$')
+        && request.resource.data.keys().hasOnly(['personId', 'at']);
+      allow delete: if can('drivers.manage');
+    }
+    // one all-inclusive amount for a day priced by hand (a trips driver covering a line)
+    match /dayPay/{did} {
+      allow read: if can('prices.view')
+        || (isDriver() && resource.data.driverId == me().personId && me().get('driverKind', '') != 'tourism');
+      allow create, update: if can('prices.edit')
+        && request.resource.data.amount is number && request.resource.data.amount >= 0;
+      allow delete: if can('prices.edit');
+    }
+    // the wake-up plan of a day — written by the cloud alarm (service account);
+    // supervisors record "استلمت / صحي / بديل", anyone involved may ask for a rebuild
+    match /wake/{day} {
+      function wakeStaff() {
+        return can('wake.supervise') || can('times.correct') || can('lines.manage') || can('missions.manage') || can('settings.edit');
+      }
+      allow read: if can('wake.supervise') || can('tracking.view') || can('times.correct');
+      // a supervisor changes ONE driver's case at a time, and only "claim" / "outcome"
+      function caseEditOk() {
+        let k = request.resource.data.lastEdit;
+        return k is string
+          && request.resource.data.d.diff(resource.data.d).affectedKeys().hasOnly([k])
+          && request.resource.data.d[k].diff(resource.data.d[k]).affectedKeys().hasOnly(['claim', 'outcome']);
+      }
+      allow create: if (wakeStaff() && request.resource.data.keys().hasOnly(['rebuild', 'day']) && request.resource.data.rebuild == true
+            && request.resource.data.day == day)
+        || (isDriver() && request.resource.data.keys().hasOnly(['rebuildDriver', 'day']) && request.resource.data.rebuildDriver == true
+            && request.resource.data.day == day);
+      allow update: if ((can('wake.supervise') || can('times.correct')) && changed().hasOnly(['d', 'lastEdit', 'rebuild']) && caseEditOk())
+        || (wakeStaff() && changed().hasOnly(['rebuild']) && request.resource.data.rebuild == true)
+        || (isDriver() && changed().hasOnly(['rebuildDriver']) && request.resource.data.rebuildDriver == true);
+    }
+    // the driver's own "جاهز لبكره" (evening) and "صباح الخير" (morning) — each set once, with the server time
+    match /wakeAcks/{aid} {
+      function ackOk(d) {
+        return d.keys().hasOnly(['driverId', 'day', 'readyAt', 'readySv', 'battery', 'notif', 'geo', 'awakeAt', 'awakeSv', 'method'])
+          && d.driverId == me().personId && d.day is string && aid == d.day + '_' + me().personId;
+      }
+      function nearNow(v) { return v is int && v <= nowMs() + 600000 && v >= nowMs() - 3600000; }
+      // "صباح الخير" belongs to the morning of its day (not pressed the evening before)
+      function awakeDayOk(d) { return d.awakeAt >= utcMidnight(d.day) - 28800000; }
+      allow read: if can('wake.supervise') || can('tracking.view') || can('times.correct')
+        || (isDriver() && resource.data.driverId == me().personId);
+      allow create: if isDriver() && ackOk(request.resource.data)
+        && (!('readyAt' in request.resource.data) || (nearNow(request.resource.data.readyAt) && request.resource.data.readySv == request.time))
+        && (!('awakeAt' in request.resource.data) || (nearNow(request.resource.data.awakeAt) && awakeDayOk(request.resource.data) && request.resource.data.awakeSv == request.time));
+      allow update: if isDriver() && resource.data.driverId == me().personId && ackOk(request.resource.data)
+        && (!('readyAt' in changed()) || (!('readyAt' in resource.data) && nearNow(request.resource.data.readyAt) && request.resource.data.readySv == request.time))
+        && (!('awakeAt' in changed()) || (!('awakeAt' in resource.data) && nearNow(request.resource.data.awakeAt) && awakeDayOk(request.resource.data) && request.resource.data.awakeSv == request.time));
+    }
+    match /system/wakeWatch {
+      allow read: if can('wake.supervise') || can('tracking.view');
+      allow write: if false;
+    }
+
+    // ======================= Phase 4 — customers & their links =======================
+    function missionPath(mid) { return /databases/$(database)/documents/missions/$(mid); }
+    // the driver of a line on `day` (today, or yesterday's evening past midnight)
+    function drivesLineOn(lid, day) {
+      let line = get(linePath(lid)).data;
+      let subToday = line.get('subDay', '') == day && line.get('subDriverId', '') != '';
+      return day is string && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && inDay(nowMs(), day, 10800000, 108000000)
+        && ((line.driverId == me().personId && !subToday)
+            || (line.get('subDriverId', '') == me().personId && line.get('subDay', '') == day));
+    }
+    // driver card shown to customers: photo (optional), name, code — and the car for airport trips
+    match /cards/{pid} {
+      allow get: if true;
+      allow list: if isStaff();
+      allow write: if can('drivers.manage') || can('vehicles.manage');
+    }
+    match /cardPhotos/{pid} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if can('drivers.manage');
+    }
+    // what every customer page may show (the operations phone)
+    match /public/{doc} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if can('settings.edit');
+    }
+    // ---- customer links ----
+    // The link is c/#TOKEN. Only the customer and the staff who send it know the token (custLinks/{h});
+    // lines, trips, drivers and HR only know h = sha256(token).
+    //   track/{h}  : the trip as the customer sees it — static part by staff, the car's status by its driver
+    //   live/{h}   : the car's place and the time left while it comes (only the customer's page reads it)
+    //   ans/{token}: the customer's own answers; the cloud alarm copies them to track/{h} for the driver,
+    //                turns "مش راكب" into excused/ and a rating into ratings/ (nobody else can write those)
+    function trackPath(h) { return /databases/$(database)/documents/track/$(h); }
+    function hashOf(tok) { return hashing.sha256(tok).toHexString().lower(); }
+    function staffTrack() { return can('lines.manage') || can('missions.manage') || can('airport.manage'); }
+    match /custLinks/{h} {
+      allow read, write: if staffTrack();
+    }
+    match /track/{h} {
+      // the car's side: status, a push for the customer (short texts)
+      function driverTrackOk() {
+        let d = request.resource.data;
+        return isDriver() && d.driverId == me().personId
+          && changed().hasOnly(['day', 'st', 'stAt', 'seq', 'driverId', 'pq', 'pqAt', 'note'])
+          && d.st in ['idle', 'near', 'arrived', 'picked', 'dropped', 'evening', 'done', 'noshow']
+          && d.seq is int && d.stAt is int
+          && (!('pq' in changed()) || (d.pq is map && d.pq.keys().hasOnly(['seq', 't', 'b']) && d.pq.t is string && d.pq.t.size() <= 120
+              && (!('b' in d.pq) || (d.pq.b is string && d.pq.b.size() <= 200))))
+          && (!('note' in changed()) || (d.note is string && d.note.size() <= 200))
+          && resource.data.get('st', '') != 'cancelled'
+          && (resource.data.kind == 'line'
+              ? drivesLineOn(resource.data.lineId, d.day)
+              : get(missionPath(resource.data.missionId)).data.driverId == me().personId);
+      }
+      allow get: if true;
+      allow list: if false;
+      allow create, delete: if staffTrack();
+      allow update: if staffTrack() || driverTrackOk();
+    }
+    match /live/{h} {
+      function liveOk() {
+        let d = request.resource.data;
+        return isDriver() && d.driverId == me().personId
+          && d.keys().hasOnly(['driverId', 'day', 'pos', 'eta', 'at'])
+          && (d.pos == null || (d.pos is map && d.pos.keys().hasOnly(['lat', 'lng', 'at']) && d.pos.lat is number && d.pos.lng is number))
+          && (d.eta == null || d.eta is int) && d.at is int
+          && get(trackPath(h)).data.get('driverId', '') == me().personId;
+      }
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if liveOk();
+      allow delete: if staffTrack();
+    }
+    match /ans/{tok} {
+      // whoever holds the link (no sign-in): typed, small, at most one write every 4 seconds
+      function ansOk(d) {
+        return d.keys().hasOnly(['h', 'ack', 'skips', 'fcm', 'fcmAt', 'cust', 'rate', 'rateDay', 'at', 'dirty'])
+          && d.h == hashOf(tok) && d.at == request.time && d.dirty == true
+          && (!('ack' in d) || (d.ack is map && d.ack.keys().hasOnly(['seq', 'at']) && d.ack.seq is int && d.ack.at is int))
+          && (!('skips' in d) || (d.skips is map && d.skips.size() <= 14))
+          && (!('fcm' in d) || (d.fcm is string && d.fcm.size() < 400))
+          && (!('fcmAt' in d) || d.fcmAt is int)
+          && (!('cust' in d) || (d.cust is map && d.cust.keys().hasOnly(['landed', 'out'])
+              && d.cust.get('landed', 0) is int && d.cust.get('out', 0) is int))
+          && (!('rateDay' in d) || (d.rateDay is string && d.rateDay.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+          && (!('rate' in d) || (d.rate is map && d.rate.keys().hasOnly(['day', 'stars', 'note'])
+              && d.rate.day is string && d.rate.day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+              && d.rate.stars is int && d.rate.stars >= 1 && d.rate.stars <= 5 && d.rate.note is string && d.rate.note.size() <= 300))
+          && exists(trackPath(d.h)) && get(trackPath(d.h)).data.get('st', '') != 'cancelled';
+      }
+      allow get: if true;
+      allow list: if false;
+      allow create: if tok.size() >= 20 && ansOk(request.resource.data);
+      allow update: if ansOk(request.resource.data) && request.time > resource.data.at + duration.value(4, 's');
+      allow delete: if staffTrack();
+    }
+    // "مش راكب" said by the customer himself (the cloud alarm writes it from his answers): {lineId, factoryId, day, month, c.{custId}: {at, n}}
+    match /excused/{eid} {
+      allow read: if staffDays() || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
+      allow write: if false;
+    }
+    // ratings are made by the cloud alarm from the customer's answer (ans.rate) after checking the ride happened
+    match /ratings/{rid} {
+      allow read: if can('reports.attendance') || can('reports.finance') || can('month.close') || can('tracking.view');
+      allow write: if false;
+    }
+
+    // ======================= Phase 5 — trips: expenses with the receipt =======================
+    match /expenses/{eid} {
+      function expOk(d) {
+        return d.keys().hasOnly(['driverId', 'missionId', 'lineId', 'day', 'month', 'kind', 'amount', 'note', 'photo', 'at', 'sv', 'status'])
+          && d.driverId == me().personId && d.status == 'pending' && d.kind in ['parking', 'toll', 'fuel', 'other']
+          && d.amount is number && d.amount > 0 && d.amount <= 100000
+          && d.note is string && d.note.size() <= 300
+          && (!('photo' in d) || (d.photo is string && d.photo.size() < 400000))
+          && d.day is string && d.month == monthOf(d.day) && d.sv == request.time;
+      }
+      allow read: if can('missions.manage') || can('times.correct') || can('advances.manage') || can('reports.finance') || can('prices.view')
+        || (isDriver() && resource.data.driverId == me().personId);
+      allow create: if isDriver() && expOk(request.resource.data);
+      allow update: if (can('missions.manage') || can('advances.manage'))
+        && changed().hasOnly(['status', 'decidedBy', 'decidedAt', 'decisionNote'])
+        && request.resource.data.status in ['approved', 'rejected', 'pending'];
+      allow delete: if false;
+    }
+    match /system/flightUsage {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // ======================= Phase 6 — factory portal, sheets, export =======================
+    // factory HR asks for a trip, an airport transfer or a change of its customers
+    match /requests/{qid} {
+      function reqStaff() { return can('missions.manage') || can('lines.manage') || can('airport.manage'); }
+      function isHr() { return isActive() && me().kind == 'hr'; }
+      allow read: if reqStaff() || (isHr() && resource.data.factoryId == me().factoryId);
+      allow create: if isHr()
+        && request.resource.data.factoryId == me().factoryId
+        && request.resource.data.by == me().personId
+        && request.resource.data.status == 'pending'
+        && request.resource.data.type in ['mission', 'airport', 'customer']
+        && request.resource.data.at == request.time
+        && request.resource.data.keys().hasOnly(['type', 'factoryId', 'by', 'byName', 'status', 'at', 'day', 'time', 'flightNo', 'dir',
+            'from', 'to', 'pax', 'notes', 'action', 'lineId', 'pointIdx', 'custId', 'cust'])
+        // a change of customers only on a line of its own factory
+        && (request.resource.data.type != 'customer'
+            || (request.resource.data.lineId is string && get(linePath(request.resource.data.lineId)).data.factoryId == me().factoryId));
+      allow update: if (reqStaff() && changed().hasOnly(['status', 'decidedBy', 'decidedAt', 'decisionNote', 'missionId'])
+            && request.resource.data.status in ['done', 'rejected', 'pending'])
+        || (isHr() && resource.data.factoryId == me().factoryId && resource.data.status == 'pending'
+            && changed().hasOnly(['status']) && request.resource.data.status == 'cancelled');
+      allow delete: if false;
+    }
+    // the factory's monthly sheet: HR sees it only after the GM approved it
+    match /sheets/{sid} {
+      allow read: if can('month.close') || can('reports.finance')
+        || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId && resource.data.status == 'approved');
+      // the GM approves (or withdraws) a factory's sheet
+      allow write: if can('all');
+    }
+    // exported periods are locked: later corrections are marked and listed in the next export
+    match /exports/{xid} {
+      allow read: if can('reports.finance') || can('month.close');
+      allow create: if (can('reports.finance') || can('month.close')) && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+    match /system/lock {
+      allow read: if isStaff();
+      allow write: if can('reports.finance') || can('month.close');
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
