@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-10T17:34Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-11T00:38Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -281,6 +281,276 @@
 })(typeof self !== 'undefined' ? self : globalThis);
 
 /* ==========================================================================
+   Fleet core — trip orders (أمر الشغل), maintenance by kilometres, document
+   expiry and the WhatsApp texts. Pure logic shared by the Control Tower, the
+   driver app and the cloud alarm (the worker inlines this file). No DOM.
+   ========================================================================== */
+(function (root) {
+  'use strict';
+  const FL = {};
+
+  /* ---------- maintenance plan (the GM's numbers — editable from the Control Tower) ---------- */
+  // km: per model (null = not for that model). check: an inspection item on every oil change.
+  FL.MODELS = [{ id: 'corolla', name: 'تويوتا كورولا' }, { id: 'elantra', name: 'هيونداي إلنترا' }];
+  FL.PARTS = [
+    { k: 'oil', n: 'زيت الموتور', km: { corolla: 9000, elantra: 9000 } },
+    { k: 'airf', n: 'فلتر الهوا', km: { corolla: 30000, elantra: 30000 } },
+    { k: 'gearoil', n: 'زيت الفتيس', km: { corolla: 40000, elantra: 80000 } },
+    { k: 'gearf', n: 'فلتر الفتيس الداخلي', km: { corolla: 80000, elantra: null }, note: 'مرة زيت بس، ومرة زيت + فلتر' },
+    { k: 'belt', n: 'سير الدينامو', km: { corolla: 80000, elantra: 80000 } },
+    { k: 'plugs', n: 'البوجيهات', km: { corolla: 80000, elantra: 80000 } },
+    { k: 'fuelf', n: 'فلتر البنزين', km: { corolla: 80000, elantra: 80000 } },
+    { k: 'tires', n: 'الكاوتش', km: { corolla: 120000, elantra: 120000 }, checkKm: 100000, months: 18 },
+    { k: 'coolant', n: 'مياه التبريد', yearly: '05-01' }
+  ];
+  FL.CHECKS = ['افحص فلتر التكييف', 'افحص تيل الفرامل'];
+  FL.SOON_KM = 500;
+
+  /** The plan with the GM's changes (settings.maintPlan = { partKey: { corolla, elantra, checkKm, months, yearly } }). */
+  FL.plan = function (settings) {
+    const over = (settings && settings.maintPlan) || {};
+    return FL.PARTS.map(p => {
+      const o = over[p.k] || {}, km = Object.assign({}, p.km || {});
+      FL.MODELS.forEach(m => { if (o[m.id] !== undefined) km[m.id] = o[m.id] === null || o[m.id] === '' ? null : Number(o[m.id]); });
+      return Object.assign({}, p, { km: p.km ? km : undefined, checkKm: o.checkKm !== undefined ? Number(o.checkKm) || null : p.checkKm, months: o.months !== undefined ? Number(o.months) || null : p.months, yearly: o.yearly !== undefined ? o.yearly : p.yearly });
+    });
+  };
+  const dayMs = d => Date.parse(d + 'T00:00:00Z');
+  const addMonths = (d, n) => { const [y, m, dd] = d.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + n, dd)); return t.toISOString().slice(0, 10); };
+  FL.daysBetween = (a, b) => Math.round((dayMs(b) - dayMs(a)) / 86400000);
+
+  /**
+   * Every part of a car: when it is due and how it stands.
+   * stage: 'ok' | 'soon' (≤ 500 km / 2 weeks) | 'check' (tyres: look at them) | 'due' | 'unknown' (no last change recorded)
+   */
+  FL.status = function (car, plan, today) {
+    const model = car && car.model, odo = Number(car && car.odo) || 0, maint = (car && car.maint) || {};
+    return plan.filter(p => p.yearly || (p.km && p.km[model])).map(p => {
+      const last = maint[p.k] || null, row = { k: p.k, n: p.n, note: p.note || '', last, stage: 'unknown', left: null, next: null, nextDay: null };
+      if (p.yearly) {
+        // every year before the summer: done in the two months before the date (or after it) counts for that year
+        const y = Number(today.slice(0, 4)), T = `${y}-${p.yearly}`;
+        const D = today >= T ? T : `${y - 1}-${p.yearly}`, N = today >= T ? `${y + 1}-${p.yearly}` : T;
+        row.nextDay = N;
+        if (!last || !last.day) row.stage = 'unknown';
+        else if (last.day >= addMonths(D, -2)) row.stage = FL.daysBetween(today, N) <= 14 ? 'soon' : 'ok';
+        else { row.stage = 'due'; row.nextDay = D; }
+        row.left = FL.daysBetween(today, row.nextDay);
+        return row;
+      }
+      const every = p.km[model];
+      if (!last || !isFinite(last.odo)) return Object.assign(row, { every });
+      row.every = every; row.next = last.odo + every; row.left = row.next - odo;
+      row.stage = row.left <= 0 ? 'due' : row.left <= FL.SOON_KM ? 'soon' : 'ok';
+      if (p.checkKm && row.stage === 'ok' && odo - last.odo >= p.checkKm) row.stage = 'check';
+      if (p.months && last.day) {
+        row.nextDay = addMonths(last.day, p.months);
+        const dl = FL.daysBetween(today, row.nextDay);
+        if (dl <= 0) row.stage = 'due'; else if (dl <= 14 && row.stage === 'ok') row.stage = 'soon';
+      }
+      return row;
+    });
+  };
+  FL.STAGE = { ok: ['تمام', 'st-ok'], soon: ['قرّب', 'st-warn'], check: ['افحصه', 'st-warn'], due: ['لازم يتغير', 'st-danger'], unknown: ['مش متسجل', 'st-off'] };
+
+  /** A typed odometer reading: '' when fine, otherwise the reason (the app asks before saving). */
+  FL.odoProblem = function (lastOdo, lastDay, before, after, day) {
+    const b = Number(before) || 0, a = Number(after) || 0, L = Number(lastOdo) || 0;
+    if (b && a && a < b) return 'العداد بعد المشوار أقل من قبله';
+    if (L && b && b < L) return `العداد ${b} أقل من آخر قراءة للعربية (${L})`;
+    if (b && a && a - b > 1500) return `المشوار ${a - b} كيلو — رقم كبير جداً`;
+    if (L && b && lastDay && day) {
+      const days = Math.max(1, FL.daysBetween(lastDay, day) + 1);
+      if (b - L > 1500 * days) return `العداد زاد ${b - L} كيلو من آخر قراءة — رقم مش منطقي`;
+    }
+    return '';
+  };
+
+  /* ---------- WhatsApp texts (same shape as the old program) ---------- */
+  FL.ORD = ['الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس', 'السابع', 'الثامن', 'التاسع', 'العاشر', 'الحادي عشر'];
+  const hm12 = t => { if (!t || !/^\d{1,2}:\d{2}/.test(t)) return t || '-'; let [h, m] = t.split(':').map(Number); const per = h >= 12 ? 'مساءً' : 'صباحاً'; h = h % 12 || 12; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} ${per}`; };
+  FL.hm12 = hm12;
+  /** The driver's report of his trips to the car's group. */
+  FL.tripMessage = function (carName, trips) {
+    let msg = '*أمر شغل - Three Pyramids Travel*\n--------------------------\n';
+    msg += `العربية: ${carName}\n--------------------------\n`;
+    trips.forEach((t, i) => {
+      msg += `${i > 0 ? '\n' : ''}\n*مشوار ${i + 1}*\n`;
+      msg += `التاريخ: ${t.day || '-'} | وقت التحرك: *${t.time ? hm12(t.time) : '-'}*\n`;
+      msg += `المأمورية: ${t.task || '-'}\n`;
+      msg += `العداد قبل: ${t.before || '-'} | العداد بعد: ${t.after || '-'}\n`;
+      msg += `المصروف: ${Number(t.expense) || 0} جنيه${t.expNote ? ' (' + t.expNote + ')' : ''}\n`;
+    });
+    msg += '\n--------------------------\nملحوظة: صور العدادات يتم إرسالها كمرفقات في نفس محادثة الجروب بعد اللصق';
+    return msg;
+  };
+  /** Operations' schedule of a car's trips to its group. */
+  FL.scheduleMessage = function (carName, items) {
+    let msg = '*تعليمات مدير التشغيل - Three Pyramids Travel*\n--------------------------\n';
+    msg += `العربية: ${carName}\n--------------------------\n`;
+    items.forEach((m, i) => {
+      if (i > 0) msg += '\n➖➖➖➖➖➖➖➖➖➖\n\n';
+      msg += `\n*المشوار ${FL.ORD[i] || i + 1}*\n`;
+      const f = [['المشوار', m.when], ['وقت الوصول', `*${m.time ? hm12(m.time) : '-'}*`], ['نوع المشوار', m.type], ['من', m.from || '-'], ['إلى', m.to || '-']];
+      if (m.flight) f.push(['رقم الرحلة', `*${m.flight}*`]);
+      if (m.terminal) f.push(['رقم الصالة', `*${m.terminal}*`]);
+      f.push(['اسم العميل', m.client || '-'], ['رقم العميل', m.phone || '-'], ['اسم المصنع', m.factory || '-'], ['ملاحظات', m.notes ? `*${m.notes}*` : '-']);
+      f.forEach((x, j) => { msg += `*${j + 1}.* ${x[0]}: ${x[1]}\n`; });
+    });
+    return msg + '\n--------------------------';
+  };
+
+  /** Document expiry: 'expired' | 'soon' (within `warnDays`) | 'ok' | 'none'. */
+  FL.docStage = (day, today, warnDays) => { if (!day) return 'none'; const d = FL.daysBetween(today, day); return d < 0 ? 'expired' : d <= (warnDays || 30) ? 'soon' : 'ok'; };
+  /** Net salary of a month document. */
+  FL.salaryNet = s => { const sum = o => Object.values(o || {}).reduce((a, x) => a + (Number(x && x.amount) || 0), 0); const base = Number(s && s.base) || 0, ex = sum(s && s.extra), de = sum(s && s.ded); return { base, extra: Math.round(ex * 100) / 100, ded: Math.round(de * 100) / 100, net: Math.round((base + ex - de) * 100) / 100 }; };
+
+  root.TPFleet = FL;
+  if (root.TP) root.TP.fleet = FL;
+})(typeof self !== 'undefined' ? self : globalThis);
+
+/* ==========================================================================
+   Guests' languages — the customer page and the ready messages to guests.
+   ar (default) · en · de · fr · ru · zh · ko
+   Pure data + small helpers: used by the customer page, the Control Tower,
+   the driver app and the cloud alarm (inlined there). No DOM.
+   ========================================================================== */
+(function (root) {
+  'use strict';
+  const LANGS = [
+    { id: 'ar', name: 'العربية', dir: 'rtl', loc: 'ar-EG-u-nu-latn' },
+    { id: 'en', name: 'English', dir: 'ltr', loc: 'en-GB' },
+    { id: 'de', name: 'Deutsch', dir: 'ltr', loc: 'de-DE' },
+    { id: 'fr', name: 'Français', dir: 'ltr', loc: 'fr-FR' },
+    { id: 'ru', name: 'Русский', dir: 'ltr', loc: 'ru-RU' },
+    { id: 'zh', name: '中文', dir: 'ltr', loc: 'zh-CN' },
+    { id: 'ko', name: '한국어', dir: 'ltr', loc: 'ko-KR' }
+  ];
+  // [ar, en, de, fr, ru, zh, ko]
+  const T = {
+    hello: ['أهلاً {n} 👋', 'Hello {n} 👋', 'Hallo {n} 👋', 'Bonjour {n} 👋', 'Здравствуйте, {n} 👋', '{n}，您好 👋', '{n}님, 안녕하세요 👋'],
+    yourRide: ['مشوارك', 'Your ride', 'Ihre Fahrt', 'Votre trajet', 'Ваша поездка', '您的行程', '고객님의 이동'],
+    st_near: ['العربية في الطريق ليك', 'Your car is on the way', 'Ihr Fahrzeug ist unterwegs', 'Votre voiture est en route', 'Машина уже едет к вам', '车辆正在前往接您', '차량이 고객님께 가고 있습니다'],
+    st_arrived: ['العربية وصلت وجاهزة', 'Your car has arrived', 'Ihr Fahrzeug ist angekommen', 'Votre voiture est arrivée', 'Машина прибыла', '车辆已到达', '차량이 도착했습니다'],
+    st_arrivedAir: ['السواق وصل المطار ومستنيك', 'Your driver is at the airport waiting for you', 'Ihr Fahrer wartet am Flughafen auf Sie', "Votre chauffeur vous attend à l'aéroport", 'Водитель ждёт вас в аэропорту', '司机已在机场等候您', '기사님이 공항에서 기다리고 있습니다'],
+    st_picked: ['رحلة سعيدة', 'Have a pleasant ride', 'Gute Fahrt', 'Bon trajet', 'Приятной поездки', '祝您旅途愉快', '즐거운 이동 되세요'],
+    st_dropped: ['وصلت بالسلامة', 'You have arrived safely', 'Sie sind sicher angekommen', 'Vous êtes bien arrivé(e)', 'Вы благополучно прибыли', '您已安全抵达', '안전하게 도착하셨습니다'],
+    st_evening: ['العربية مستنياك للرجوع', 'Your car is waiting to take you back', 'Ihr Fahrzeug wartet für die Rückfahrt', 'Votre voiture vous attend pour le retour', 'Машина ждёт вас для обратной поездки', '车辆正在等候接您返回', '복귀 차량이 기다리고 있습니다'],
+    st_done: ['الرحلة خلصت', 'Your ride is complete', 'Ihre Fahrt ist beendet', 'Votre trajet est terminé', 'Поездка завершена', '行程已结束', '이동이 완료되었습니다'],
+    st_skip: ['مسجلين إنك مش راكب النهارده', "We know you're not riding today", 'Sie fahren heute nicht mit — notiert', "C'est noté : vous ne venez pas aujourd'hui", 'Отмечено: сегодня вы не едете', '已记录：您今天不乘车', '오늘은 탑승하지 않으시는 것으로 기록했습니다'],
+    st_noshow: ['العربية استنتك ومشيت', 'The car waited for you and has left', 'Das Fahrzeug hat gewartet und ist abgefahren', 'La voiture vous a attendu puis est repartie', 'Машина ждала вас и уехала', '车辆已等候并已离开', '차량이 기다리다가 출발했습니다'],
+    st_cancelled: ['المشوار ده اتلغى', 'This ride has been cancelled', 'Diese Fahrt wurde storniert', 'Ce trajet a été annulé', 'Эта поездка отменена', '此行程已取消', '이 이동은 취소되었습니다'],
+    st_idleLine: ['لما العربية تتحرك ليك هيوصلك إشعار هنا', "You'll be notified here when the car sets off to you", 'Sie werden hier benachrichtigt, sobald das Fahrzeug losfährt', 'Vous serez prévenu(e) ici dès que la voiture partira vers vous', 'Здесь появится уведомление, когда машина выедет к вам', '车辆出发时您会在这里收到通知', '차량이 출발하면 여기에서 알려 드립니다'],
+    eta: ['هتوصلك في حوالي', 'Arriving in about', 'Ankunft in etwa', 'Arrivée dans environ', 'Прибудет примерно через', '预计到达还需约', '도착까지 약'],
+    min1: ['دقيقة', '1 minute', '1 Minute', '1 minute', '1 минуту', '1 分钟', '1분'],
+    mins: ['{n} دقيقة', '{n} minutes', '{n} Minuten', '{n} minutes', '{n} мин', '{n} 分钟', '{n}분'],
+    updated: ['آخر تحديث من {n} دقيقة', 'Updated {n} min ago', 'Aktualisiert vor {n} Min.', 'Mis à jour il y a {n} min', 'Обновлено {n} мин назад', '{n} 分钟前更新', '{n}분 전 업데이트'],
+    card: ['كارنيه الشركة', 'Company ID', 'Firmenausweis', 'Carte de la société', 'Удостоверение компании', '公司证件', '회사 신분증'],
+    code: ['كود {n}', 'ID {n}', 'Nr. {n}', 'N° {n}', '№ {n}', '编号 {n}', '번호 {n}'],
+    sound: ['🔔 دوس هنا علشان صوت "العربية وصلت" يشتغل', '🔔 Tap here to turn on the "car has arrived" sound', '🔔 Hier tippen, um den Ton „Fahrzeug angekommen" einzuschalten', '🔔 Touchez ici pour activer le son « voiture arrivée »', '🔔 Нажмите, чтобы включить звук «машина прибыла»', '🔔 点击此处开启"车辆已到达"提示音', '🔔 "차량 도착" 알림음을 켜려면 여기를 누르세요'],
+    landed: ['✈ نزلت من الطيارة', "✈ I've landed", '✈ Ich bin gelandet', "✈ J'ai atterri", '✈ Я приземлился(-ась)', '✈ 我已落地', '✈ 착륙했습니다'],
+    out: ['🧳 خلصت الجوازات والشنط وطالع', "🧳 Passport & bags done — I'm coming out", '🧳 Pass & Gepäck erledigt — ich komme raus', '🧳 Passeport et bagages OK — je sors', '🧳 Паспорт и багаж готовы — выхожу', '🧳 入境和行李已办完，正在出来', '🧳 입국 심사와 짐 찾기 완료 — 나가는 중입니다'],
+    landedOk: ['السواق هيعرف إنك نزلت ✓', 'Your driver knows you have landed ✓', 'Ihr Fahrer weiß, dass Sie gelandet sind ✓', 'Votre chauffeur sait que vous avez atterri ✓', 'Водитель знает, что вы приземлились ✓', '司机已知道您落地 ✓', '기사님께 착륙 사실을 알렸습니다 ✓'],
+    outOk: ['السواق هيعرف إنك طالع ✓', 'Your driver knows you are coming out ✓', 'Ihr Fahrer weiß, dass Sie herauskommen ✓', 'Votre chauffeur sait que vous sortez ✓', 'Водитель знает, что вы выходите ✓', '司机已知道您正在出来 ✓', '기사님께 나가는 중이라고 알렸습니다 ✓'],
+    told: ['السواق هيعرف ✓', 'Your driver has been told ✓', 'Ihr Fahrer wurde informiert ✓', 'Votre chauffeur est prévenu ✓', 'Водитель предупреждён ✓', '已通知司机 ✓', '기사님께 알렸습니다 ✓'],
+    rateQ: ['إيه رأيك في المشوار؟', 'How was your ride?', 'Wie war Ihre Fahrt?', 'Comment était votre trajet ?', 'Как прошла поездка?', '您对本次行程满意吗？', '이동은 어떠셨나요?'],
+    rateNote: ['ملاحظة (اختياري)', 'Comment (optional)', 'Kommentar (optional)', 'Commentaire (facultatif)', 'Комментарий (необязательно)', '备注（可选）', '의견 (선택)'],
+    rateSend: ['ابعت التقييم', 'Send rating', 'Bewertung senden', 'Envoyer la note', 'Отправить оценку', '提交评价', '평가 보내기'],
+    rateThanks: ['شكراً على تقييمك 🌟', 'Thank you for your rating 🌟', 'Danke für Ihre Bewertung 🌟', 'Merci pour votre note 🌟', 'Спасибо за оценку 🌟', '感谢您的评价 🌟', '평가해 주셔서 감사합니다 🌟'],
+    pickStars: ['اختار عدد النجوم', 'Please choose the stars', 'Bitte Sterne wählen', 'Choisissez les étoiles', 'Выберите количество звёзд', '请选择星级', '별점을 선택해 주세요'],
+    pushBanner: ['فعّل الإشعارات علشان يوصلك لما العربية تقرب وتوصل حتى والصفحة مقفولة', 'Turn on notifications to know when your car is near and arrives — even with this page closed', 'Aktivieren Sie Benachrichtigungen, um zu erfahren, wann Ihr Fahrzeug naht und ankommt — auch bei geschlossener Seite', "Activez les notifications pour savoir quand votre voiture approche et arrive — même page fermée", 'Включите уведомления, чтобы узнать, когда машина подъезжает и прибывает — даже при закрытой странице', '开启通知，即使关闭页面也能知道车辆何时接近和到达', '페이지를 닫아도 차량이 가까워지거나 도착하면 알림을 받으려면 알림을 켜세요'],
+    pushOn: ['فعّل', 'Turn on', 'Aktivieren', 'Activer', 'Включить', '开启', '켜기'],
+    pushOk: ['الإشعارات اتفعلت ✓', 'Notifications are on ✓', 'Benachrichtigungen sind aktiv ✓', 'Notifications activées ✓', 'Уведомления включены ✓', '通知已开启 ✓', '알림이 켜졌습니다 ✓'],
+    pushFail: ['مقدرناش نفعّل الإشعارات — اسمح بيها من إعدادات المتصفح', 'Could not turn on notifications — please allow them in your browser settings', 'Benachrichtigungen konnten nicht aktiviert werden — bitte in den Browsereinstellungen erlauben', "Impossible d'activer les notifications — autorisez-les dans les réglages du navigateur", 'Не удалось включить уведомления — разрешите их в настройках браузера', '无法开启通知 — 请在浏览器设置中允许', '알림을 켤 수 없습니다 — 브라우저 설정에서 허용해 주세요'],
+    pushNo: ['الموبايل ده مش بيدعم الإشعارات — خلي الصفحة مفتوحة', "This phone doesn't support notifications — please keep this page open", 'Dieses Telefon unterstützt keine Benachrichtigungen — bitte Seite geöffnet lassen', 'Ce téléphone ne prend pas en charge les notifications — gardez cette page ouverte', 'Этот телефон не поддерживает уведомления — держите страницу открытой', '此手机不支持通知 — 请保持此页面打开', '이 휴대폰은 알림을 지원하지 않습니다 — 이 페이지를 열어 두세요'],
+    pushIos: ['، أو ضيفها للشاشة الرئيسية (مشاركة ← Add to Home Screen) وافتحها من هناك', ', or add it to your Home Screen (Share → Add to Home Screen) and open it from there', ' oder zum Home-Bildschirm hinzufügen (Teilen → Zum Home-Bildschirm) und dort öffnen', " ou ajoutez-la à l'écran d'accueil (Partager → Sur l'écran d'accueil) et ouvrez-la depuis là", ' или добавьте её на экран «Домой» (Поделиться → На экран «Домой») и откройте оттуда', '，或添加到主屏幕（分享 → 添加到主屏幕）后从那里打开', ' 또는 홈 화면에 추가(공유 → 홈 화면에 추가)한 뒤 그곳에서 여세요'],
+    call: ['كلّم الشركة', 'Call the company', 'Firma anrufen', "Appeler l'agence", 'Позвонить в компанию', '致电公司', '회사에 전화'],
+    emergency: ['🆘 طوارئ — كلّم الشركة على واتساب', '🆘 Emergency — WhatsApp the company', '🆘 Notfall — Firma per WhatsApp', "🆘 Urgence — WhatsApp à l'agence", '🆘 Экстренно — WhatsApp компании', '🆘 紧急情况 — 通过 WhatsApp 联系公司', '🆘 긴급 — 회사에 WhatsApp 보내기'],
+    emergencyMsg: ['طوارئ — أنا {n}{f}. محتاج مساعدة من فضلك.', 'Emergency — this is {n}{f}. I need help, please.', 'Notfall — hier ist {n}{f}. Ich brauche bitte Hilfe.', "Urgence — ici {n}{f}. J'ai besoin d'aide, s'il vous plaît.", 'Экстренно — это {n}{f}. Мне нужна помощь.', '紧急情况 — 我是 {n}{f}，需要帮助。', '긴급 — {n}{f}입니다. 도움이 필요합니다.'],
+    flightTag: [' — رحلة {f}', ', flight {f}', ', Flug {f}', ', vol {f}', ', рейс {f}', '，航班 {f}', ', 항공편 {f}'],
+    okComing: ['تمام، جاي', "OK, I'm coming", 'OK, ich komme', "D'accord, j'arrive", 'Хорошо, иду', '好的，我马上来', '네, 지금 갑니다'],
+    withSign: ['صالة {t} — معاه لافتة باسمك', 'Terminal {t} — holding a sign with your name', 'Terminal {t} — mit einem Schild mit Ihrem Namen', 'Terminal {t} — avec une pancarte à votre nom', 'Терминал {t} — с табличкой с вашим именем', '{t} 号航站楼 — 手持写有您名字的接机牌', '{t} 터미널 — 고객님 성함이 적힌 피켓을 들고 있습니다'],
+    signWait: ['السواق مستنيك قدام صالة الوصول', 'Your driver is waiting for you in front of the arrivals hall', 'Ihr Fahrer wartet vor der Ankunftshalle auf Sie', 'Votre chauffeur vous attend devant le hall des arrivées', 'Водитель ждёт вас у зала прилёта', '您的司机正在到达大厅前等候您', '기사님이 도착 홀 앞에서 기다리고 있습니다'],
+    meet: ['مكان المقابلة', 'Where to meet your driver', 'Treffpunkt mit Ihrem Fahrer', 'Où retrouver votre chauffeur', 'Где встретить водителя', '与司机会面的地点', '기사님을 만나는 장소'],
+    delayed: ['الطيارة متأخرة {n} دقيقة — السواق عارف وهيستناك', 'Your flight is delayed by {n} min — your driver knows and will wait for you', 'Ihr Flug hat {n} Min. Verspätung — Ihr Fahrer weiß Bescheid und wartet auf Sie', 'Votre vol a {n} min de retard — votre chauffeur est informé et vous attendra', 'Ваш рейс задерживается на {n} мин — водитель знает и подождёт вас', '您的航班延误 {n} 分钟 — 司机已知悉并会等候您', '항공편이 {n}분 지연됩니다 — 기사님이 알고 있으며 기다릴 예정입니다'],
+    delayedDep: ['الطيارة اتأخرت — ميعاد العربية بقى {t}', 'Your flight is delayed — your pickup is now at {t}', 'Ihr Flug ist verspätet — Abholung jetzt um {t}', 'Votre vol est retardé — prise en charge désormais à {t}', 'Рейс задерживается — машина подъедет в {t}', '航班延误 — 接您的时间改为 {t}', '항공편이 지연되어 픽업 시간이 {t}(으)로 변경되었습니다'],
+    landing: ['الهبوط', 'Landing', 'Landung', 'Atterrissage', 'Посадка', '降落', '착륙'],
+    takeoff: ['الإقلاع', 'Departure', 'Abflug', 'Décollage', 'Вылет', '起飞', '출발'],
+    from: ['جاية من', 'from', 'aus', 'en provenance de', 'из', '来自', '출발지:'],
+    to: ['رايحة', 'to', 'nach', 'à destination de', 'в', '前往', '도착지:'],
+    terminal: ['صالة', 'Terminal', 'Terminal', 'Terminal', 'Терминал', '航站楼', '터미널'],
+    flightData: ['بيانات الرحلات: AeroDataBox', 'Flight data: AeroDataBox', 'Flugdaten: AeroDataBox', 'Données de vol : AeroDataBox', 'Данные о рейсах: AeroDataBox', '航班数据：AeroDataBox', '항공편 정보: AeroDataBox'],
+    pickupAt: ['ميعاد العربية', 'Pickup time', 'Abholzeit', 'Heure de prise en charge', 'Время подачи', '接送时间', '픽업 시간'],
+    linkMissing: ['اللينك ناقص', 'This link is incomplete', 'Dieser Link ist unvollständig', 'Ce lien est incomplet', 'Ссылка неполная', '链接不完整', '링크가 완전하지 않습니다'],
+    linkMissing2: ['افتح اللينك اللي وصلك على الواتساب زي ما هو.', 'Please open the link you received on WhatsApp exactly as it is.', 'Bitte öffnen Sie den per WhatsApp erhaltenen Link unverändert.', 'Ouvrez le lien reçu sur WhatsApp tel quel.', 'Откройте ссылку из WhatsApp без изменений.', '请按原样打开您在 WhatsApp 收到的链接。', 'WhatsApp으로 받은 링크를 그대로 열어 주세요.'],
+    linkDead: ['اللينك ده مش شغال', 'This link is not active', 'Dieser Link ist nicht aktiv', "Ce lien n'est pas actif", 'Ссылка неактивна', '此链接已失效', '이 링크는 사용할 수 없습니다'],
+    linkDead2: ['يمكن المشوار اتلغى أو اللينك اتغيّر. كلّم الشركة.', 'The ride may have been cancelled or the link changed. Please contact the company.', 'Die Fahrt wurde evtl. storniert oder der Link geändert. Bitte kontaktieren Sie die Firma.', "Le trajet a peut-être été annulé ou le lien modifié. Contactez l'agence.", 'Возможно, поездку отменили или ссылка изменилась. Свяжитесь с компанией.', '行程可能已取消或链接已更改，请联系公司。', '이동이 취소되었거나 링크가 변경되었을 수 있습니다. 회사에 문의해 주세요.'],
+    noNet: ['مفيش اتصال', 'No connection', 'Keine Verbindung', 'Pas de connexion', 'Нет соединения', '无网络连接', '연결 없음'],
+    noNet2: ['اتأكد من الإنترنت وافتح اللينك تاني.', 'Please check your internet and open the link again.', 'Bitte Internet prüfen und Link erneut öffnen.', 'Vérifiez votre connexion et rouvrez le lien.', 'Проверьте интернет и откройте ссылку снова.', '请检查网络后重新打开链接。', '인터넷 연결을 확인한 뒤 링크를 다시 열어 주세요.'],
+    onlyYou: ['اللينك ده ليك انت بس — متبعتهوش لحد', 'This link is for you only — please do not share it', 'Dieser Link ist nur für Sie — bitte nicht weitergeben', 'Ce lien est personnel — merci de ne pas le partager', 'Эта ссылка только для вас — не передавайте её', '此链接仅供您本人使用，请勿转发', '이 링크는 고객님 전용입니다 — 공유하지 마세요'],
+    lang: ['اللغة', 'Language', 'Sprache', 'Langue', 'Язык', '语言', '언어'],
+    // ready messages (WhatsApp, sent by the staff or the driver with one tap)
+    msgWelcome: ['أهلاً {n} 👋\nأهلاً بيك في مصر! معاك Three Pyramids Travel، وإحنا مسئولين عنك من أول ما توصل.\nرحلتك: {f}\nالسواق: {d}\nتابع عربيتك من هنا: {link}',
+      'Hello {n} 👋\nWelcome to Egypt! This is Three Pyramids Travel — we will take care of you from the moment you arrive.\nYour flight: {f}\nYour driver: {d}\nFollow your car here: {link}',
+      'Hallo {n} 👋\nWillkommen in Ägypten! Hier ist Three Pyramids Travel — ab Ihrer Ankunft kümmern wir uns um Sie.\nIhr Flug: {f}\nIhr Fahrer: {d}\nVerfolgen Sie Ihr Fahrzeug hier: {link}',
+      'Bonjour {n} 👋\nBienvenue en Égypte ! Ici Three Pyramids Travel — nous prenons soin de vous dès votre arrivée.\nVotre vol : {f}\nVotre chauffeur : {d}\nSuivez votre voiture ici : {link}',
+      'Здравствуйте, {n} 👋\nДобро пожаловать в Египет! Это Three Pyramids Travel — мы позаботимся о вас с момента прилёта.\nВаш рейс: {f}\nВаш водитель: {d}\nСледите за машиной здесь: {link}',
+      '{n}，您好 👋\n欢迎来到埃及！我们是 Three Pyramids Travel，从您抵达的那一刻起由我们负责照顾您。\n您的航班：{f}\n您的司机：{d}\n在此查看车辆位置：{link}',
+      '{n}님, 안녕하세요 👋\n이집트에 오신 것을 환영합니다! Three Pyramids Travel입니다. 도착하시는 순간부터 저희가 모시겠습니다.\n항공편: {f}\n기사: {d}\n차량 위치 확인: {link}'],
+    msgPickup: ['أهلاً {n} 👋\nمعاك Three Pyramids Travel. السواق {d} هيكون عندك {w}.\nتابع عربيتك من هنا: {link}',
+      'Hello {n} 👋\nThis is Three Pyramids Travel. Your driver {d} will pick you up {w}.\nFollow your car here: {link}',
+      'Hallo {n} 👋\nHier ist Three Pyramids Travel. Ihr Fahrer {d} holt Sie {w} ab.\nVerfolgen Sie Ihr Fahrzeug hier: {link}',
+      'Bonjour {n} 👋\nIci Three Pyramids Travel. Votre chauffeur {d} viendra vous chercher {w}.\nSuivez votre voiture ici : {link}',
+      'Здравствуйте, {n} 👋\nЭто Three Pyramids Travel. Ваш водитель {d} заберёт вас {w}.\nСледите за машиной здесь: {link}',
+      '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
+      '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
+    msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', 'Your driver {d} is waiting for you in front of the arrivals hall{t}, holding a sign with your name.', 'Ihr Fahrer {d} wartet vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.', "Votre chauffeur {d} vous attend devant le hall des arrivées{t} avec une pancarte à votre nom.", 'Водитель {d} ждёт вас у зала прилёта{t} с табличкой с вашим именем.', '您的司机 {d} 正在到达大厅前{t}等候，手持写有您名字的接机牌。', '기사 {d}님이 도착 홀 앞{t}에서 고객님 성함이 적힌 피켓을 들고 기다리고 있습니다.'],
+    msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', 'Your flight {f} is delayed — your driver {d} knows and will wait for you. No need to do anything.', 'Ihr Flug {f} ist verspätet — Ihr Fahrer {d} weiß Bescheid und wartet. Sie müssen nichts tun.', "Votre vol {f} est retardé — votre chauffeur {d} est informé et vous attendra. Rien à faire de votre côté.", 'Ваш рейс {f} задерживается — водитель {d} знает и подождёт. Ничего делать не нужно.', '您的航班 {f} 延误 — 司机 {d} 已知悉并会等候您，您无需做任何事。', '항공편 {f}이(가) 지연되었습니다 — 기사 {d}님이 알고 기다릴 예정이니 따로 하실 일은 없습니다.'],
+    termTag: [' (صالة {t})', ' (Terminal {t})', ' (Terminal {t})', ' (Terminal {t})', ' (терминал {t})', '（{t} 号航站楼）', ' ({t} 터미널)']
+  };
+  const STATUS = {
+    Expected: 'ontime', Scheduled: 'ontime', CheckIn: 'checkin', Boarding: 'boarding', GateClosed: 'gate', Departed: 'departed', EnRoute: 'air', Approaching: 'approaching',
+    Arrived: 'landed', Landed: 'landed', Delayed: 'delayed', Canceled: 'cancelled', CanceledUncertain: 'maybe', Diverted: 'diverted', Unknown: 'unknown'
+  };
+  const ST = {
+    ontime: ['في ميعادها', 'On time', 'Pünktlich', "À l'heure", 'По расписанию', '准点', '정시'],
+    checkin: ['بدأ تسجيل الركاب', 'Check-in open', 'Check-in geöffnet', 'Enregistrement ouvert', 'Идёт регистрация', '正在值机', '체크인 중'],
+    boarding: ['الركاب بيطلعوا', 'Boarding', 'Boarding', 'Embarquement', 'Посадка', '正在登机', '탑승 중'],
+    gate: ['البوابة اتقفلت', 'Gate closed', 'Gate geschlossen', 'Porte fermée', 'Выход закрыт', '登机口已关闭', '탑승구 마감'],
+    departed: ['طارت', 'Departed', 'Abgeflogen', 'Parti', 'Вылетел', '已起飞', '출발함'],
+    air: ['في الجو', 'In the air', 'In der Luft', 'En vol', 'В полёте', '飞行中', '비행 중'],
+    approaching: ['بتقرّب', 'Approaching', 'Im Anflug', 'En approche', 'Заходит на посадку', '即将到达', '접근 중'],
+    landed: ['هبطت', 'Landed', 'Gelandet', 'Atterri', 'Приземлился', '已降落', '착륙함'],
+    delayed: ['متأخرة', 'Delayed', 'Verspätet', 'Retardé', 'Задерживается', '延误', '지연'],
+    cancelled: ['اتلغت', 'Cancelled', 'Annulliert', 'Annulé', 'Отменён', '已取消', '취소됨'],
+    maybe: ['ممكن تكون اتلغت', 'May be cancelled', 'Evtl. annulliert', 'Peut-être annulé', 'Возможно, отменён', '可能取消', '취소 가능성'],
+    diverted: ['اتحولت لمطار تاني', 'Diverted', 'Umgeleitet', 'Dérouté', 'Перенаправлен', '已备降', '회항'],
+    unknown: ['مش معروف', 'Unknown', 'Unbekannt', 'Inconnu', 'Неизвестно', '未知', '알 수 없음']
+  };
+  const idx = l => Math.max(0, LANGS.findIndex(x => x.id === l));
+  const I = {
+    LANGS,
+    ok: l => LANGS.some(x => x.id === l),
+    info: l => LANGS[idx(l)],
+    /** text in a language, with {n}-style values */
+    t(l, key, vars) {
+      const row = T[key]; if (!row) return key;
+      let s = row[idx(l)] || row[0];
+      Object.keys(vars || {}).forEach(k => { s = s.split('{' + k + '}').join(String(vars[k] ?? '')); });
+      return s;
+    },
+    flightStatus: (l, s) => { const k = STATUS[s]; return k ? ST[k][idx(l)] : (s || ''); },
+    /** time / day in the guest's language, in Cairo time */
+    fmtTime(l, v) { const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : new Intl.DateTimeFormat(I.info(l).loc, { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: l !== 'de' && l !== 'fr' && l !== 'ru' }).format(d); },
+    fmtDay(l, v) { const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : new Intl.DateTimeFormat(I.info(l).loc, { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long' }).format(d); },
+    /** the browser's own language, if it is one of ours */
+    guess() { try { const n = String((navigator.languages && navigator.languages[0]) || navigator.language || '').slice(0, 2).toLowerCase(); return I.ok(n) ? n : 'ar'; } catch (e) { return 'ar'; } }
+  };
+  root.TPI18N = I;
+  if (root.TP) root.TP.i18n = I;
+})(typeof self !== 'undefined' ? self : globalThis);
+
+/* ==========================================================================
    Three Pyramids — cloud alarm (Cloudflare Worker, free plan, cron every minute)
    - builds the wake-up plan of today & tomorrow from Firestore (hourly, or when asked)
    - pushes the driver at his wake time, a second ring, then the supervisors,
@@ -295,6 +565,8 @@
    ========================================================================== */
 const W = globalThis.TPWake;
 const F = globalThis.TPFlight;
+const FC = globalThis.TPFleet;
+const I18 = globalThis.TPI18N;
 const PROJECT = 'three-pyramids-d8ce7';
 const SITE = 'https://3pyramidstravel-dev.github.io/tp-driver/';
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
@@ -302,6 +574,8 @@ const DOCNAME = `projects/${PROJECT}/databases/(default)/documents`;
 const REQ_LIMIT = 46;                 // the free plan allows 50 outgoing requests per run — keep a margin
 const RESERVE = 6;                    // requests kept for the writes that follow the pushes
 let cachedToken = null, cachedKey = null;
+/** the hour (0–23) in Cairo for a moment in ms */
+const cairoHour = ms => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' }).format(new Date(ms))) % 24;
 
 /* ---------------- Firestore values ---------------- */
 function enc(v) {
@@ -417,7 +691,7 @@ async function push(ctx, tokens, m) {
     ctx.sent++;
     const body = { message: { token, data: { type: m.type, day: m.day || '', pid: m.pid || '' },
       webpush: { headers: { Urgency: 'high', TTL: String(m.ttl || 900) },
-        notification: { title: m.title, body: m.body, icon: SITE + 'shared/icon-192.png', badge: SITE + 'shared/icon-192.png', tag: m.tag, renotify: true, requireInteraction: true, vibrate: [500, 200, 500, 200, 900], lang: 'ar', dir: 'rtl' },
+        notification: { title: m.title, body: m.body, icon: SITE + 'shared/icon-192.png', badge: SITE + 'shared/icon-192.png', tag: m.tag, renotify: true, requireInteraction: true, vibrate: [500, 200, 500, 200, 900], lang: m.lang || 'ar', dir: m.lang && I18 && I18.ok(m.lang) ? I18.info(m.lang).dir : 'rtl' },
         fcm_options: { link: m.link } } } };
     try {
       const r = await api(ctx, `https://fcm.googleapis.com/v1/projects/${PROJECT}/messages:send`, { method: 'POST', body: JSON.stringify(body) });
@@ -496,8 +770,21 @@ async function flights(ctx) {
     }
     if (!(await patch(ctx, 'missions/' + m.id, fields, mask, true))) continue;
     // the customers' links show the new times too
-    const tf = { no: fl.no, dir: fl.dir, terminal: fl.terminal || '', airportName: fl.airportName || '', other: fl.other || '', airline: fl.airline || '', sched: fl.sched || null, est: fl.est || null, status: fl.status || '' };
-    for (const c of (m.customers || []).slice(0, 4)) if (c && /^[0-9a-f]{64}$/.test(c.h || '')) await patch(ctx, 'track/' + c.h, { flight: tf, day: fields.day || m.day, time: fields.time || m.time || '' }, ['flight', 'day', 'time'], true);
+    const tf = { no: fl.no, dir: fl.dir, terminal: fl.terminal || '', airport: fl.airport || '', airportName: fl.airportName || '', other: fl.other || '', airline: fl.airline || '', sched: fl.sched || null, est: fl.est || null, status: fl.status || '', delayMin: Number(fl.delayMin) || 0 };
+    // a real delay (15 minutes or more, newly): the guest hears it in his own language — the driver knows and waits
+    const oldDelay = Number((m.flight || {}).delayMin) || 0, newDelay = Number(fl.delayMin) || 0;
+    // (a departure: only when the pickup time really moved — the message gives the new time)
+    const tell = newDelay >= 15 && newDelay - oldDelay >= 15 && !/Cancel/.test(fl.status || '') && (fl.dir === 'arr' || !!fields.time);
+    for (const c of (m.customers || []).slice(0, 4)) {
+      if (!c || !/^[0-9a-f]{64}$/.test(c.h || '')) continue;
+      const tFields = { flight: tf, day: fields.day || m.day, time: fields.time || m.time || '' }, tMask = ['flight', 'day', 'time'];
+      if (tell && I18) {
+        const L = I18.ok(c.lang) ? c.lang : 'ar', jobMs = job || null;
+        const b = fl.dir === 'arr' ? I18.t(L, 'delayed', { n: newDelay }) : I18.t(L, 'delayedDep', { t: jobMs ? (L === 'ar' ? W.hm12(jobMs) : I18.fmtTime(L, jobMs)) : '' });
+        Object.assign(tFields, { pq: { seq: 0, t: '✈ ' + fl.no, b: b.slice(0, 200), l: L }, pqAt: ctx.now }); tMask.push('pq', 'pqAt');
+      }
+      await patch(ctx, 'track/' + c.h, tFields, tMask, true);
+    }
     ctx.log.push('flight ' + fl.no + ' ' + (fl.status || '') + (fields.day ? ' — time moved' : ''));
   }
   if (used) await patch(ctx, 'system/flightUsage', { month, calls, at: ctx.now }, ['month', 'calls', 'at']);
@@ -564,7 +851,7 @@ async function customerPushes(ctx) {
   for (const t of rows) {
     if (ctx.calls > REQ_LIMIT - RESERVE - 2) break;
     if (t.fcm && t.pq && t.pq.t && ctx.now - (t.pqAt || 0) < 3 * 3600000) {
-      if (!(await push(ctx, [t.fcm], { type: 'cust', tag: 'cust-' + t.id.slice(0, 8), link: SITE + 'c/', title: t.pq.t, body: t.pq.b || '', ttl: 600 }))) break;
+      if (!(await push(ctx, [t.fcm], { type: 'cust', tag: 'cust-' + t.id.slice(0, 8), link: SITE + 'c/', title: t.pq.t, body: t.pq.b || '', lang: t.pq.l || '', ttl: 600 }))) break;
     }
     // cleared only if the driver did not queue a newer one meanwhile
     await patch(ctx, 'track/' + t.id, { pqAt: 0 }, ['pqAt'], t._ut ? { updateTime: t._ut } : true);
@@ -597,6 +884,194 @@ async function writePlan(ctx, day, plan, prev, s) {
   });
   if (!Object.keys(fields.d).length) delete fields.d;
   await patch(ctx, 'wake/' + day, fields, mask);
+}
+
+/* ---------------- trip orders: custody, fuel card, maintenance, papers (every 5 minutes) ---------------- */
+async function recipients(ctx) {
+  if (ctx.rcpt) return ctx.rcpt;
+  const [people, devices] = await Promise.all([
+    query(ctx, 'people', ['name', 'type', 'role', 'perms', 'active', 'vehicleId', 'licenseExpiry']),
+    query(ctx, 'devices', ['personId', 'fcm', 'active'])
+  ]);
+  const tokens = pid => devices.filter(d => d.personId === pid && d.active === true && d.fcm).map(d => d.fcm);
+  const live = people.filter(p => p.active !== false);
+  const role = r => live.filter(p => p.type === 'staff' && (p.role === r)).map(p => p.id);
+  const gm = live.filter(p => p.type === 'staff' && (p.perms || []).includes('all')).map(p => p.id);
+  ctx.rcpt = { tokens, people: live, ops: role('operations'), airports: role('airports'), gm, driverOf: vid => (live.find(p => p.type === 'driver' && p.vehicleId === vid) || {}).id || '' };
+  return ctx.rcpt;
+}
+/** One message to a list of people (each of their phones); staff open the Control Tower, drivers their app. */
+async function tell(ctx, pids, staffLink, msg) {
+  const R = await recipients(ctx), uniq = [...new Set(pids.filter(Boolean))];
+  // all of them or none this minute (so nobody gets the same message twice next minute)
+  if (ctx.calls + uniq.reduce((a, pid) => a + R.tokens(pid).length, 0) > REQ_LIMIT - RESERVE) { ctx.full = true; return false; }
+  for (const pid of uniq) {
+    const isDrv = (R.people.find(p => p.id === pid) || {}).type === 'driver';
+    if (!(await push(ctx, R.tokens(pid), Object.assign({ pid, link: SITE + (isDrv ? 'driver/' : staffLink), ttl: 3600 }, msg)))) return false;
+  }
+  return true;
+}
+async function fleetAlerts(ctx) {
+  const cars = await query(ctx, 'fleet', ['on', 'custody', 'fuel', 'odo', 'model', 'maint', 'alert']);
+  if (!cars.length) return;
+  const s = Object.assign({}, W.DEFAULTS, { custodyLow: 100, fuelLow: 1000, expiryWarnDays: 30 }, (await getDoc(ctx, 'system/settings')) || {});
+  const today = W.dayKey(ctx.now), plan = FC.plan(s), lowC = Number(s.custodyLow) || 100, lowF = Number(s.fuelLow) || 1000;
+  const R = () => recipients(ctx);
+  let vehicles = null;
+  const carName = async vid => { vehicles = vehicles || await query(ctx, 'vehicles', ['plate', 'model']); const v = vehicles.find(x => x.id === vid) || {}; return [v.model, v.plate].filter(Boolean).join(' ') || vid; };
+  for (const c of cars) {
+    if (c.on !== true || ctx.full || ctx.calls > REQ_LIMIT - RESERVE - 6) continue;
+    const a = c.alert || {}, set = {}, mask = [];
+    const mark = (k, v) => { set[k] = v; mask.push('alert.' + k); };
+    // cash custody at the low mark: the driver and the operations manager (once — again only after a top-up)
+    const cLow = (Number(c.custody) || 0) <= lowC;
+    if (cLow && !a.custodyAt) {
+      const r = await R(), name = await carName(c.id), bal = Math.round((Number(c.custody) || 0) * 100) / 100;
+      if (!(await tell(ctx, [r.driverOf(c.id)].concat(r.ops.length ? r.ops : r.gm), 'control/#/fleet', { type: 'fleet', tag: 'custody-' + c.id,
+        title: `عهدة المصروفات وصلت ${bal} جنيه`, body: `${name} — ${(r.people.find(p => p.id === r.driverOf(c.id)) || {}).name || ''} · خد عهدة مصروفات من مديرك` }))) break;
+      mark('custodyAt', ctx.now);
+    } else if (!cLow && a.custodyAt) mark('custodyAt', 0);
+    // fuel card below its mark: the airports manager and the GM (once — again after it is charged and drops again)
+    const fLow = (Number(c.fuel) || 0) < lowF;
+    if (fLow && !a.fuelAt) {
+      const r = await R(), name = await carName(c.id), bal = Math.round((Number(c.fuel) || 0) * 100) / 100;
+      if (!(await tell(ctx, (r.airports.length ? r.airports : []).concat(r.gm), 'control/#/fleet', { type: 'fleet', tag: 'fuel-' + c.id, title: `فيزا البنزين أقل من ${lowF}`, body: `${name} — الرصيد ${bal} جنيه` }))) break;
+      mark('fuelAt', ctx.now);
+    } else if (!fLow && a.fuelAt) mark('fuelAt', 0);
+    // maintenance by kilometres: 500 km before and when it is due (each stage once per change)
+    if (c.model) for (const row of FC.status(c, plan, today)) {
+      if (!['soon', 'due', 'check'].includes(row.stage)) continue;
+      const key = `${row.stage}:${row.last ? (row.last.odo ?? row.last.day) : ''}`;
+      if ((a.maint || {})[row.k] === key) continue;
+      const r = await R(), name = await carName(c.id);
+      const what = row.stage === 'due' ? 'لازم يتغير' : row.stage === 'check' ? 'افحصه' : `باقي ${row.left} ${row.next ? 'كم' : 'يوم'}`;
+      if (!(await tell(ctx, [r.driverOf(c.id)].concat(r.airports, r.gm), 'control/#/fleet', { type: 'fleet', tag: 'maint-' + c.id + '-' + row.k, title: `صيانة ${name}: ${row.n}`, body: `${what}${row.next ? ' — عند ' + row.next + ' كم (العداد ' + (c.odo || 0) + ')' : ''}` }))) { ctx.full = true; break; }
+      set.maint = Object.assign({}, a.maint || {}, set.maint || {}, { [row.k]: key }); if (!mask.includes('alert.maint')) mask.push('alert.maint');
+    }
+    if (mask.length) await patch(ctx, 'fleet/' + c.id, { alert: set }, mask, true);
+  }
+  // the papers, once a day from 9 in the morning: a month before (soon) and when they run out
+  if (cairoHour(ctx.now) >= 9) {
+    const fa = (await getDoc(ctx, 'system/fleetAlerts')) || {};
+    if (fa.docsDay === today || ctx.full || ctx.calls > REQ_LIMIT - RESERVE - 8) return;
+    const r = await R(); vehicles = vehicles || await query(ctx, 'vehicles', ['plate', 'model', 'licenseExpiry', 'insuranceExpiry']);
+    const sent = Object.assign({}, fa.sent || {}), warn = Number(s.expiryWarnDays) || 30, keep = W.addDays(today, -60);
+    Object.keys(sent).forEach(k => { if (sent[k] < keep) delete sent[k]; });
+    const fullV = vehicles.some(v => 'licenseExpiry' in v) ? vehicles : await query(ctx, 'vehicles', ['plate', 'model', 'licenseExpiry', 'insuranceExpiry']);
+    const items = [];
+    for (const c of cars.filter(x => x.on === true)) {
+      const v = fullV.find(x => x.id === c.id) || {}, drv = r.people.find(p => p.type === 'driver' && p.vehicleId === c.id);
+      [['رخصة العربية', v.licenseExpiry, 'lic'], ['تأمين العربية', v.insuranceExpiry, 'ins']].forEach(([n, d, k]) => items.push({ n, d, key: `${k}:${c.id}`, car: c.id, name: [v.model, v.plate].filter(Boolean).join(' ') }));
+      if (drv) items.push({ n: 'رخصة القيادة — ' + drv.name, d: drv.licenseExpiry, key: `dl:${drv.id}`, car: c.id, name: [v.model, v.plate].filter(Boolean).join(' ') });
+    }
+    for (const it of items) {
+      const stg = FC.docStage(it.d, today, warn); if (stg !== 'soon' && stg !== 'expired') continue;
+      const key = `${it.key}:${stg}:${it.d}`; if (sent[key]) continue;
+      const left = FC.daysBetween(today, it.d);
+      if (!(await tell(ctx, [r.driverOf(it.car)].concat(r.airports, r.gm), 'control/#/fleet', { type: 'fleet', tag: 'doc-' + it.key, title: `${it.n} ${stg === 'expired' ? 'خلصت' : 'هتخلص بعد ' + left + ' يوم'}`, body: `${it.name} — تاريخ الانتهاء ${it.d}` }))) break;
+      sent[key] = today;
+    }
+    await patch(ctx, 'system/fleetAlerts', { docsDay: ctx.full ? (fa.docsDay || '') : today, sent }, ['docsDay', 'sent']);
+  }
+}
+
+/* ---------------- keeping 3 months: old records go (only months already exported to the accounts) ---------------- */
+const BY_MONTH = ['days', 'missionDriver', 'missionFactory', 'dayPay', 'adjustments', 'expenses', 'excused', 'ratings', 'sheets', 'fleetLog', 'salary'];
+const BY_DAY = ['wake', 'wakeAcks', 'dayOff'];
+const BY_TIME = [['requests', 'at'], ['audit', 'at'], ['activationRequests', 'createdAt'], ['exports', 'at']];
+async function commitDeletes(ctx, paths) {
+  // Firestore takes at most 500 writes in one commit
+  for (let i = 0; i < paths.length; i += 450) {
+    const part = paths.slice(i, i + 450);
+    const r = await api(ctx, `${BASE}:commit`, { method: 'POST', body: JSON.stringify({ writes: part.map(p => ({ delete: `${DOCNAME}/${p}` })) }) });
+    if (!r.ok) throw new Error('commit ' + r.status + ' ' + (await r.text()).slice(0, 160));
+    ctx.writes += part.length;
+  }
+  return paths.length;
+}
+const lastDayOf = month => { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+const addMonths = (month, n) => { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 15)).toISOString().slice(0, 7); };
+async function purge(ctx, s) {
+  if (s.retentionOn !== true) return;
+  const today = W.dayKey(ctx.now), done = (await getDoc(ctx, 'system/purge')) || {};
+  if (done.day === today) return;
+  const keep = Math.max(3, Number(s.retentionMonths) || 3);
+  let cutM = addMonths(today.slice(0, 7), -(keep - 1));                   // the first month that stays
+  const lock = (await getDoc(ctx, 'system/lock')) || {};
+  // nothing goes that the accounts did not get: the month before the cut must be exported to its last day
+  while (cutM > '2000-01' && !(lock.until && lock.until >= lastDayOf(addMonths(cutM, -1)))) cutM = addMonths(cutM, -1);
+  if (cutM <= '2000-01') { await patch(ctx, 'system/purge', { day: today, note: 'nothing exported yet' }, ['day', 'note']); return; }
+  const cutDay = cutM + '-01', cutMs = Date.parse(cutDay + 'T00:00:00Z') - 3 * 3600000;
+  let removed = 0, more = false;
+  const room = () => ctx.calls < REQ_LIMIT - RESERVE - 4;
+  const strLt = (f, v) => ({ fieldFilter: { field: { fieldPath: f }, op: 'LESS_THAN', value: { stringValue: v } } });
+  const tsLt = (f, ms) => ({ fieldFilter: { field: { fieldPath: f }, op: 'LESS_THAN', value: { timestampValue: new Date(ms).toISOString() } } });
+  // trips first: their customers' links go with them (a line customer's link is for every day — it stays)
+  if (room()) {
+    const ms = await query(ctx, 'missions', ['customers'], strLt('month', cutM), 40);
+    const hs = ms.flatMap(m => (m.customers || []).map(c => c && c.h).filter(h => /^[0-9a-f]{64}$/.test(h || '')));
+    const links = hs.length ? await batchGet(ctx, hs.map(h => 'custLinks/' + h)) : {};
+    const paths = ms.map(m => 'missions/' + m.id).concat(hs.flatMap(h => ['track/' + h, 'live/' + h, 'signs/' + h, 'custLinks/' + h]),
+      Object.values(links).map(l => l.token && /^[A-Za-z0-9]{20,}$/.test(l.token) ? 'ans/' + l.token : null).filter(Boolean));
+    removed += await commitDeletes(ctx, paths); if (ms.length === 40) more = true;
+  }
+  for (const col of BY_MONTH) { if (!room()) { more = true; break; } const rows = await query(ctx, col, ['__name__'], strLt('month', cutM), 300); removed += await commitDeletes(ctx, rows.map(r => col + '/' + r.id)); if (rows.length === 300) more = true; }
+  for (const col of BY_DAY) { if (!room()) { more = true; break; } const rows = await query(ctx, col, ['__name__'], strLt('day', cutDay), 300); removed += await commitDeletes(ctx, rows.map(r => col + '/' + r.id)); if (rows.length === 300) more = true; }
+  if (room()) { const rows = await query(ctx, 'incidents', ['__name__'], num('at', 'LESS_THAN', cutMs), 300); removed += await commitDeletes(ctx, rows.map(r => 'incidents/' + r.id)); }
+  for (const [col, f] of BY_TIME) { if (!room()) { more = true; break; } const rows = await query(ctx, col, ['__name__'], tsLt(f, cutMs), 300); removed += await commitDeletes(ctx, rows.map(r => col + '/' + r.id)); if (rows.length === 300) more = true; }
+  ctx.log.push(`purge before ${cutM}: ${removed}${more ? ' (more next run)' : ''}`);
+  if (!more) await patch(ctx, 'system/purge', { day: today, before: cutM, removed: (done.day === today ? Number(done.removed) || 0 : 0) + removed, at: ctx.now }, ['day', 'before', 'removed', 'at']);
+}
+
+/* ---------------- translation for the guests' messages (signed-in staff and drivers) ---------------- */
+let jwks = null;
+async function verifyIdToken(ctx, tok) {
+  const [h64, p64, s64] = String(tok || '').split('.');
+  if (!h64 || !p64 || !s64) throw new Error('bad token');
+  const dec64 = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), c => c.charCodeAt(0));
+  const head = JSON.parse(new TextDecoder().decode(dec64(h64))), body = JSON.parse(new TextDecoder().decode(dec64(p64)));
+  if (!jwks || jwks.exp < ctx.now) {
+    const r = await ctx.f('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
+    if (!r.ok) throw new Error('keys ' + r.status);   // not cached — tried again on the next request
+    const m = /max-age=(\d+)/.exec(r.headers.get('cache-control') || '');
+    jwks = { keys: (await r.json()).keys || [], exp: ctx.now + (m ? Number(m[1]) * 1000 : 3600000) };
+  }
+  const jwk = jwks.keys.find(k => k.kid === head.kid);
+  if (!jwk || head.alg !== 'RS256') throw new Error('unknown key');
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, dec64(s64), new TextEncoder().encode(h64 + '.' + p64));
+  const now = Math.floor(ctx.now / 1000);
+  if (!ok || body.aud !== PROJECT || body.iss !== 'https://securetoken.google.com/' + PROJECT || !(body.exp > now) || !(body.iat <= now + 300) || !body.sub) throw new Error('invalid token');
+  return body.sub;
+}
+const ORIGINS = ['https://3pyramidstravel-dev.github.io'];
+const cors = req => { const o = req.headers.get('origin') || ''; return { 'access-control-allow-origin': ORIGINS.includes(o) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o) ? o : ORIGINS[0], 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'POST, OPTIONS', vary: 'origin' }; };
+const perUid = new Map();
+export async function translate(req, env, f, nowMs) {
+  const H = cors(req), out = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H) });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: H });
+  if (req.method !== 'POST') return out({ error: 'POST only' }, 405);
+  if (!env.AI) return out({ error: 'translation is not set up' }, 501);
+  const ctx = { env, now: nowMs || Date.now(), reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
+  ctx.f = (u, o) => { ctx.calls++; return f ? f(u, o) : fetch(u, o); };   // fetch is never called as a method (Cloudflare: Illegal invocation)
+  let uid;
+  try { uid = await verifyIdToken(ctx, (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')); } catch (e) { return out({ error: 'sign in first' }, 401); }
+  const dev = await getDoc(ctx, 'devices/' + uid).catch(() => null);
+  // staff and drivers only (a device added by hand may lack "kind" — then the person decides)
+  const who = dev && dev.active === true && dev.personId ? (dev.kind ? { type: dev.kind, active: true } : await getDoc(ctx, 'people/' + dev.personId).catch(() => null)) : null;
+  if (!who || who.active === false || !['staff', 'driver'].includes(who.type)) return out({ error: 'not allowed' }, 403);
+  // a few per minute per phone (the free daily quota is shared)
+  const hist = (perUid.get(uid) || []).filter(t => ctx.now - t < 60000); if (hist.length >= 8) return out({ error: 'too many — wait a minute' }, 429); hist.push(ctx.now); perUid.set(uid, hist);
+  let body = {}; try { body = await req.json(); } catch (e) { /* empty */ }
+  const text = String(body.text || '').slice(0, 1200).trim(), to = String(body.to || ''), from = String(body.from || 'ar');
+  const langs = ['ar', 'en', 'de', 'fr', 'ru', 'zh', 'ko'];
+  if (!text || !langs.includes(to) || !langs.includes(from)) return out({ error: 'text and language' }, 400);
+  if (to === from) return out({ text });
+  try {
+    const r = await env.AI.run('@cf/meta/m2m100-1.2b', { text, source_lang: from, target_lang: to });
+    const t = r && (r.translated_text || r.translation || r.text);
+    return t ? out({ text: String(t) }) : out({ error: 'no translation' }, 502);
+  } catch (e) { return out({ error: 'translation failed' }, 502); }
 }
 
 /* ---------------- one run (every minute) ---------------- */
@@ -711,6 +1186,15 @@ export async function run(env, now, f) {
       for (const d of days) if (movedDays.has(d) && plans[d]) await patch(ctx, 'wake/' + d, { rebuildFlight: true }, ['rebuildFlight']);
     } catch (e) { ctx.log.push('flights: ' + e.message); }
   }
+  // 6) trip orders (every 5 minutes): custody, fuel card, maintenance, papers
+  if (FC && !ctx.full && ctx.calls <= REQ_LIMIT - 14 && minute % 5 === 3) {
+    try { await fleetAlerts(ctx); } catch (e) { ctx.log.push('fleet: ' + e.message); }
+  }
+  // 7) keeping 3 months: at night, every 10 minutes until the old months are gone (only if switched on)
+  const hr = cairoHour(now);
+  if (!ctx.full && ctx.calls <= REQ_LIMIT - 16 && minute % 10 === 7 && hr >= 1 && hr < 5) {
+    try { const s = (await getDoc(ctx, 'system/settings')) || {}; await purge(ctx, s); } catch (e) { ctx.log.push('purge: ' + e.message); }
+  }
   return { today, reads: ctx.reads, writes: ctx.writes, sent: ctx.sent, calls: ctx.calls, pushed: ctx.pushed, log: ctx.log };
 }
 
@@ -722,13 +1206,14 @@ export default {
   /** /check — is the secret in place and does Google accept it? (no database reads, nothing sent) */
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname === '/translate') return translate(req, env);
     if (url.pathname === '/check') {
       try {
         if (!env.GOOGLE_SA) return Response.json({ ok: false, error: 'GOOGLE_SA secret is missing' }, { status: 500 });
         const sa = JSON.parse(env.GOOGLE_SA);
         if (sa.project_id && sa.project_id !== PROJECT) return Response.json({ ok: false, error: 'key belongs to ' + sa.project_id }, { status: 500 });
         await accessToken({ env, now: Date.now(), f: (u, o) => fetch(u, o) });   // fetch must not be called as a method (Cloudflare: Illegal invocation)
-        return Response.json({ ok: true, project: PROJECT, google: 'key accepted', flights: env.FLIGHT_KEY ? 'key set' : 'no key — flight times typed by hand', time: new Date().toISOString() });
+        return Response.json({ ok: true, project: PROJECT, google: 'key accepted', flights: env.FLIGHT_KEY ? 'key set' : 'no key — flight times typed by hand', translate: env.AI ? 'on' : 'off', time: new Date().toISOString() });
       } catch (e) { return Response.json({ ok: false, error: String((e && e.message) || e) }, { status: 500 }); }
     }
     return new Response('tp-alarm — Three Pyramids cloud alarm is running.', { headers: { 'content-type': 'text/plain; charset=utf-8' } });

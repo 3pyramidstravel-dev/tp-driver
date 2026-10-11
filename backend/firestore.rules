@@ -46,7 +46,7 @@ service cloud.firestore {
     // Anyone whose permissions show money or give top power may only get a device from the GM.
     function isSensitive(data) {
       return data.perms.hasAny(['all', 'staff.manage', 'devices.manage', 'prices.view', 'prices.edit',
-        'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'airport.prices']);
+        'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'airport.prices', 'salary.manage', 'fleet.manage']);
     }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
     function bootstrapping() { return !exists(statePath()) && existsAfter(statePath()); }
@@ -633,6 +633,148 @@ service cloud.firestore {
     match /system/lock {
       allow read: if isStaff();
       allow write: if can('reports.finance') || can('month.close');
+    }
+
+    // ======================= Phase 7 — trip orders (أمر الشغل), custody, fuel card, salary =======================
+    // A driver works one car (people/{pid}.vehicleId). fleet/{vehicleId} holds the car's cash custody, fuel card,
+    // odometer, maintenance and its WhatsApp group; fleetLog/{vehicleId}_{YYYY-MM} the month's trips and fuel.
+    // The driver can only ADD a trip (its expense comes off the custody, its odometer moves the car's)
+    // or a fill-up (off the fuel card) — both documents change together or not at all.
+    function fleetPath(vid) { return /databases/$(database)/documents/fleet/$(vid); }
+    function fleetLogPath(lid) { return /databases/$(database)/documents/fleetLog/$(lid); }
+    function myCar(vid) { return isDriver() && get(personPath(me().personId)).data.get('vehicleId', '') == vid; }
+    function fleetStaff() { return can('fleet.manage'); }
+    function dayOk(d) { return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    // a trip or fill-up is for the last 40 days (an offline phone sends late) — never the future, never an old, exported month
+    function recentDay(d) {
+      let ts = timestamp.date(int(d.split('-')[0]), int(d.split('-')[1]), int(d.split('-')[2]));
+      return ts > request.time - duration.value(40, 'd') && ts < request.time + duration.value(1, 'd');
+    }
+
+    match /vehicles/{vid} {
+      allow get: if myCar(vid);
+    }
+    match /fleet/{vid} {
+      function logAfter() { return getAfter(fleetLogPath(vid + '_' + request.resource.data.lm)).data; }
+      // the entry the log got in this same write (new — not one that was there before)
+      function newEntry(log) {
+        let path = fleetLogPath(vid + '_' + request.resource.data.lm);
+        return !exists(path) || !(log.last.id in get(path).data.get(log.last.k, {}));
+      }
+      function entryOk(d, r, log) {
+        let k = log.last.k;
+        let e = log[k][log.last.id];
+        return newEntry(log) && (
+          (k == 'trips'
+            && d.get('custody', 0) == r.get('custody', 0) - e.expense
+            && d.get('fuel', 0) == r.get('fuel', 0)
+            // the car's odometer only moves forward, at most 3000 km a trip (a wrong or late reading leaves it as it is)
+            && (d.get('odo', 0) == r.get('odo', 0)
+                || (e.after > r.get('odo', 0) && (r.get('odo', 0) == 0 || e.after - r.get('odo', 0) <= 3000) && d.get('odo', 0) == e.after))
+            // a floor: what a driver spent beyond his custody is capped (management sees it and settles)
+            && d.get('custody', 0) >= -20000)
+          || (k == 'fuel'
+            && d.get('fuel', 0) == r.get('fuel', 0) - e.amount
+            && d.get('custody', 0) == r.get('custody', 0) && d.get('odo', 0) == r.get('odo', 0)));
+      }
+      function driverFleetOk() {
+        let d = request.resource.data;
+        let r = resource.data;
+        return myCar(vid) && r.get('on', false) == true
+          && changed().hasOnly(['custody', 'fuel', 'odo', 'odoDay', 'lm', 'req', 'updatedAt'])
+          && (!('odoDay' in changed()) || dayOk(d.odoDay))
+          && (!('lm' in changed()) || (d.lm is string && d.lm.matches('^[0-9]{4}-[0-9]{2}$')))
+          && (!('updatedAt' in changed()) || d.updatedAt == request.time)
+          // "خد عهدة مصروفات": once, until management hands it over — with the real balance
+          && (!('req' in changed()) || (d.req is map && d.req.keys().hasOnly(['at', 'bal']) && d.req.at is int && d.req.bal is number
+                && d.req.bal >= r.get('custody', 0) - 0.01 && d.req.bal <= r.get('custody', 0) + 0.01 && !(r.get('req', null) is map)))
+          && ((!('custody' in changed()) && !('fuel' in changed()) && !('odo' in changed()))
+              || (d.lm is string && d.lm.matches('^[0-9]{4}-[0-9]{2}$') && entryOk(d, r, logAfter())));
+      }
+      allow read: if fleetStaff() || can('salary.manage') || can('tracking.view') || can('reports.finance') || can('month.close') || myCar(vid);
+      allow create, delete: if fleetStaff();
+      allow update: if fleetStaff() || driverFleetOk();
+    }
+    match /fleetLog/{lid} {
+      function vidOf() { return lid.split('_')[0]; }
+      function tripOk(t) {
+        return t.keys().hasOnly(['day', 'time', 'task', 'before', 'after', 'expense', 'expNote', 'by', 'at', 'sv'])
+          && dayOk(t.day) && recentDay(t.day) && monthOf(t.day) == request.resource.data.month
+          && t.time is string && t.time.size() <= 5 && t.task is string && t.task.size() <= 500
+          && t.before is int && t.after is int && t.before >= 0 && t.after >= 0
+          && (t.after == 0 || (t.after >= t.before && t.after - t.before <= 3000))
+          && t.expense is number && t.expense >= 0 && t.expense <= 20000
+          && t.expNote is string && t.expNote.size() <= 120
+          && t.by == me().personId && t.at is int && t.sv == request.time;
+      }
+      function fillOk(f) {
+        return f.keys().hasOnly(['day', 'kind', 'amount', 'note', 'by', 'at', 'sv'])
+          && dayOk(f.day) && recentDay(f.day) && monthOf(f.day) == request.resource.data.month && f.kind == 'fill'
+          && f.amount is number && f.amount > 0 && f.amount <= 20000 && f.note is string && f.note.size() <= 120
+          && f.by == me().personId && f.at is int && f.sv == request.time;
+      }
+      // the car's balances moved by exactly this entry in the same write
+      function carMoved(d) {
+        let k = d.last.k;
+        let e = d[k][d.last.id];
+        let before = get(fleetPath(vidOf())).data;
+        let after = getAfter(fleetPath(vidOf())).data;
+        return after.get('lm', '') == d.month
+          && (k == 'trips' ? after.get('custody', 0) == before.get('custody', 0) - e.expense : after.get('fuel', 0) == before.get('fuel', 0) - e.amount);
+      }
+      function addedOne(d, before) {
+        let k = d.last.k;
+        return d.last.keys().hasOnly(['k', 'id']) && k in ['trips', 'fuel'] && d.last.id is string
+          && d[k].diff(before.get(k, {})).addedKeys().hasOnly([d.last.id])
+          && d[k].diff(before.get(k, {})).addedKeys().size() == 1
+          && d[k].diff(before.get(k, {})).changedKeys().size() == 0
+          && d[k].diff(before.get(k, {})).removedKeys().size() == 0
+          && (k == 'trips' ? tripOk(d.trips[d.last.id]) : fillOk(d.fuel[d.last.id]));
+      }
+      function driverCar() { return myCar(vidOf()) && get(fleetPath(vidOf())).data.get('on', false) == true; }
+      allow read: if fleetStaff() || can('salary.manage') || can('reports.finance') || can('month.close') || myCar(vidOf());
+      allow create: if fleetStaff()
+        || (driverCar()
+            && request.resource.data.keys().hasOnly(['vehicleId', 'month', 'trips', 'fuel', 'last', 'updatedAt'])
+            && request.resource.data.get('updatedAt', request.time) == request.time
+            && request.resource.data.vehicleId == vidOf() && lid == vidOf() + '_' + request.resource.data.month
+            && addedOne(request.resource.data, {}) && carMoved(request.resource.data));
+      allow update: if fleetStaff()
+        || (driverCar()
+            && changed().hasOnly(['trips', 'fuel', 'last', 'updatedAt'])
+            && (!('updatedAt' in changed()) || request.resource.data.updatedAt == request.time)
+            && request.resource.data.month == resource.data.month
+            && addedOne(request.resource.data, resource.data) && carMoved(request.resource.data));
+      allow delete: if fleetStaff();
+    }
+    // the tourism driver's salary: management writes, the driver sees his own (even with the accounts off)
+    match /salary/{sid} {
+      // by the id ({driverId}_{month}), so a month without a document reads as empty instead of refused
+      allow read: if can('salary.manage') || (isDriver() && sid.split('_')[0] == me().personId);
+      allow create, update: if can('salary.manage')
+        && request.resource.data.driverId is string && request.resource.data.month is string
+        && sid == request.resource.data.driverId + '_' + request.resource.data.month;
+      allow delete: if can('salary.manage');
+    }
+    match /salaryBase/{pid} {
+      allow read: if can('salary.manage') || (isActive() && me().personId == pid);
+      allow write: if can('salary.manage');
+    }
+
+    // the photo of the sign in the arrivals hall, shown on the guest's page (only that trip's driver)
+    match /signs/{h} {
+      function signOk() {
+        let d = request.resource.data;
+        let t = get(trackPath(h)).data;
+        return isDriver() && d.keys().hasOnly(['photo', 'missionId', 'driverId', 'at'])
+          && d.driverId == me().personId && d.photo is string && d.photo.size() < 400000 && d.photo.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$') && d.at is int
+          && t.get('kind', '') == 'mission' && t.get('missionId', '') == d.missionId
+          && get(missionPath(d.missionId)).data.driverId == me().personId;
+      }
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if signOk();
+      allow delete: if staffTrack();
     }
 
     // Everything else is closed.

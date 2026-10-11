@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#4a1214">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Three Pyramids — Control Tower</title>
+  <link rel="icon" type="image/png" href="../shared/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Cinzel:wght@600;700&display=swap">
+  <link rel="stylesheet" href="../shared/tp.css">
+  <link rel="stylesheet" href="control.css">
+</head>
+<body>
+  <div class="ct" id="ct" hidden>
+    <aside class="ct-side">
+      <div class="ct-brand"><img src="../shared/logo.png" alt="Three Pyramids Travel"></div>
+      <div class="ct-brand-sub">CONTROL TOWER</div>
+      <nav class="ct-nav" id="nav" aria-label="القائمة"></nav>
+      <div class="ct-me" id="me"></div>
+    </aside>
+    <main class="ct-main">
+      <header class="ct-top">
+        <div><span class="caps" id="vEyebrow"></span><h1 id="vTitle"></h1></div>
+        <div class="ct-top-end">
+          <span class="live" id="live"><i></i><span>متصل</span></span>
+        </div>
+      </header>
+      <div id="alerts"></div>
+      <div id="view"></div>
+    </main>
+  </div>
+
+  <script src="../shared/firebase-config.js"></script>
+  <script src="../shared/core.js"></script>
+  <script src="../shared/perms.js"></script>
+  <script src="../shared/rates.js"></script>
+  <script src="../shared/ops.js"></script>
+  <script src="../shared/wakecore.js"></script>
+  <script src="../shared/flightcore.js"></script>
+  <script src="../shared/fleetcore.js"></script>
+  <script src="../shared/xlsx.js"></script>
+  <script src="../shared/report.js"></script>
+  <script src="../shared/i18n.js"></script>
+  <script src="../shared/guest.js"></script>
+  <script src="../shared/fb.js"></script>
+  <script src="../shared/session.js"></script>
+  <script src="data.js"></script>
+  <script src="views/_ui.js"></script>
+  <script src="views/overview.js"></script>
+  <script src="views/devices.js"></script>
+  <script src="views/staff.js"></script>
+  <script src="views/factories.js"></script>
+  <script src="views/lines.js"></script>
+  <script src="views/drivers.js"></script>
+  <script src="views/vehicles.js"></script>
+  <script src="views/fleet.js"></script>
+  <script src="views/migrate.js"></script>
+  <script src="views/prices.js"></script>
+  <script src="views/today.js"></script>
+  <script src="views/wake.js"></script>
+  <script src="views/missions.js"></script>
+  <script src="views/incidents.js"></script>
+  <script src="views/requests.js"></script>
+  <script src="views/reports.js"></script>
+  <script src="views/advances.js"></script>
+  <script src="views/settings.js"></script>
+  <script src="views/audit.js"></script>
+  <script src="views/account.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

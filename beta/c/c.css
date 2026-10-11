@@ -1,0 +1,60 @@
+/* The customer's page — Royal Maroon, phone first */
+body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.55), rgba(30,9,6,.9)), url('../shared/lounge.jpg') center / cover fixed no-repeat, #3b0d0f; }
+.cw { width: min(520px, 100%); margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 16px 30px; display: flex; flex-direction: column; gap: 14px; }
+.c-top { display: flex; justify-content: center; }
+.c-top img { width: 150px; background: rgba(255,248,236,.94); border-radius: 16px; padding: 6px 12px; border: 1px solid rgba(242,212,142,.8); }
+.c-card { display: flex; flex-direction: column; gap: 14px; padding: 20px 18px; }
+.c-card h1 { font-size: 22px; font-weight: 900; color: var(--maroon-2); }
+.c-hello { font-size: 22px; font-weight: 900; color: var(--maroon-2); }
+.c-sub { color: var(--ink-2); font-weight: 700; line-height: 1.7; }
+.c-state { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+.c-state b { font-size: 20px; font-weight: 900; line-height: 1.35; }
+.c-emo { font-size: 34px; }
+.c-state.s-near { background: var(--info-bg); border-color: #b9cdf0; color: var(--info); }
+.c-state.s-arrived, .c-state.s-evening { background: #fff1cf; border-color: #efd29a; color: #6b4510; animation: cPulse 1.4s ease-in-out infinite; }
+.c-state.s-picked, .c-state.s-dropped, .c-state.s-done { background: var(--ok-bg); border-color: #b7e2cc; color: var(--ok); }
+.c-state.s-noshow, .c-state.s-cancelled { background: var(--danger-bg); border-color: #f0b8b2; color: var(--danger); }
+@keyframes cPulse { 50% { box-shadow: 0 0 0 6px rgba(212,162,76,.28); } }
+.c-eta { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px; border-radius: 18px; background: linear-gradient(135deg, var(--maroon), var(--maroon-2)); color: #fff; }
+.c-eta span { color: var(--gold-2); font-weight: 800; }
+.c-eta b { font-size: 34px; font-weight: 900; line-height: 1.2; }
+.c-eta small { color: #f3dcc0; }
+.c-map { height: 240px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line-strong); background: #e8e2d6; }
+.c-badge { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 20px; background: linear-gradient(160deg, #fffdf8, #f8ead2); border: 1px solid rgba(212,162,76,.7); box-shadow: var(--sh-sm); }
+.c-ph { width: 78px; height: 78px; border-radius: 50%; overflow: hidden; border: 3px solid var(--gold); background: var(--cream); display: grid; place-items: center; color: var(--muted); flex: none; }
+.c-ph img { width: 100%; height: 100%; object-fit: cover; }
+.c-who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.c-who b { font-size: 19px; font-weight: 900; color: var(--maroon-2); }
+.c-who .tag { align-self: flex-start; }
+.c-flight { padding: 10px 12px; border-radius: 14px; background: #fff8ec; border: 1px solid #efd29a; font-size: 14px; line-height: 1.8; }
+.c-acts { display: flex; flex-direction: column; gap: 8px; }
+.c-acts .st { align-self: center; }
+.c-rate { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 18px; background: #fff; border: 1px solid var(--line); text-align: center; }
+.stars { display: flex; justify-content: center; gap: 6px; direction: ltr; }
+.stars button { border: 0; background: none; font-size: 38px; color: #d9cbb4; line-height: 1; padding: 2px; }
+.stars button.on { color: var(--gold); }
+.c-push { font-size: 13px; }
+.c-ops { margin-top: 2px; }
+.c-foot { text-align: center; color: #f3dcc0; font-size: 12px; opacity: .85; }
+.c-pop { position: fixed; inset: 0; z-index: 300; background: rgba(30,9,6,.82); display: grid; place-items: center; padding: 18px; backdrop-filter: blur(4px); }
+.c-pop-card { width: min(440px, 100%); background: linear-gradient(160deg, #fffdf8, #f6e4c6); border-radius: 28px; padding: 26px 20px; display: flex; flex-direction: column; gap: 14px; text-align: center; border: 2px solid var(--gold); box-shadow: var(--sh-lg); animation: cIn .35s var(--ease); }
+.c-pop-card h2 { font-size: 26px; font-weight: 900; color: var(--maroon-2); line-height: 1.35; }
+.c-pop-car { font-size: 64px; animation: cBounce 1s ease-in-out infinite; }
+.c-pop-card .c-badge { text-align: start; }
+@keyframes cIn { from { transform: scale(.9); opacity: 0; } }
+@keyframes cBounce { 50% { transform: translateY(-8px); } }
+.c-sound { margin-top: 10px; border-style: dashed; }
+
+/* ---------- guests: language, delay, sign photo, meeting point, emergency ---------- */
+.c-lang { float: inline-end; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: #fffdf8; color: var(--muted); font-size: 12px; margin: -4px 0 6px; }
+.c-lang select { border: 0; background: none; font: inherit; color: var(--ink); font-weight: 800; padding: 2px; outline: none; }
+.c-delay { margin-top: 10px; }
+.c-sign { margin-top: 12px; border-radius: 18px; overflow: hidden; border: 2px solid var(--gold); background: #fff; text-align: center; }
+.c-sign img { display: block; width: 100%; max-height: 320px; object-fit: cover; }
+.c-sign b { display: block; padding: 10px 12px; color: var(--maroon-2); font-size: 15px; }
+.c-meet { margin-top: 12px; padding: 12px; border-radius: 18px; background: var(--cream); border: 1px solid var(--line); }
+.c-meet img { display: block; width: 100%; max-height: 260px; object-fit: cover; border-radius: 12px; margin: 8px 0; }
+.c-meet p { margin: 6px 0 0; font-size: 14px; line-height: 1.6; text-align: start; white-space: pre-line; }
+.c-sos { margin-top: 10px; }
+.c-pop-sign { display: block; width: 100%; max-height: 200px; object-fit: cover; border-radius: 14px; margin: 8px 0; }
+html[dir="ltr"] .c-card { text-align: left; }

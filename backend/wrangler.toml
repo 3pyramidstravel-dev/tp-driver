@@ -8,3 +8,7 @@ keep_vars = true
 
 [triggers]
 crons = ["* * * * *"]
+
+# Workers AI (free daily allowance) — used by "ترجم وابعت"
+[ai]
+binding = "AI"
