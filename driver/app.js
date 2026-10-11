@@ -38,6 +38,7 @@
     const dayMonths = [M], missionMonths = [M];
     if (today.endsWith('-01')) dayMonths.push(O.addMonths(M, -1));        // yesterday's evening may still be open
     if (Number(today.slice(8)) >= 20) missionMonths.push(O.addMonths(M, 1)); // trips booked for next month
+    if (TP.dvCar) TP.dvCar.start();                                      // the car's trip order (month changes too)
     const key = [today, dayMonths, missionMonths, seesMoney()].join('|');
     if (key === st.subsKey) return;
     stop(); st.subsKey = key;
@@ -394,13 +395,25 @@
     syncTrack();
     renderStatus();
     TP.$$('.dv-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === st.tab));
-    ['today', 'missions', 'account'].forEach(t => { TP.$('#tab-' + t).hidden = st.tab !== t; });
-    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else renderAccount();
+    // "عربيتي" (trip order, custody, fuel, salary) only for a driver who has it
+    const car = !!(TP.dvCar && TP.dvCar.available()), carBtn = TP.$('.dv-nav [data-tab="car"]');
+    if (carBtn) carBtn.hidden = !car;
+    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${car ? 4 : 3}, 1fr)`;
+    if (st.tab === 'car' && !car) st.tab = 'today';
+    ['today', 'missions', 'account', 'car'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
+    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else renderAccount();
     const openM = allMissions().filter(m => (m.status === 'assigned' || m.status === 'active') && m.day <= TP.dayKey(TP.now())).length;
     const b = TP.$('#mBadge'); b.hidden = !openM; b.textContent = openM;
     TP.hydrateIcons(TP.$('#app'));
     updateDistances();
     checkWake();
+  }
+  /** "عربيتي" — drawn by fleet.js; never redrawn under the driver's fingers while he types. */
+  function renderCar() {
+    const root = TP.$('#tab-car'), a = document.activeElement;
+    if (a && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    TP.dvCar.keep(root);
+    TP.dvCar.render(root);
   }
   function renderStatus() {
     const el = TP.$('#status'); if (!el) return;
@@ -424,6 +437,7 @@
     let html = '';
     if (st.gps === 'denied') html += `<div class="banner danger">${TP.icon('pin')}<span>الموقع مقفول. افتحه من إعدادات الموبايل للمتصفح ده، علشان التسجيل التلقائي وعلشان الإدارة تعرف إنك وصلت.</span></div>`;
     if (st.myIncidents.length) html += `<div class="banner danger">${TP.icon('bell')}<span>بلاغك وصل للإدارة (${esc(O.incidentName(st.myIncidents[0].kind))}) — هيكلموك حالاً.</span></div>`;
+    if (TP.dvCar) html += TP.dvCar.custodyBanner();
     html += wakeCard();
     html += `<div class="banner info" style="justify-content:space-between"><b>${esc(TP.fmtDay(TP.now()))}</b><span class="muted small">خلي التطبيق مفتوح وإنت شغال</span></div>`;
     if (!entries.length) {
@@ -438,6 +452,7 @@
       armOrRun(b.dataset.press, () => recordLine(en.line, day, step, false));
     });
     bindCustomers(root);
+    if (TP.dvCar) TP.dvCar.bindBanner(root);
     root.querySelectorAll('[data-ot]').forEach(b => b.onclick = () => askOvertime(b.dataset.ot));
     const wr = root.querySelector('#wReady'); if (wr) wr.onclick = () => markReady();
     const wc = root.querySelector('#wChange'); if (wc) wc.onclick = () => changeWake();
@@ -521,13 +536,18 @@
     return `<div class="cust"><div class="cust-n"><b>${esc(c.name)}</b>${home}${chip}${said}${noPush && !skip ? '<small class="muted">ماعندوش إشعارات — ابعتله واتساب</small>' : ''}</div>
       <div class="cust-a">${c.phone ? `<a class="icon-btn" href="${esc(TP.telLink(c.phone))}" title="اتصل">${TP.icon('phone', 18)}</a>` : ''}${wa ? `<a class="btn btn-sm ${noPush ? 'btn-primary' : 'btn-ghost'}" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}
         ${o.pickOk ? `<button type="button" class="btn btn-sm btn-primary ${st.armed === 'pk' + o.key ? 'armed' : ''}" data-pick="${esc(o.key)}">${st.armed === 'pk' + o.key ? 'أكّد' : 'ركب'}</button>` : ''}
-        ${o.noshowOk && !skip ? `<button type="button" class="btn btn-sm btn-ghost" data-noshow="${esc(o.key)}">مجاش</button>` : ''}</div></div>`;
+        ${o.noshowOk && !skip ? `<button type="button" class="btn btn-sm btn-ghost" data-noshow="${esc(o.key)}">مجاش</button>` : ''}
+        ${o.m && c.lang && c.lang !== 'ar' ? `<button type="button" class="btn btn-sm btn-gold" data-guestm="${esc(o.key)}">${esc(TP.i18n.info(c.lang).name)} — رسالة</button>` : ''}</div></div>`;
   }
   function bindCustomers(root) {
     root.querySelectorAll('[data-noshow]').forEach(b => b.onclick = () => {
       const [k, oid, day, cid] = b.dataset.noshow.split('|');
       if (k === 'l') { const en = todayEntries().find(x => x.line.id === oid && x.day === day); const c = en && O.lineCustomers(en.line).find(x => x.id === cid); if (c) noShow('line', en.line, c, day).catch(e => TP.toast(TP.errorText(e), 'warn')); }
       else { const m = allMissions().find(x => x.id === oid); const c = m && (m.customers || []).find(x => x.id === cid); if (c) noShow('mission', m, c, m.day).catch(e => TP.toast(TP.errorText(e), 'warn')); }
+    });
+    root.querySelectorAll('[data-guestm]').forEach(b => b.onclick = () => {
+      const [, oid, , cid] = b.dataset.guestm.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);
+      if (c) TP.guest.compose(m, c, null, S.person);   // the driver has no link to send — the ready messages + "ترجم وابعت"
     });
     root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
       const [, oid, , cid] = b.dataset.pick.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);
@@ -576,12 +596,12 @@
       // customers: after "وصلت مكان العميل" each one is "ركب" or "مجاش"
       const atPickup = !!ev.pickup && !ev.arrive, waited = ev.pickup ? (TP.now() - ev.pickup.at) / 60000 : 0;
       const custs = (m.customers || []).length && active ? `<div class="custs">${(m.customers || []).map(c => custRow(c, m.day, {
-        rider: O.riderOf(m, c.id), key: `m|${m.id}|${m.day}|${c.id}`, arrived: !!ev.pickup, where: (m.from && m.from.name) || '',
+        rider: O.riderOf(m, c.id), key: `m|${m.id}|${m.day}|${c.id}`, arrived: !!ev.pickup, where: (m.from && m.from.name) || '', m,
         pickOk: atPickup && !O.riderOf(m, c.id), noshowOk: atPickup && waited >= (Number(st.settings.noShowWaitMin) || 5) && !O.riderOf(m, c.id)
       })).join('')}</div>` : (m.customers || []).length ? `<div class="small"><b>العملاء:</b> ${(m.customers || []).map(c => esc(c.name)).join('، ')}</div>` : '';
       const air = m.type === 'airport' && m.flight;
       const extras = active && m.status !== 'done' || (m.status === 'done' && m.day === today) ? `<div class="ms-tools">
-          ${air && air.dir === 'arr' && (m.customers || []).length ? `<button type="button" class="btn btn-gold btn-sm" data-sign="${esc(m.id)}">${TP.icon('users', 16)}لافتة الاسم</button>` : ''}
+          ${air && air.dir === 'arr' && (m.customers || []).length ? `<button type="button" class="btn btn-gold btn-sm" data-sign="${esc(m.id)}">${TP.icon('users', 16)}لافتة الاسم</button><label class="btn btn-ghost btn-sm">${TP.icon('plus', 16)}صوّر اللافتة للضيف<input type="file" accept="image/*" capture="environment" data-signph="${esc(m.id)}" hidden></label>` : ''}
           <button type="button" class="btn btn-ghost btn-sm" data-exp="${esc(m.id)}">${TP.icon('money', 16)}مصروف (باركينج / كارتة)</button></div>` : '';
       const cash = m.cash ? (m.cashGot ? `<div class="banner ok" style="margin-top:8px">${TP.icon('check')}<span>استلمت ${esc(TP.money(m.cash.amount))} كاش ✓</span></div>`
         : `<div class="banner warn" style="margin-top:8px">${TP.icon('money')}<span class="grow">استلم من العميل <b>${esc(TP.money(m.cash.amount))}</b> كاش${m.cash.note ? ' — ' + esc(m.cash.note) : ''}</span>${ev.pickup || ev.arrive || ev.done ? `<button type="button" class="btn btn-primary btn-sm ${st.armed === 'cash' + m.id ? 'armed' : ''}" data-cash="${esc(m.id)}">${st.armed === 'cash' + m.id ? 'أكّد' : 'استلمت'}</button>` : ''}</div>`) : '';
@@ -606,6 +626,7 @@
       if (m && step) armOrRun(b.dataset.mpress, () => recordMission(m, step));
     });
     root.querySelectorAll('[data-sign]').forEach(b => b.onclick = () => showSign(find(b.dataset.sign)));
+    root.querySelectorAll('[data-signph]').forEach(i => i.onchange = () => { const f = i.files && i.files[0]; if (f) signPhoto(find(i.dataset.signph), f); });
     root.querySelectorAll('[data-exp]').forEach(b => b.onclick = () => addExpense(find(b.dataset.exp)));
     root.querySelectorAll('[data-cash]').forEach(b => b.onclick = () => { const m = find(b.dataset.cash); if (!m || !m.cash) return; armOrRun('cash' + m.id, () => track(TP.fb.update('missions/' + m.id, { cashGot: { at: TP.now(), sv: TP.fb.ts(), amount: m.cash.amount }, updatedAt: TP.fb.ts() }), 'اتسجل استلام الكاش ✓')); });
     bindCustomers(root);
@@ -620,6 +641,23 @@
     o.hidden = false;
     try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); } catch (e) { /* not allowed */ }
     TP.$('#signClose', o).onclick = () => { o.hidden = true; try { document.fullscreenElement && document.exitFullscreen(); } catch (e) { /* ignore */ } };
+  }
+  /**
+   * The photo of the sign in the arrivals hall: it shows on each guest's page with
+   * "Your driver is waiting for you in front of the arrivals hall", and can go to the car's group.
+   */
+  async function signPhoto(m, file) {
+    if (!m) return;
+    let photo;
+    try { photo = await TP.compressImage(file, 1000, 0.6); if (photo.length > 380000) photo = await TP.compressImage(file, 720, 0.5); } catch (e) { return TP.toast('الصورة مش مقروءة', 'warn'); }
+    if (photo.length > 380000) return TP.toast('الصورة كبيرة — صوّرها تاني من قريب', 'warn');
+    const hs = (m.customers || []).map(c => c.h).filter(h => /^[0-9a-f]{64}$/.test(h || ''));
+    track(Promise.all(hs.map(h => TP.fb.set('signs/' + h, { photo, missionId: m.id, driverId: me(), at: TP.now() }))), 'الصورة وصلت للضيف ✓');
+    // to the car's group too (the phone's share sheet → WhatsApp)
+    try {
+      const blob = await (await fetch(photo)).blob(), f = new File([blob], 'sign.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [f] }) && await TP.confirm('تبعتها للجروب؟', 'الصورة وصلت لصفحة الضيف. تحب تبعتها لجروب العربية كمان؟', 'ابعت')) await navigator.share({ files: [f], text: `لافتة ${(m.customers || []).map(c => c.name).join('، ')} — ${(m.flight && m.flight.no) || ''}` });
+    } catch (e) { /* sharing cancelled or not available */ }
   }
   const EXP = { parking: 'باركينج', toll: 'كارتة', fuel: 'بنزين', other: 'مصروف تاني' };
   /** Parking / toll paid by the driver: amount + the receipt photo → management approves. */
@@ -804,6 +842,8 @@
     TP.$$('#tp-modal [data-kind]').forEach(b => b.onclick = () => { kindSel = b.dataset.kind; TP.$$('#tp-modal [data-kind]').forEach(x => x.classList.toggle('on', x === b)); });
   }
   TP.ui_val = id => { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+  /** What the other parts of the driver app (fleet.js) may use. */
+  TP.dv = { settings: () => st.settings, queue: () => queue(), render: () => render(), track: (p, msg) => track(p, msg) };
 
   /* ---------- wiring ---------- */
   TP.$$('.dv-nav button').forEach(b => b.onclick = () => { st.tab = b.dataset.tab; st.armed = null; if (st.tab === 'account' && st.acct.month) loadAccount(st.acct.month); else render(); window.scrollTo(0, 0); });
@@ -824,7 +864,7 @@
     render();
   });
   document.addEventListener('tp:session-end', () => {
-    TP.$('#app').hidden = true; stop(); stopTrack(); st.subsKey = '';
+    TP.$('#app').hidden = true; stop(); stopTrack(); st.subsKey = ''; if (TP.dvCar) TP.dvCar.stop();
     if (watchId !== null && navigator.geolocation) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   });
   S.start({ kind: 'driver', base: '../shared/' });

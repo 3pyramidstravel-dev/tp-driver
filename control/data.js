@@ -12,6 +12,7 @@
     todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '', driverCodes: [],
     wakePlans: {}, wakeAcks: [], wakeWatch: null,
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
+    fleet: [], salaryBase: {},
     loaded: {}
   };
   let unsubs = [];
@@ -54,6 +55,9 @@
         sub('driverRates', 'driverRates', null, toMap);
       }
       if (can('prices.view') || can('airport.prices')) sub('airportRates', 'airportRates', null, toMap);
+      /* phase 7 — trip orders (أمر الشغل): the cars' custody, fuel, odometer; the tourism drivers' base salary */
+      if (can('fleet.manage') || can('salary.manage') || can('tracking.view') || can('reports.finance') || can('month.close')) sub('fleet', 'fleet', null);
+      if (can('salary.manage')) sub('salaryBase', 'salaryBase', null, toMap);
       unsubs.push(TP.fb.onDoc('system/settings', s => { D.settings = Object.assign({}, TP.DEFAULT_SETTINGS, s || {}); emit('settings'); }, () => emit('settings')));
       if (can('audit.view')) sub('audit', 'audit', { orderBy: ['at', 'desc'], limit: 300 });
       /* phase 2 — the working day */
@@ -116,7 +120,7 @@
   TP.cust = {
     async newLink() { const token = TP.token(); return { token, h: await TP.sha256(token) }; },
     linkOp: (h, token, meta) => ({ op: 'set', path: 'custLinks/' + h, data: Object.assign({ token, at: TP.fb.ts() }, meta) }),
-    dropOps: h => [{ op: 'delete', path: 'track/' + h }, { op: 'delete', path: 'custLinks/' + h }, { op: 'delete', path: 'live/' + h }],
+    dropOps: h => [{ op: 'delete', path: 'track/' + h }, { op: 'delete', path: 'custLinks/' + h }, { op: 'delete', path: 'live/' + h }, { op: 'delete', path: 'signs/' + h }],
     /** h → token for the given customers (staff only). */
     async tokens(list) {
       const out = {};

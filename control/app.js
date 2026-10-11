@@ -22,6 +22,7 @@
     { id: 'lines', label: 'الخطوط', icon: 'route', any: ['lines.manage'], eyebrow: 'FIXED LINES' },
     { id: 'drivers', label: 'السواقين', icon: 'steering', any: ['drivers.manage'], eyebrow: 'DRIVERS' },
     { id: 'vehicles', label: 'العربيات', icon: 'car', any: ['vehicles.manage'], eyebrow: 'FLEET' },
+    { id: 'fleet', label: 'أمر الشغل والعهدة', icon: 'steering', any: ['fleet.manage', 'salary.manage'], eyebrow: 'TRIP ORDERS · CUSTODY · FUEL', badge: () => S.can('fleet.manage') ? TP.D.fleet.filter(c => c.req).length : 0 },
     { id: 'prices', label: 'الأسعار', icon: 'money', any: ['prices.view', 'airport.prices'], eyebrow: 'PRICING', finance: true },
     { id: 'advances', label: 'السلف والخصومات', icon: 'money', any: ['advances.manage'], eyebrow: 'ADVANCES & DEDUCTIONS', finance: true },
     { sep: true },
@@ -103,6 +104,8 @@
     }
     if (S.can('overtime.approve') && D.pendingOT.length) h += `<a class="banner warn alert-link" href="#/today">${TP.icon('clock')}<span class="grow">${D.pendingOT.length} طلب سهرة مستني موافقتك</span><b>راجع</b></a>`;
     if (D.factoryRequests.length) h += `<a class="banner warn alert-link" href="#/requests">${TP.icon('file')}<span class="grow">${D.factoryRequests.length} طلب من المصانع مستني</span><b>راجع</b></a>`;
+    const asks = S.can('fleet.manage') ? D.fleet.filter(c => c.req) : [];
+    if (asks.length) h += `<a class="banner warn alert-link" href="#/fleet">${TP.icon('money')}<span class="grow">${asks.length > 1 ? asks.length + ' سواقين طالبين عهدة مصروفات' : 'سواق طالب عهدة مصروفات — رصيده ' + esc(TP.money(asks[0].req.bal))}</span><b>سلّم</b></a>`;
     el.innerHTML = h;
   }
 
@@ -131,7 +134,7 @@
 
   let cardTimer = null;
   document.addEventListener('tp:data', e => {
-    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending'].includes(e.detail)) { renderAlerts(); renderNav(); }
+    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet'].includes(e.detail)) { renderAlerts(); renderNav(); }
     if (e.detail === 'settings' && current && NAV.find(n => n.id === current && n.finance) && !TP.financeOn(TP.D.settings)) { go(); return; }
     // driver cards (what customers see) follow names, codes and cars
     if (['people', 'cards', 'vehicles', 'lines'].includes(e.detail) && TP.actions.syncCards) { clearTimeout(cardTimer); cardTimer = setTimeout(() => TP.actions.syncCards(), 1200); }

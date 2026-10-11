@@ -81,6 +81,10 @@
   const col = path => F.collection(db, path);
   fb.ts = () => F.serverTimestamp();
   fb.del = () => F.deleteField();
+  /** Adds to a number on the server (safe when two phones write at once, or a write waited offline). */
+  fb.inc = n => F.increment(n);
+  /** This sign-in's ID token (for the cloud alarm's own services, e.g. translation). */
+  fb.idToken = () => auth && auth.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
   fb.newDocId = colPath => F.doc(col(colPath)).id;
 
   fb.get = async path => { const s = await F.getDoc(ref(path)); return s.exists() ? Object.assign({ id: s.id }, s.data()) : null; };

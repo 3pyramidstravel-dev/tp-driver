@@ -47,6 +47,13 @@
       ['financeOn', 'تشغيل الحسابات جوه التطبيق', 'مقفولة = تشغيل بس: الأسعار والكشوفات بتستخبى، والشغل بيتصدّر Excel لسيستم الحسابات. البيانات بتفضل محفوظة.', 'bool'],
       ['taxPct', 'نسبة الضريبة من إجمالي الفواتير', '%', 'num', 0, 30, 0.5],
       ['expiryWarnDays', 'التنبيه قبل انتهاء الرخص والتأمين بكام يوم', '', 'int', 1, 120]
+    ] },
+    { title: 'أمر الشغل والعهدة', items: [
+      ['custodyLow', 'تنبيه عهدة المصروفات لما توصل لـ', 'جنيه أو أقل — بيوصل للسواق ولمدير التشغيل، والسواق يطلب عهدة بزرار', 'int', 0, 100000],
+      ['fuelLow', 'تنبيه فيزا البنزين لما تقل عن', 'جنيه — بيوصل لمدير المطارات وللمدير العام مرة واحدة', 'int', 0, 1000000]
+    ] },
+    { title: 'حفظ البيانات (3 شهور)', items: [
+      ['retentionOn', 'مسح الشغل الأقدم من 3 شهور أوتوماتيك', 'بيفضل الشهر الحالي والشهرين اللي قبله. مبيتمسحش شهر غير بعد ما يتصدّر Excel للحسابات. السواقين والخطوط والعربيات والأسعار والأرصدة مبتتمسحش أبداً.', 'bool']
     ] }
   ];
 
@@ -78,12 +85,44 @@
     TP.toast('تم حفظ الإعدادات ✓');
   }
 
+  /* ---------- where guests meet the driver, per terminal (shown on the guest's page) ---------- */
+  const MEET = [['CAI-1', 'مطار القاهرة — صالة 1'], ['CAI-2', 'مطار القاهرة — صالة 2'], ['CAI-3', 'مطار القاهرة — صالة 3'], ['SPX', 'مطار سفنكس']];
+  const meet = { loaded: false, doc: {}, photos: {}, changed: {} };
+  function loadMeet() {
+    if (meet.loaded) return; meet.loaded = true;
+    TP.fb.get('public/meet').then(d => { meet.doc = d || {}; MEET.forEach(([k]) => { if (meet.doc[k] && meet.doc[k].hasPhoto) TP.fb.get('public/meetPhoto_' + k).then(p => { meet.photos[k] = p && p.photo; TP.rerender(); }).catch(() => {}); }); TP.rerender(); }).catch(() => {});
+  }
+  function meetHtml() {
+    return `<section class="card"><div class="card-head"><h3>أماكن المقابلة في المطار (للضيوف)</h3><span class="muted small">بالإنجليزي — بيظهر لوحده في صفحة الضيف حسب صالة رحلته</span></div>
+      ${MEET.map(([k, l]) => { const d = meet.doc[k] || {}, ph = meet.changed[k] !== undefined ? meet.changed[k] : meet.photos[k]; return `<div class="set-row" style="align-items:flex-start"><div style="flex:1"><b>${esc(l)}</b>
+        <textarea class="input" id="meet_${k}" rows="3" dir="ltr" maxlength="600" placeholder="Example: After customs, walk to the exit doors. Your driver stands by the Costa Coffee holding a sign with your name." style="margin-top:6px">${esc(d.text || '')}</textarea></div>
+        <div style="width:160px;text-align:center">${ph ? `<img src="${esc(ph)}" alt="" style="width:100%;border-radius:12px;max-height:120px;object-fit:cover">` : '<div class="muted small">من غير صورة</div>'}
+          <label class="btn btn-ghost btn-sm" style="margin-top:6px">${ph ? 'غيّر الصورة' : 'ضيف صورة'}<input type="file" accept="image/*" data-meetph="${k}" hidden></label>${ph ? `<button type="button" class="link" data-meetrm="${k}">شيل</button>` : ''}</div></div>`; }).join('')}
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" id="saveMeet">${TP.icon('check', 18)}حفظ أماكن المقابلة</button></div></section>`;
+  }
+  /** what is typed stays when the page redraws (a photo was picked) */
+  const keepTexts = () => MEET.forEach(([k]) => { const el = document.getElementById('meet_' + k); if (el) meet.doc[k] = Object.assign({}, meet.doc[k], { text: el.value }); });
+  async function saveMeet() {
+    const doc = {}, ops = [];
+    MEET.forEach(([k]) => {
+      const ph = meet.changed[k] !== undefined ? meet.changed[k] : meet.photos[k];
+      doc[k] = { text: U.val('meet_' + k).slice(0, 600), hasPhoto: !!ph };
+      if (meet.changed[k] !== undefined) ops.push(meet.changed[k] ? { op: 'set', path: 'public/meetPhoto_' + k, data: { photo: meet.changed[k], at: TP.fb.ts() } } : { op: 'delete', path: 'public/meetPhoto_' + k });
+    });
+    ops.unshift({ op: 'set', path: 'public/meet', data: Object.assign(doc, { updatedAt: TP.fb.ts() }) });
+    await TP.fb.batch(ops);
+    MEET.forEach(([k]) => { if (meet.changed[k] !== undefined) meet.photos[k] = meet.changed[k]; });
+    meet.changed = {}; meet.doc = doc;
+    TP.audit('settings.update', 'أماكن المقابلة في المطار', '');
+    TP.toast('اتحفظت ✓');
+  }
+
   TP.views.settings = {
     deps: ['settings'],
     render(root) {
       const s = D.settings, ends = s.overtimeTierEnds || ['21:00', '23:00', '24:00'];
       const input = (k, type, min, max, step) => type === 'bool'
-        ? `<label class="check"><input type="checkbox" id="s_${k}" ${(k === 'financeOn' ? s[k] === true : s[k] !== false) ? 'checked' : ''}><span>شغال</span></label>`
+        ? `<label class="check"><input type="checkbox" id="s_${k}" ${(['financeOn', 'retentionOn'].includes(k) ? s[k] === true : s[k] !== false) ? 'checked' : ''}><span>شغال</span></label>`
         : type === 'text'
         ? `<input class="input" id="s_${k}" dir="ltr" value="${esc(s[k] || '')}" style="max-width:220px">`
         : type === 'time'
@@ -96,6 +135,14 @@
         </section>
         <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-primary btn-lg" id="saveS">${TP.icon('check', 18)}حفظ الإعدادات</button></div>`;
       root.querySelector('#saveS').onclick = () => save().catch(e => TP.toast(TP.errorText(e), 'warn'));
+      loadMeet();
+      root.insertAdjacentHTML('beforeend', meetHtml());
+      root.querySelectorAll('[data-meetph]').forEach(i => i.onchange = async () => {
+        const f = i.files && i.files[0]; if (!f) return;
+        try { let p = await TP.compressImage(f, 1000, 0.6); if (p.length > 380000) p = await TP.compressImage(f, 720, 0.5); if (p.length > 380000) return TP.toast('الصورة كبيرة', 'warn'); keepTexts(); meet.changed[i.dataset.meetph] = p; TP.rerender(); } catch (e) { TP.toast('الصورة مش مقروءة', 'warn'); }
+      });
+      root.querySelectorAll('[data-meetrm]').forEach(b => b.onclick = () => { keepTexts(); meet.changed[b.dataset.meetrm] = null; TP.rerender(); });
+      root.querySelector('#saveMeet').onclick = () => saveMeet().catch(e => TP.toast(TP.errorText(e), 'warn'));
     }
   };
 })(window.TP = window.TP || {});

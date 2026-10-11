@@ -44,3 +44,17 @@ body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.55)
 @keyframes cIn { from { transform: scale(.9); opacity: 0; } }
 @keyframes cBounce { 50% { transform: translateY(-8px); } }
 .c-sound { margin-top: 10px; border-style: dashed; }
+
+/* ---------- guests: language, delay, sign photo, meeting point, emergency ---------- */
+.c-lang { float: inline-end; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: #fffdf8; color: var(--muted); font-size: 12px; margin: -4px 0 6px; }
+.c-lang select { border: 0; background: none; font: inherit; color: var(--ink); font-weight: 800; padding: 2px; outline: none; }
+.c-delay { margin-top: 10px; }
+.c-sign { margin-top: 12px; border-radius: 18px; overflow: hidden; border: 2px solid var(--gold); background: #fff; text-align: center; }
+.c-sign img { display: block; width: 100%; max-height: 320px; object-fit: cover; }
+.c-sign b { display: block; padding: 10px 12px; color: var(--maroon-2); font-size: 15px; }
+.c-meet { margin-top: 12px; padding: 12px; border-radius: 18px; background: var(--cream); border: 1px solid var(--line); }
+.c-meet img { display: block; width: 100%; max-height: 260px; object-fit: cover; border-radius: 12px; margin: 8px 0; }
+.c-meet p { margin: 6px 0 0; font-size: 14px; line-height: 1.6; text-align: start; white-space: pre-line; }
+.c-sos { margin-top: 10px; }
+.c-pop-sign { display: block; width: 100%; max-height: 200px; object-fit: cover; border-radius: 14px; margin: 8px 0; }
+html[dir="ltr"] .c-card { text-align: left; }

@@ -136,7 +136,7 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
 /* ---------- phase 4–6: customers, driver photo, reports, print ---------- */
 .cust-box { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .cust-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; margin-bottom: 6px; align-items: center; }
-.cust-row.two { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; }
+.cust-row.two { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(90px, .7fr) auto; }
 .cust-row .input { min-height: 40px; padding: 8px 10px; }
 .photo-pick { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 .photo-prev { width: 76px; height: 76px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--cream); color: var(--muted); border: 2px solid var(--gold); flex: none; }
@@ -154,3 +154,19 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
   .print-head img { width: 140px; } .print-head b { display: block; font-size: 20px; color: #5c1619; } .print-head span { color: #6f5a4c; }
   .table-wrap { overflow: visible; } .table-wrap .tbl { min-width: 0 !important; font-size: 11px; }
 }
+
+/* ---------- reports on screen: key figures + totals ---------- */
+.rep-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.rep-kpi { padding: 12px 14px; border-radius: 16px; background: var(--paper); border: 1px solid var(--line); border-top: 4px solid var(--maroon); box-shadow: var(--sh-sm); }
+.rep-kpi.good { border-top-color: var(--ok); } .rep-kpi.bad { border-top-color: var(--danger); } .rep-kpi.gold { border-top-color: var(--gold); }
+.rep-kpi span { display: block; font-size: 12px; color: var(--muted); font-weight: 700; }
+.rep-kpi b { display: block; font-size: 20px; font-weight: 900; color: var(--maroon-2); font-variant-numeric: tabular-nums; }
+.tbl.rep tfoot td { background: #f6ead2; border-top: 2px solid var(--gold); }
+
+/* ---------- أمر الشغل والعهدة ---------- */
+.fleet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.fleet-card.off { opacity: .65; }
+.fleet-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.fleet-h b { font-size: 16px; color: var(--maroon-2); }
+.fleet-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.fleet-card .st { margin: 2px; }

@@ -391,6 +391,12 @@
     financeOn: false,              // prices & statements inside the platform (off = operations only + Excel export)
     overtimeTierEnds: ['21:00', '23:00', '24:00'],
     taxPct: 3,
-    expiryWarnDays: 30
+    expiryWarnDays: 30,
+    /* phase 7 — trip orders (أمر الشغل), guests, keeping 3 months */
+    custodyLow: 100,               // cash custody at or below this → the driver and the operations manager are told
+    fuelLow: 1000,                 // fuel card below this → the airports manager and the GM are told
+    maintPlan: {},                 // the GM's changes to the maintenance kilometres (TP.fleet.PARTS)
+    retentionOn: false,            // delete records older than 3 months (only months already exported to the accounts)
+    retentionMonths: 3
   };
 })(window.TP = window.TP || {});

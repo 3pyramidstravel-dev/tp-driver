@@ -27,12 +27,14 @@
       <section id="tab-today" class="dv-tab"></section>
       <section id="tab-missions" class="dv-tab" hidden></section>
       <section id="tab-account" class="dv-tab" hidden></section>
+      <section id="tab-car" class="dv-tab" hidden></section>
     </main>
     <div class="wake-ov" id="wakeOv" hidden></div>
     <nav class="dv-nav" aria-label="القائمة">
       <button type="button" data-tab="today" class="on"><i data-icon="route"></i><span>النهارده</span></button>
       <button type="button" data-tab="missions"><i data-icon="file"></i><span>المشاوير</span><b class="dv-badge" id="mBadge" hidden></b></button>
       <button type="button" data-tab="account"><i data-icon="money"></i><span>حسابي</span></button>
+      <button type="button" data-tab="car" hidden><i data-icon="car"></i><span>عربيتي</span></button>
     </nav>
   </div>
   <script src="../shared/firebase-config.js"></script>
@@ -42,8 +44,14 @@
   <script src="../shared/ops.js"></script>
   <script src="../shared/wakecore.js"></script>
   <script src="../shared/flightcore.js"></script>
+  <script src="../shared/fleetcore.js"></script>
+  <script src="../shared/xlsx.js"></script>
+  <script src="../shared/report.js"></script>
+  <script src="../shared/i18n.js"></script>
+  <script src="../shared/guest.js"></script>
   <script src="../shared/fb.js"></script>
   <script src="../shared/session.js"></script>
+  <script src="fleet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

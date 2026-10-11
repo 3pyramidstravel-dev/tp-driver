@@ -23,7 +23,7 @@
       const q = U.norm(U.filters.audit || '');
       const list = D.audit.filter(a => !q || U.norm(a.name).includes(q) || U.norm(a.target).includes(q) || U.norm(ACTIONS[a.action] || a.action).includes(q) || U.norm(a.details).includes(q));
       root.innerHTML = `<section class="card">
-        <div class="toolbar"><span class="muted">آخر 300 عملية. السجل ده محدش يقدر يعدّله أو يمسحه.</span>${U.filterBox('auditQ', 'بحث بالاسم أو العملية', U.filters.audit)}</div>
+        <div class="toolbar"><span class="muted">آخر 300 عملية. السجل ده محدش يقدر يعدّله أو يمسحه${(D.settings || {}).retentionOn ? ` — والسيستم بيشيل لوحده اللي أقدم من ${Number(D.settings.retentionMonths) || 3} شهور بعد ما تتصدّر للحسابات` : ''}.</span>${U.filterBox('auditQ', 'بحث بالاسم أو العملية', U.filters.audit)}</div>
         ${list.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>الوقت</th><th>مين</th><th>العملية</th><th>على</th><th>تفاصيل</th></tr></thead>
         <tbody>${list.map(a => `<tr><td class="small">${esc(TP.fmtDateTime(a.at))}</td><td>${esc(a.name)}</td><td><span class="tag">${esc(ACTIONS[a.action] || a.action)}</span></td><td>${esc(a.target)}</td><td class="small muted" style="max-width:420px">${esc(a.details)}</td></tr>`).join('')}</tbody></table></div>` : U.empty('مفيش عمليات')}
       </section>`;

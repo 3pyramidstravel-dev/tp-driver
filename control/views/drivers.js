@@ -23,6 +23,7 @@
       <div class="form-grid">
         ${pid && p.code ? `<div class="full"><span class="tag gold">كود السواق ${esc(p.code)}</span> <span class="muted small">ثابت ومبيتغيرش</span></div>` : ''}
         <label class="fld">الاسم<input class="input" id="dName" value="${esc(p.name || '')}"></label>
+        <label class="fld">الاسم بالإنجليزي <small>للضيوف الأجانب</small><input class="input" id="dNameEn" dir="ltr" maxlength="60" placeholder="Sameh Fathy" value="${esc(p.nameEn || '')}"></label>
         <label class="fld">الموبايل<input class="input" id="dPhone" inputmode="tel" dir="ltr" value="${esc(p.phone || '')}"></label>
         <label class="fld full">نوع السواق<select class="input" id="dKind">${U.opts(TP.DRIVER_KINDS, p.driverKind, k => k.id, k => k.name)}</select><small id="dKindNote"></small></label>
         <div class="full form-grid" id="dLineBox" style="padding:12px;border:1px dashed var(--line-strong);border-radius:14px;background:#fffaf1">
@@ -97,7 +98,7 @@
     const kind = U.val('dKind');
     const id = pid || TP.newId('P');
     // read the whole form first (a confirmation below replaces the dialog)
-    const person = { id, type: 'driver', perms: [], name, phone, driverKind: kind, vehicleId: U.val('dVehicle'), licenseNo: U.val('dLicense'), licenseExpiry: U.val('dLicenseExp'), notes: U.val('dNotes'), active: U.checked('dActive') };
+    const person = { id, type: 'driver', perms: [], name, nameEn: U.val('dNameEn').slice(0, 60), phone, driverKind: kind, vehicleId: U.val('dVehicle'), licenseNo: U.val('dLicense'), licenseExpiry: U.val('dLicenseExp'), notes: U.val('dNotes'), active: U.checked('dActive') };
     const wantFactory = U.val('dFactory'), wantLineSel = U.val('dLine');
     // fixed line: factory + line (or "no line yet")
     const lineOps = [];

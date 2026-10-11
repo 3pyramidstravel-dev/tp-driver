@@ -6,7 +6,7 @@
      · كشوف المصانع: the GM approves a factory's month → its HR sees it
      · التصدير للحسابات: an Excel of the period for the accounting system;
        the period is then locked (later corrections are listed next time)
-   Excel (no library) and print / PDF with the company's logo.
+   Every report downloads as PDF or Excel (TP.report — the company's style).
    ========================================================================== */
 (function (TP) {
   'use strict';
@@ -121,28 +121,48 @@
     return { pay: TP.round2(total), exp: TP.round2(exp), missing };
   }
 
-  /* ---------- tables (screen + Excel share the same rows) ---------- */
+  /* ---------- tables: one definition for the screen, PDF and Excel ---------- */
+  const col = (h, t, sum, w) => ({ h, t: t || 'text', sum: !!sum, w });
+  const sumOf = (rows, i) => TP.round2(rows.reduce((a, r) => a + (Number(r[i]) || 0), 0));
   const T = {
     drivers() {
-      const head = ['الكود', 'السواق', 'النوع', 'أيام كاملة', 'أنصاص أيام', 'انتظار المسا (د)', 'سهرات', 'مشاوير', 'منها مطار', 'صحيان متأخر', 'ضغطات بعيدة', 'سجلتها الإدارة', 'التقييم', 'عدد التقييمات'];
-      return [head].concat(driverRows().map(r => { const p = TP.q.person(r.pid) || {}; return [p.code || '', p.name || '—', TP.driverKindName(p.driverKind), r.full, r.half, r.wait, r.ot, r.missions, r.airport, r.lateWake, r.far, r.staff, avg(r.ratings) ?? '', r.ratings.length]; }));
+      const columns = [col('الكود', 'center'), col('السواق'), col('النوع', 'center'), col('أيام كاملة', 'int', 1), col('أنصاص أيام', 'int', 1), col('انتظار المسا (د)', 'int', 1), col('سهرات', 'int', 1), col('مشاوير', 'int', 1), col('منها مطار', 'int', 1), col('صحيان متأخر', 'int', 1), col('ضغطات بعيدة', 'int', 1), col('سجلتها الإدارة', 'int', 1), col('التقييم', 'dec'), col('عدد التقييمات', 'int', 1)];
+      const rows = driverRows().map(r => { const p = TP.q.person(r.pid) || {}; return [p.code || '', p.name || '—', TP.driverKindName(p.driverKind), r.full, r.half, r.wait, r.ot, r.missions, r.airport, r.lateWake, r.far, r.staff, avg(r.ratings) ?? '', r.ratings.length]; });
+      const all = driverRows().flatMap(r => r.ratings);
+      return { title: 'تقرير السواقين', kpis: [['السواقين', rows.length], ['أيام كاملة', sumOf(rows, 3)], ['أنصاص أيام', sumOf(rows, 4)], ['مشاوير', sumOf(rows, 7)], ['صحيان متأخر', sumOf(rows, 9), sumOf(rows, 9) ? 'bad' : 'good'], ['متوسط التقييم', avg(all) ?? '—', 'gold']],
+        sections: [{ title: 'السواقين', columns, rows, totals: true }] };
     },
     factories() {
-      const head = ['المصنع', 'أيام كاملة', 'أنصاص أيام', 'انتظار (د)', 'سهرات', 'مشاوير', 'منها مطار', 'اعتذارات العملاء', 'مجاش', 'التقييم'];
-      return [head].concat(factoryRows().map(r => [r.f.name, r.full, r.half, r.wait, r.ot, r.missions, r.airport, r.skip, r.noshow, r.rating ?? '']));
+      const columns = [col('المصنع'), col('أيام كاملة', 'int', 1), col('أنصاص أيام', 'int', 1), col('انتظار (د)', 'int', 1), col('سهرات', 'int', 1), col('مشاوير', 'int', 1), col('منها مطار', 'int', 1), col('اعتذارات العملاء', 'int', 1), col('مجاش', 'int', 1), col('التقييم', 'dec')];
+      const rows = factoryRows().map(r => [r.f.name, r.full, r.half, r.wait, r.ot, r.missions, r.airport, r.skip, r.noshow, r.rating ?? '']);
+      return { title: 'تقرير المصانع', kpis: [['المصانع', rows.length], ['أيام كاملة', sumOf(rows, 1)], ['مشاوير', sumOf(rows, 5)], ['اعتذارات', sumOf(rows, 7)], ['مجاش', sumOf(rows, 8), sumOf(rows, 8) ? 'bad' : 'good']],
+        sections: [{ title: 'المصانع', columns, rows, totals: true }] };
     },
-    absences() { return [['العميل', 'المصنع', 'الخط', 'اعتذر', 'مجاش', 'الأيام']].concat(absences().map(a => [a.name, (TP.q.company(a.factoryId) || {}).name || '', a.line, a.skip, a.noshow, a.days.join(' · ')])); },
+    absences() {
+      const list = absences();
+      const columns = [col('العميل'), col('المصنع'), col('الخط'), col('اعتذر', 'int', 1), col('مجاش', 'int', 1), col('الأيام', 'text', 0, 44)];
+      const rows = list.map(a => [a.name, (TP.q.company(a.factoryId) || {}).name || '', a.line, a.skip, a.noshow, a.days.join(' · ')]);
+      return { title: 'غياب العملاء', kpis: [['موظفين غابوا', rows.length], ['اعتذر', sumOf(rows, 3)], ['مجاش', sumOf(rows, 4), sumOf(rows, 4) ? 'bad' : 'good']],
+        sections: [{ title: 'غياب العملاء', columns, rows, totals: true, note: '"اعتذر" = الموظف بلّغ من لينكه إنه مش راكب. "مجاش" = العربية استنته في النقطة ومجاش (المكان متسجل).' }] };
+    },
     profit() {
-      const head = ['المصنع', 'فاتورة الخطوط', 'فاتورة المشاوير', 'إجمالي الفاتورة', 'الضريبة', 'أجور السواقين', 'المصاريف', 'صافي الربح', 'ناقص أسعار'];
+      const columns = [col('المصنع'), col('فاتورة الخطوط', 'money', 1), col('فاتورة المشاوير', 'money', 1), col('إجمالي الفاتورة', 'money', 1), col('الضريبة', 'money', 1), col('أجور السواقين', 'money', 1), col('المصاريف', 'money', 1), col('صافي الربح', 'money', 1), col('ناقص أسعار', 'int', 1)];
       const rows = D.companies.map(f => { const i = invoice(f.id), c = driverCost(f.id); return [f.name, i.lines, i.ms, i.total, i.tax, c.pay, c.exp, TP.round2(i.total - i.tax - c.pay - c.exp), i.missing + c.missing]; });
-      const sum = k => TP.round2(rows.reduce((a, r) => a + (Number(r[k]) || 0), 0));
-      return [head].concat(rows, [['الإجمالي', sum(1), sum(2), sum(3), sum(4), sum(5), sum(6), sum(7), sum(8)]]);
+      const net = sumOf(rows, 7);
+      return { title: 'الربح لكل مصنع', kpis: [['إجمالي الفواتير', TP.money(sumOf(rows, 3))], ['الضريبة', TP.money(sumOf(rows, 4))], ['أجور السواقين', TP.money(sumOf(rows, 5))], ['المصاريف', TP.money(sumOf(rows, 6))], ['صافي الربح', TP.money(net), net >= 0 ? 'good' : 'bad']],
+        sections: [{ title: 'الربح لكل مصنع', columns, rows, totals: true, note: `الربح = الفاتورة − الضريبة (${D.settings.taxPct}%) − أجور السواقين − المصاريف المقبولة. "ناقص أسعار" = أيام أو مشاوير لسه سعرها متحطش.` }] };
     }
   };
-  function htmlTable(rows, numFrom) {
-    if (rows.length < 2) return U.empty('مفيش شغل متسجل في الشهر ده');
-    return `<div class="table-wrap"><table class="tbl rep"><thead><tr>${rows[0].map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(r => `<tr>${r.map((v, i) => `<td class="${i >= (numFrom || 1) ? 'num' : ''}">${esc(typeof v === 'number' && i >= (numFrom || 1) && rows[0][i] && /فاتورة|الضريبة|أجور|المصاريف|الربح/.test(rows[0][i]) ? TP.money(v) : v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  /** The full report definition of a tab (what PDF and Excel get). */
+  const defOf = tab => Object.assign({ subtitle: 'Three Pyramids Travel', period: O.monthName(state.month), fileName: `TP-${tab}-${state.month}` }, T[tab]());
+  function htmlTable(sec) {
+    if (!(sec.rows || []).length) return U.empty('مفيش شغل متسجل في الشهر ده');
+    const num = c => c.t && c.t !== 'text';
+    const tot = sec.totals === true ? sec.columns.map((c, i) => i === 0 ? 'الإجمالي' : c.sum ? sumOf(sec.rows, i) : '') : null;
+    const cell = (c, v) => esc(c.t === 'money' && typeof v === 'number' ? TP.money(v) : TP.report.fmt(v, c.t === 'money' ? 'int' : c.t));
+    return `<div class="table-wrap"><table class="tbl rep"><thead><tr>${sec.columns.map(c => `<th>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r => `<tr>${sec.columns.map((c, i) => `<td class="${num(c) ? 'num' : ''}">${cell(c, r[i])}</td>`).join('')}</tr>`).join('')}</tbody>${tot && sec.rows.length > 1 ? `<tfoot><tr class="rep-total">${sec.columns.map((c, i) => `<td class="${i && num(c) ? 'num' : ''}"><b>${i ? cell(c, tot[i]) : esc(tot[0])}</b></td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
   }
+  const kpiStrip = def => (def.kpis || []).length ? `<div class="rep-kpis">${def.kpis.map(k => `<div class="rep-kpi ${esc(k[2] || '')}"><span>${esc(k[0])}</span><b>${esc(typeof k[1] === 'number' ? TP.report.fmt(k[1], 'int') : k[1])}</b></div>`).join('')}</div>` : '';
 
   /* ---------- monthly factory sheet (approved → visible to the factory's HR) ---------- */
   function sheetData(fid) {
@@ -186,6 +206,37 @@
     const L = D.lock, y = O.addDays(TP.dayKey(TP.now()), -1);
     if (L && L.until && L.until < y) return O.addDays(L.until, 1);
     return y.slice(0, 8) + '01';
+  }
+  /**
+   * Trip orders in the accounts' file: the cars' trips, cash custody and fuel card of the period, and the
+   * tourism drivers' salaries of its months (old months are only deleted after they are in this file).
+   */
+  async function fleetSheets(from, to) {
+    const months = []; for (let m = from.slice(0, 7); m <= to.slice(0, 7) && months.length < 30; m = O.addMonths(m, 1)) months.push(m);
+    const [logs, sals] = await Promise.all([safe(TP.fb.list('fleetLog', { where: [['month', 'in', months]] })), S.can('salary.manage') ? safe(TP.fb.list('salary', { where: [['month', 'in', months]] })) : null]);
+    if (!logs && !sals) return [];
+    const P = id => TP.q.person(id) || {}, plate = vid => (TP.q.vehicle ? (TP.q.vehicle(vid) || {}).plate : '') || vid;
+    const who = e => e.byName || P(e.by).name || e.by || '';
+    const inP = d => d && d >= from && d <= to;
+    const flat = k => (logs || []).flatMap(l => Object.entries(l[k] || {}).map(([id, e]) => Object.assign({ id, vid: l.vehicleId || String(l.id).split('_')[0] }, e))).filter(e => inP(e.day)).sort((a, b) => (a.day + (a.time || '') + a.vid).localeCompare(b.day + (b.time || '') + b.vid));
+    const K = { topup: 'عهدة', set: 'تحديد الرصيد', charge: 'شحن', fill: 'تعبئة' };
+    const trips = flat('trips'), out = [];
+    if (logs) {
+      out.push({ name: 'أمر الشغل', rows: [['التاريخ', 'الوقت', 'العربية', 'السواق', 'المأمورية', 'العداد قبل', 'العداد بعد', 'كيلومترات', 'المصروف', 'بيان المصروف']]
+        .concat(trips.map(t => [t.day, t.time ? O.hm12(t.time) : '', plate(t.vid), who(t), t.task || '', Number(t.before) || '', Number(t.after) || '', t.after && t.before ? t.after - t.before : '', Number(t.expense) || 0, t.expNote || ''])) });
+      const cash = flat('cash').map(e => [e.day, plate(e.vid), K[e.kind] || e.kind, e.note || '', e.kind === 'set' ? '' : Number(e.amount) || 0, '', e.kind === 'set' ? Number(e.amount) || 0 : '', who(e)])
+        .concat(trips.filter(t => Number(t.expense) > 0).map(t => [t.day, plate(t.vid), 'مصروف مشوار', (t.expNote ? t.expNote + ' — ' : '') + (t.task || ''), '', Number(t.expense) || 0, '', who(t)]))
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      out.push({ name: 'العهدة', rows: [['التاريخ', 'العربية', 'النوع', 'البيان', 'داخل', 'خارج', 'الرصيد اتحدد بـ', 'بواسطة']].concat(cash) });
+      out.push({ name: 'فيزا البنزين', rows: [['التاريخ', 'العربية', 'النوع', 'البيان', 'شحن', 'تعبئة', 'الرصيد اتحدد بـ', 'بواسطة']]
+        .concat(flat('fuel').map(e => [e.day, plate(e.vid), K[e.kind] || e.kind, e.note || '', e.kind === 'charge' ? Number(e.amount) || 0 : '', e.kind === 'fill' ? Number(e.amount) || 0 : '', e.kind === 'set' ? Number(e.amount) || 0 : '', who(e)])) });
+    }
+    if (sals) {
+      const FL = TP.fleet;
+      out.push({ name: 'مرتبات السياحة', rows: [['الشهر', 'كود السواق', 'السواق', 'الأساسي', 'الإضافي', 'الخصومات', 'الصافي', 'ملحوظة']]
+        .concat(sals.slice().sort((a, b) => (a.month + (P(a.driverId).code || '')).localeCompare(b.month + (P(b.driverId).code || ''))).map(x => { const n = FL.salaryNet(x); return [O.monthName(x.month), P(x.driverId).code || '', P(x.driverId).name || x.driverId, n.base, n.extra, n.ded, n.net, x.month === to.slice(0, 7) && to < O.addDays(O.addMonths(x.month, 1) + '-01', -1) ? 'لحد ' + to + ' — الشهر لسه مخلصش' : '']; })) });
+    }
+    return out;
   }
   async function doExport() {
     const from = U.val('xFrom'), to = U.val('xTo');
@@ -243,7 +294,7 @@
       .concat(late(fixesD).map(d => ['يوم خط', d.day, L(d.lineId), P(d.driverId).code || '', P(d.driverId).name || '', fx(d)[0], TP.fmtDateTime(d.updatedAt), fx(d)[1] + ` — الحالة دلوقتي: ${PART[O.part(d.events)] || 'من غير يوم'}${d.ot && d.ot.status === 'approved' ? ' + سهرة' : ''}`]),
         late(fixesM).map(m => ['مشوار', m.day, m.title || '', P(m.driverId).code || '', P(m.driverId).name || '', fx(m)[0], TP.fmtDateTime(m.updatedAt), fx(m)[1] + ` — الحالة دلوقتي: ${(O.MISSION_STATUS[m.status] || [''])[0]}${m.cashGot ? ' · الكاش اتحصّل' : ''}`]),
         late(fixesX).map(x => ['مصروف', x.day, (TP.EXPENSE_KINDS || {})[x.kind] || x.kind, P(x.driverId).code || '', P(x.driverId).name || '', x.decidedBy || '', TP.fmtDateTime(x.decidedAt), `${x.status === 'approved' ? 'اتقبل' : x.status === 'rejected' ? 'اترفض' : x.status} — ${Number(x.amount) || 0}`]));
-    TP.xlsx.download(`TP-export-${from}_${to}${copy ? '-copy' : ''}`, [{ name: 'أيام الخطوط', rows: daySheet }, { name: 'المشاوير والمطار', rows: mSheet }, { name: 'المصاريف', rows: xSheet }, { name: 'الكاش', rows: cSheet }, { name: 'الغياب', rows: abs }, { name: 'تعديلات بعد القفل', rows: fixes }]);
+    TP.xlsx.download(`TP-export-${from}_${to}${copy ? '-copy' : ''}`, [{ name: 'أيام الخطوط', rows: daySheet }, { name: 'المشاوير والمطار', rows: mSheet }, { name: 'المصاريف', rows: xSheet }, { name: 'الكاش', rows: cSheet }, { name: 'الغياب', rows: abs }, { name: 'تعديلات بعد القفل', rows: fixes }].concat(await fleetSheets(from, to)));
     if (copy) { TP.audit('export.copy', `${from} → ${to}`, ''); TP.toast('النسخة نزلت ✓'); return; }
     const until = lock.until && lock.until > to ? lock.until : to;
     await TP.fb.batch([{ op: 'set', path: 'exports/' + TP.newId('X'), data: { from, to, at: TP.fb.ts(), by: S.person.name, days: daySheet.length - 1, missions: mSheet.length - 1, fixes: fixes.length - 1 } },
@@ -274,7 +325,7 @@
             const sd = sheetData(f.id), sh = data.sheets[f.id], ok = sh && sh.status === 'approved';
             return `<tr><td><b>${esc(f.name)}</b></td><td class="small">${sd.lines.reduce((a, l) => a + l.full, 0)} يوم كامل · ${sd.lines.reduce((a, l) => a + l.half, 0)} نص · ${sd.missions.length} مشوار · ${sd.absences.reduce((a, x) => a + x.skip + x.noshow, 0)} غياب${sd.totals ? ` · <b>${esc(TP.money(sd.totals.total))}</b>` : ''}</td>
               <td>${ok ? `<span class="st st-ok">معتمد</span><div class="muted small">${esc(sh.approvedBy || '')}</div>` : '<span class="st st-off">لسه</span>'}</td>
-              <td class="acts">${S.can('all') ? `<button class="btn btn-primary btn-sm" data-approve="${esc(f.id)}">${ok ? 'اعتماد تاني' : 'اعتماد'}</button>${ok ? `<button class="btn btn-ghost btn-sm" data-withdraw="${esc(f.id)}">سحب</button>` : ''}` : ''}<button class="btn btn-ghost btn-sm" data-sx="${esc(f.id)}">Excel</button></td></tr>`;
+              <td class="acts">${S.can('all') ? `<button class="btn btn-primary btn-sm" data-approve="${esc(f.id)}">${ok ? 'اعتماد تاني' : 'اعتماد'}</button>${ok ? `<button class="btn btn-ghost btn-sm" data-withdraw="${esc(f.id)}">سحب</button>` : ''}` : ''}<button class="btn btn-ghost btn-sm" data-sx="${esc(f.id)}">${TP.icon('file', 15)}تنزيل</button></td></tr>`;
           }).join('')}</tbody></table></div>`;
       } else if (state.tab === 'export') {
         const lock = D.lock;
@@ -283,15 +334,13 @@
           <div class="form-grid" style="max-width:560px"><label class="fld">من<input class="input" type="date" id="xFrom" value="${esc(state.from || defaultFrom())}"></label><label class="fld">لـ <small>لحد امبارح</small><input class="input" type="date" id="xTo" max="${esc(O.addDays(TP.dayKey(TP.now()), -1))}" value="${esc(state.to || O.addDays(TP.dayKey(TP.now()), -1))}"></label></div>
           <button class="btn btn-primary" id="xGo" style="margin-top:12px">${TP.icon('file', 18)}تصدير Excel وقفل الفترة</button>`;
       } else {
-        const rows = T[state.tab]();
-        body = (state.tab === 'profit' ? `<p class="muted small" style="margin-bottom:10px">الربح = الفاتورة − الضريبة (${esc(D.settings.taxPct)}%) − أجور السواقين − المصاريف المقبولة. "ناقص أسعار" = أيام أو مشاوير لسه سعرها متحطش.</p>` : '')
-          + htmlTable(rows, state.tab === 'absences' ? 3 : state.tab === 'drivers' ? 3 : 1);
+        const def = defOf(state.tab), sec = def.sections[0];
+        body = kpiStrip(def) + htmlTable(sec) + (sec.note ? `<p class="muted small" style="margin-top:8px">${esc(sec.note)}</p>` : '');
       }
       root.innerHTML = `<section class="card">
-        <div class="print-head"><img src="../shared/logo.png" alt=""><div><b>${esc((tabs.find(t => t[0] === state.tab) || [])[1] || '')}</b><span>${esc(O.monthName(state.month))}</span></div></div>
         <div class="toolbar no-print">
           <div class="chips">${months.map(m => `<button class="chip ${state.month === m ? 'active' : ''}" data-month="${m}">${esc(O.monthName(m))}</button>`).join('')}</div>
-          <div class="toolbar-end">${['drivers', 'factories', 'absences', 'profit'].includes(state.tab) ? `<button class="btn btn-ghost" id="rXls">${TP.icon('file', 18)}Excel</button><button class="btn btn-ghost" id="rPrint">${TP.icon('file', 18)}طباعة / PDF</button>` : ''}<button class="icon-btn" id="rRefresh" title="تحديث">${TP.icon('refresh', 18)}</button></div>
+          <div class="toolbar-end">${['drivers', 'factories', 'absences', 'profit'].includes(state.tab) && !data.loading ? `<button class="btn btn-primary" id="rDown">${TP.icon('file', 18)}تنزيل التقرير</button>` : ''}<button class="icon-btn" id="rRefresh" title="تحديث">${TP.icon('refresh', 18)}</button></div>
         </div>
         <div class="chips no-print" style="margin-bottom:14px">${tabs.map(([k, l]) => `<button class="chip ${state.tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
         ${body}</section>`;
@@ -299,12 +348,11 @@
       root.querySelectorAll('[data-month]').forEach(b => b.onclick = () => { state.month = b.dataset.month; TP.rerender(); });
       root.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; TP.rerender(); });
       root.querySelector('#rRefresh').onclick = () => load(state.month);
-      const xls = root.querySelector('#rXls');
-      if (xls) xls.onclick = () => TP.xlsx.download(`TP-${state.tab}-${state.month}`, [{ name: (tabs.find(t => t[0] === state.tab) || [])[1], rows: T[state.tab]() }]);
-      const pr = root.querySelector('#rPrint'); if (pr) pr.onclick = () => window.print();
+      const dl = root.querySelector('#rDown');
+      if (dl) dl.onclick = () => TP.report.choose(defOf(state.tab));
       root.querySelectorAll('[data-approve]').forEach(b => b.onclick = () => guard(approveSheet(b.dataset.approve)));
       root.querySelectorAll('[data-withdraw]').forEach(b => b.onclick = () => guard(withdrawSheet(b.dataset.withdraw)));
-      root.querySelectorAll('[data-sx]').forEach(b => b.onclick = () => { const f = TP.q.company(b.dataset.sx); TP.xlsx.download(`TP-${f.nameEn || 'factory'}-${state.month}`, TP.xlsx.sheetRows(sheetData(f.id), f.name, O.monthName(state.month))); });
+      root.querySelectorAll('[data-sx]').forEach(b => b.onclick = () => { const f = TP.q.company(b.dataset.sx); TP.report.choose(Object.assign(TP.xlsx.sheetReport(sheetData(f.id), f.name, O.monthName(state.month)), { fileName: `TP-${f.nameEn || 'factory'}-${state.month}` })); });
       const xg = root.querySelector('#xGo');
       if (xg) {
         ['xFrom', 'xTo'].forEach(id => root.querySelector('#' + id).onchange = e => { state[id === 'xFrom' ? 'from' : 'to'] = e.target.value; });

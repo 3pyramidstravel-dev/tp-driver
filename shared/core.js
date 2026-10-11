@@ -319,4 +319,9 @@
     }
     return (out.url || isFinite(out.lat)) ? out : null;
   };
+  /** The trial copy (…/beta/) says so on staff and driver screens (never on a guest's page). */
+  TP.isBeta = /\/beta\//.test(location.pathname);
+  if (TP.isBeta && !/\/c\//.test(location.pathname)) document.addEventListener('DOMContentLoaded', () => {
+    const b = document.createElement('div'); b.className = 'tp-beta'; b.textContent = 'نسخة تجريبية'; b.setAttribute('aria-hidden', 'true'); document.body.appendChild(b);
+  });
 })(window.TP = window.TP || {});

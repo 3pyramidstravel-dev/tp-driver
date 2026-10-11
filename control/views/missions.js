@@ -55,24 +55,25 @@
 
   /* ---------- customers of a trip ---------- */
   let custs = [];
-  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()) })); }
+  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value })); }
   function drawCusts() {
     const box = TP.$('#mCusts');
     box.innerHTML = custs.map((c, i) => `<div class="cust-row two" data-id="${esc(c.id)}" data-h="${esc(c.h || '')}">
         <input class="input" data-c="name" placeholder="اسم العميل" value="${esc(c.name)}" maxlength="60">
         <input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" value="${esc(c.phone)}" maxlength="16">
+        <select class="input" data-c="lang" title="لغة الضيف (صفحته ورسايله)">${TP.i18n.LANGS.map(l => `<option value="${l.id}" ${(c.lang || 'ar') === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
         <button type="button" class="icon-btn danger" data-rmc="${i}" title="شيل">${TP.icon('trash', 16)}</button></div>`).join('') +
       (custs.length < MAX_TRIP_CUST ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
     box.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { readCusts(); custs.splice(Number(b.dataset.rmc), 1); drawCusts(); });
-    const add = TP.$('#mAddC'); if (add) add.onclick = () => { readCusts(); custs.push({ id: '', h: '', name: '', phone: '' }); drawCusts(); };
+    const add = TP.$('#mAddC'); if (add) add.onclick = () => { readCusts(); custs.push({ id: '', h: '', name: '', phone: '', lang: 'ar' }); drawCusts(); };
   }
 
   /** The fixed part of a trip customer's link. */
   function trackStatic(id, m, c) {
     const f = TP.q.company(m.factoryId);
     const loc = l => l && isFinite(l.lat) ? { lat: l.lat, lng: l.lng } : null;
-    const fl = m.flight ? { no: m.flight.no || '', dir: m.flight.dir || '', terminal: m.flight.terminal || '', airportName: m.flight.airportName || '', other: m.flight.other || '', airline: m.flight.airline || '', sched: m.flight.sched || null, est: m.flight.est || null, status: m.flight.status || '' } : null;
-    return { kind: 'mission', custId: c.id, name: c.name, missionId: id, factoryId: m.factoryId || '', factoryName: f ? f.name : (m.client || ''), title: m.title || '',
+    const fl = m.flight ? { no: m.flight.no || '', dir: m.flight.dir || '', terminal: m.flight.terminal || '', airport: m.flight.airport || '', airportName: m.flight.airportName || '', other: m.flight.other || '', airline: m.flight.airline || '', sched: m.flight.sched || null, est: m.flight.est || null, status: m.flight.status || '', delayMin: Number(m.flight.delayMin) || 0 } : null;
+    return { kind: 'mission', custId: c.id, name: c.name, lang: c.lang || 'ar', missionId: id, factoryId: m.factoryId || '', factoryName: f ? f.name : (m.client || ''), title: m.title || '',
       type: m.type || '', day: m.day, time: m.time || '', fromName: (m.from && m.from.name) || '', toName: (m.to && m.to.name) || '', fromLoc: loc(m.from && m.from.location), toLoc: loc(m.to && m.to.location), flight: fl, updatedAt: TP.fb.ts() };
   }
   function trackOps(id, m, old, fresh) {
@@ -97,8 +98,8 @@
     const canPrice = S.can('prices.edit') && money();
     const drivers = TP.q.drivers().filter(p => p.active !== false || p.id === m.driverId);
     const fl = m.flight || {};
-    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '' }));
-    if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '' }];
+    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar' }));
+    if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '', lang: 'ar' }];
     const manualTime = fl.src === 'manual' && fl.sched ? O.hm(fl.sched) : '';
     TP.openModal(mid ? 'تعديل مشوار' : 'مشوار جديد', `
       <div class="chips" style="margin-bottom:12px"><button type="button" class="chip ${m.type !== 'airport' ? 'active' : ''}" data-mt="">${TP.icon('file', 16)}مشوار عادي</button><button type="button" class="chip ${m.type === 'airport' ? 'active' : ''}" data-mt="airport">${TP.icon('plane', 16)}مطار</button></div>
@@ -175,7 +176,7 @@
       if (c.phone && !TP.phoneIntl(c.phone)) { TP.toast(`موبايل ${c.name} مش مظبوط`); return false; }
       let h = c.h;
       if (!h) { const k = await TP.cust.newLink(); h = k.h; fresh[h] = k.token; }
-      customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '' });
+      customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar' });
     }
     const cashAmt = U.money('mCash');
     if (Number.isNaN(cashAmt)) { TP.toast('مبلغ الكاش لازم يكون رقم'); return false; }
@@ -259,9 +260,11 @@
     const list = (m.customers || []).filter(c => tok[c.h]).map(c => Object.assign({}, c, { token: tok[c.h] }));
     TP.openModal('لينكات العملاء — ' + (m.title || ''), list.length ? `<p class="muted small" style="margin-bottom:10px">لينك للمشوار ده بس، بيوري رحلة العميل من غير أسعار.</p><div class="table-wrap"><table class="tbl"><tbody>${list.map(c => {
       const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token, m.type === 'airport' ? 'رحلتك للمطار' : 'مشوارك'));
-      return `<tr><td><b>${esc(c.name)}</b><div class="muted small" dir="ltr">${esc(c.phone || '')}</div></td><td class="acts"><button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(TP.custUrl(c.token))}">${TP.icon('copy', 16)}انسخ</button>${wa ? `<a class="btn btn-primary btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}<a class="icon-btn" href="${esc(TP.custUrl(c.token))}" target="_blank" rel="noopener">${TP.icon('external', 16)}</a></td></tr>`;
+      const guest = (c.lang && c.lang !== 'ar') || m.type === 'airport';
+      return `<tr><td><b>${esc(c.name)}</b>${c.lang && c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(c.lang).name)}</span>` : ''}<div class="muted small" dir="ltr">${esc(c.phone || '')}</div></td><td class="acts"><button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(TP.custUrl(c.token))}">${TP.icon('copy', 16)}انسخ</button>${guest ? `<button type="button" class="btn btn-gold btn-sm" data-guest="${esc(c.h)}">${TP.icon('users', 16)}رسايل بلغته</button>` : ''}${wa ? `<a class="btn btn-primary btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}<a class="icon-btn" href="${esc(TP.custUrl(c.token))}" target="_blank" rel="noopener">${TP.icon('external', 16)}</a></td></tr>`;
     }).join('')}</tbody></table></div>` : U.empty('المشوار ده مفيهوش عملاء — ضيفهم من التعديل'), null, { noSave: true, wide: true });
     TP.$$('#tp-modal [data-copy]').forEach(b => b.onclick = () => TP.actions.copy(b.dataset.copy));
+    TP.$$('#tp-modal [data-guest]').forEach(b => b.onclick = () => { const c = list.find(x => x.h === b.dataset.guest); const drv = TP.q.person(m.driverId); TP.guest.compose(m, c, TP.custUrl(c.token), drv || ''); });
   }
 
   async function cancel(mid) {

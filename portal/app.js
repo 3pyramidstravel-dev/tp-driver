@@ -5,7 +5,7 @@
      الغياب   : the month per employee (اعتذر / مجاش, with the days)
      الطلبات  : ask for a trip or an airport transfer, or a change of the
                 customers (applied by the Control Tower) — and follow them
-     الكشوفات : the monthly sheets the GM approved (Excel / print)
+     الكشوفات : the monthly sheets the GM approved (PDF or Excel)
    ========================================================================== */
 (function (TP) {
   'use strict';
@@ -100,10 +100,11 @@
         o[r.s]++; o.days.push(`${d.day.slice(8)}/${d.day.slice(5, 7)} ${r.s === 'skip' ? 'اعتذر' : 'مجاش'}`);
       }));
       const rows = Object.values(out).sort((a, b) => (b.skip + b.noshow) - (a.skip + a.noshow));
+      st.absRows = rows;
       body = rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>الموظف</th><th>اعتذر</th><th>مجاش</th><th>الأيام</th></tr></thead><tbody>${rows.map(r => `<tr><td><b>${esc(r.name)}</b><div class="muted small">${esc(r.line)}</div></td><td class="num">${r.skip}</td><td class="num">${r.noshow ? `<b style="color:var(--danger)">${r.noshow}</b>` : 0}</td><td class="small">${esc(r.days.join(' · '))}</td></tr>`).join('')}</tbody></table></div>
         <p class="muted small" style="margin-top:8px">"اعتذر" = الموظف بلّغ من لينكه إنه مش راكب. "مجاش" = العربية استنته في النقطة ومجاش (المكان متسجل).</p>` : '<div class="empty">مفيش غياب في الشهر ده.</div>';
     }
-    return `<section class="glass card"><div class="dv-h"><h2>غياب الموظفين</h2></div><div class="month-pick">${months.map(m => `<button type="button" class="chip ${m === st.absMonth ? 'active' : ''}" data-am="${m}">${esc(O.monthName(m))}</button>`).join('')}</div>${body}</section>`;
+    return `<section class="glass card"><div class="dv-h"><h2>غياب الموظفين</h2>${st.absDays && (st.absRows || []).length ? `<button type="button" class="btn btn-ghost btn-sm" id="absDown">${TP.icon('file', 16)}تنزيل</button>` : ''}</div><div class="month-pick">${months.map(m => `<button type="button" class="chip ${m === st.absMonth ? 'active' : ''}" data-am="${m}">${esc(O.monthName(m))}</button>`).join('')}</div>${body}</section>`;
   }
 
   /* ---------- الطلبات ---------- */
@@ -195,7 +196,7 @@
         ${(sd.missions || []).length ? `<h3 class="p-h3">المشاوير (${sd.missions.length})</h3><div class="table-wrap"><table class="tbl"><tbody>${sd.missions.map(m => `<tr><td><bdi dir="ltr">${esc(m.day)}</bdi></td><td>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</td>${fin ? `<td class="num">${money(m.amount)}</td>` : ''}</tr>`).join('')}</tbody></table></div>` : ''}
         ${(sd.absences || []).length ? `<h3 class="p-h3">الغياب</h3><div class="table-wrap"><table class="tbl"><tbody>${sd.absences.map(a => `<tr><td>${esc(a.name)}<div class="muted small">${esc(a.line)}</div></td><td class="num">اعتذر ${a.skip}</td><td class="num">مجاش ${a.noshow}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${fin && sd.totals ? `<table class="stmt" style="margin-top:12px"><tbody><tr><td>الخطوط</td><td>${money(sd.totals.lines)}</td></tr><tr><td>المشاوير</td><td>${money(sd.totals.missions)}</td></tr><tr class="total"><td>الإجمالي</td><td>${money(sd.totals.total)}</td></tr><tr><td>الضريبة ${esc(sd.totals.pct)}%</td><td>${money(sd.totals.tax)}</td></tr></tbody></table>` : ''}
-        <div class="p-tools"><button type="button" class="btn btn-primary" id="shXls">Excel</button><button type="button" class="btn btn-ghost" id="shPrint">طباعة / PDF</button></div></section>`;
+        <div class="p-tools"><button type="button" class="btn btn-primary" id="shDown">${TP.icon('file', 18)}تنزيل الكشف (PDF أو Excel)</button></div></section>`;
     }
     return `<section class="glass card"><div class="dv-h"><h2>الكشوفات الشهرية</h2></div>${st.sheets.length ? st.sheets.map(sh => `<button type="button" class="p-sheet" data-sheet="${esc(sh.id)}"><b>${esc(O.monthName(sh.month))}</b><span class="st st-ok">معتمد</span></button>`).join('') : '<div class="empty">لسه مفيش كشوفات معتمدة. الكشف بيظهر هنا بعد ما الإدارة تعتمده.</div>'}</section>`;
   }
@@ -215,8 +216,16 @@
     TP.$$('[data-cancel]', root).forEach(b => b.onclick = async () => { if (await TP.confirm('إلغاء الطلب', 'الطلب هيتلغي.', 'إلغاء الطلب', true)) TP.fb.update('requests/' + b.dataset.cancel, { status: 'cancelled' }).catch(e => TP.toast(TP.errorText(e), 'warn')); });
     TP.$$('[data-sheet]', root).forEach(b => b.onclick = () => { st.sheetOpen = b.dataset.sheet; render(); });
     const back = TP.$('#shBack', root); if (back) back.onclick = () => { st.sheetOpen = null; render(); };
-    const xls = TP.$('#shXls', root); if (xls) xls.onclick = () => { const sh = st.sheets.find(x => x.id === st.sheetOpen); const sd = Object.assign({}, sh.data || {}); if (!TP.financeOn(st.settings)) { sd.finance = false; delete sd.totals; } TP.xlsx.download(`TP-${sh.month}`, TP.xlsx.sheetRows(sd, st.factory && st.factory.name, O.monthName(sh.month))); };
-    const pr = TP.$('#shPrint', root); if (pr) pr.onclick = () => window.print();
+    const dl = TP.$('#shDown', root); if (dl) dl.onclick = () => {
+      const sh = st.sheets.find(x => x.id === st.sheetOpen), sd = Object.assign({}, sh.data || {});
+      if (!TP.financeOn(st.settings)) { sd.finance = false; delete sd.totals; }
+      const f = st.factory && st.factory.name;
+      TP.report.choose(Object.assign(TP.xlsx.sheetReport(sd, f, O.monthName(sh.month)), { fileName: `TP-${(st.factory && st.factory.nameEn) || 'sheet'}-${sh.month}`, by: 'معتمد من ' + (sh.approvedBy || ''), audit: false }));
+    };
+    const ad = TP.$('#absDown', root); if (ad) ad.onclick = () => TP.report.choose({ title: 'غياب الموظفين', subtitle: st.factory ? st.factory.name : '', period: O.monthName(st.absMonth), fileName: `TP-absences-${st.absMonth}`, audit: false,
+      kpis: [['موظفين غابوا', st.absRows.length], ['اعتذر', st.absRows.reduce((a, r) => a + r.skip, 0)], ['مجاش', st.absRows.reduce((a, r) => a + r.noshow, 0), 'bad']],
+      sections: [{ title: 'غياب الموظفين', columns: [{ h: 'الموظف' }, { h: 'الخط' }, { h: 'اعتذر', t: 'int', sum: true }, { h: 'مجاش', t: 'int', sum: true }, { h: 'الأيام', w: 44 }], rows: st.absRows.map(r => [r.name, r.line, r.skip, r.noshow, r.days.join(' · ')]), totals: true,
+        note: '"اعتذر" = الموظف بلّغ من لينكه إنه مش راكب. "مجاش" = العربية استنته في النقطة ومجاش (المكان متسجل).' }] });
   }
   /** Many live documents change together — draw once per frame. */
   let queued = false;
