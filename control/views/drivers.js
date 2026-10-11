@@ -78,7 +78,10 @@
     const v = TP.q.vehicle(p.vehicleId) || (line && TP.q.vehicle(line.vehicleId));
     return { name: p.name || '', code: p.code || null, car: v ? { model: v.model || '', color: v.color || '', plate: v.plate || '' } : null };
   }
-  const sameCard = (a, b) => !!a && a.name === b.name && (a.code || null) === (b.code || null) && JSON.stringify(a.car || null) === JSON.stringify(b.car || null);
+  // field by field: the database returns a map's keys in its own order, so comparing JSON text would never match
+  // (and every "difference" would be written again and again)
+  const sameCar = (a, b) => (!a && !b) || (!!a && !!b && (a.model || '') === (b.model || '') && (a.color || '') === (b.color || '') && (a.plate || '') === (b.plate || ''));
+  const sameCard = (a, b) => !!a && a.name === b.name && (a.code || null) === (b.code || null) && sameCar(a.car, b.car);
   /** Keeps every driver's card in step with his name, code and car (cheap: only differences are written). */
   let syncing = false;
   TP.actions.syncCards = async function () {

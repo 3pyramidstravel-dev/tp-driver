@@ -132,12 +132,13 @@
   }
   TP.rerender = () => scheduleRender();
 
-  let cardTimer = null;
+  let cardTimer = null, cardsSeen = false;
   document.addEventListener('tp:data', e => {
     if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet'].includes(e.detail)) { renderAlerts(); renderNav(); }
     if (e.detail === 'settings' && current && NAV.find(n => n.id === current && n.finance) && !TP.financeOn(TP.D.settings)) { go(); return; }
     // driver cards (what customers see) follow names, codes and cars
-    if (['people', 'cards', 'vehicles', 'lines'].includes(e.detail) && TP.actions.syncCards) { clearTimeout(cardTimer); cardTimer = setTimeout(() => TP.actions.syncCards(), 1200); }
+    // (the cards' own changes only on their first load — never an echo of our own write)
+    if ((['people', 'vehicles', 'lines'].includes(e.detail) || (e.detail === 'cards' && !cardsSeen)) && TP.actions.syncCards) { if (e.detail === 'cards') cardsSeen = true; clearTimeout(cardTimer); cardTimer = setTimeout(() => TP.actions.syncCards(), 1200); }
     scheduleRender(e.detail);
   });
   document.addEventListener('tp:push', e => {   // a push while the Control Tower is open
