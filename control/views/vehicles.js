@@ -24,6 +24,7 @@
   async function save(vid) {
     const plate = U.val('vPlate');
     if (!plate) { TP.toast('اكتب رقم اللوحة'); return false; }
+    for (const [id, n] of [['vLic', 'انتهاء الرخصة'], ['vIns', 'انتهاء التأمين']]) if (!TP.okDate(U.val(id))) { TP.toast(`تاريخ ${n} مش مظبوط — السنة لازم تتكتب كاملة (مثلاً 2027)`); return false; }
     if (D.vehicles.some(x => x.id !== vid && U.norm(x.plate).replace(/\s/g, '') === U.norm(plate).replace(/\s/g, ''))) { TP.toast('اللوحة دي متسجلة قبل كده'); return false; }
     const data = { plate, model: U.val('vModel'), color: U.val('vColor'), owner: U.val('vOwner'), licenseExpiry: U.val('vLic'), insuranceExpiry: U.val('vIns'), active: U.checked('vActive'), updatedAt: TP.fb.ts() };
     if (!vid) data.createdAt = TP.fb.ts();

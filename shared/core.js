@@ -51,6 +51,8 @@
   /** Address of a page of the platform (every app lives one folder below the site root). */
   TP.siteUrl = path => new URL('../' + (path || ''), location.href).href;
   /** The customer's own link. */
+  /** An expiry date typed in a form: empty, or a real date between 2000 and 2100 (a 2-digit year typed by mistake is refused). */
+  TP.okDate = d => !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '2000-01-01' && d <= '2100-12-31');
   TP.custUrl = token => TP.siteUrl('c/#' + token);
   /** A photo from the phone → small JPEG data-URL (kept inside the database, no storage service). */
   TP.compressImage = function (file, maxSide, quality, square) {

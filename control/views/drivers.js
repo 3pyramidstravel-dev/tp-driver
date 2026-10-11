@@ -93,6 +93,7 @@
   async function save(pid, old) {
     const name = U.val('dName'), phone = TP.latinDigits(U.val('dPhone'));
     if (!name) { TP.toast('اكتب اسم السواق'); return false; }
+    if (!TP.okDate(U.val('dLicenseExp'))) { TP.toast('تاريخ انتهاء الرخصة مش مظبوط — السنة لازم تتكتب كاملة (مثلاً 2027)'); return false; }
     if (phone && !/^\+?[\d\s-]{8,15}$/.test(phone)) { TP.toast('رقم الموبايل مش مظبوط'); return false; }
     if (phone && D.people.some(x => x.id !== pid && x.type === 'driver' && x.phone === phone)) { TP.toast('في سواق تاني بنفس الموبايل'); return false; }
     const kind = U.val('dKind');
