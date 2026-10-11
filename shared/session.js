@@ -75,7 +75,6 @@
     if (unsubDevice) unsubDevice();
     unsubDevice = TP.fb.onDoc('devices/' + S.uid, async dev => {
       S.device = dev;
-      measureClock(dev);
       if (!dev) {
         stopSession();
         if (wasIn) { wasIn = false; TP.toast('تم إزالة هذا الجهاز من النظام', 'warn'); }
@@ -142,7 +141,9 @@
         if (navigator.getBattery) { const b = await navigator.getBattery(); data.battery = Math.round(b.level * 100); }
       } catch (e) { /* not available */ }
       beatAt = Date.now();
-      TP.fb.update('devices/' + S.uid, data).catch(() => {});
+      // its own small document: the Control Tower pages that show "online" read it, the others are not woken by it
+      data.personId = (S.person && S.person.id) || '';
+      TP.fb.set('presence/' + S.uid, data).then(() => TP.fb.get('presence/' + S.uid)).then(measureClock).catch(() => {});
     };
     send();
     // drivers: every 15 min (their GPS updates will carry presence in phase 2) — protects the free daily write quota

@@ -38,7 +38,7 @@
   TP.actions.showCode = function (cid) {
     const c = D.codes.find(x => x.id === cid);
     const render = () => {
-      const cc = D.codes.find(x => x.id === cid) || c;
+      const live = D.codes.find(x => x.id === cid), cc = live || (c ? Object.assign({}, c, { used: true }) : null);   // used → no longer in the open list
       if (!cc) return '';
       const left = Math.max(0, (cc.expiresAtMs || 0) - Date.now());
       const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
@@ -90,6 +90,7 @@
     if (uid === S.uid) return TP.toast('مينفعش تشيل الجهاز اللي إنت فاتح منه', 'warn');
     if (!(await TP.confirm('إزالة الجهاز', `الجهاز ده هيخرج فوراً من النظام (${d.name}). عشان يدخل تاني لازم كود تفعيل جديد وموافقة.`, 'إزالة', true))) return;
     await TP.fb.remove('devices/' + uid);
+    TP.fb.remove('presence/' + uid).catch(() => {});
     TP.audit('device.remove', d.name, 'جهاز ' + shortId(uid));
     TP.toast('تمت إزالة الجهاز');
   };
@@ -112,13 +113,13 @@
   const state = { tab: 'all' };
 
   TP.views.devices = {
-    deps: ['devices', 'codes', 'requests', 'people', 'companies'],
+    deps: ['devices', 'codes', 'requests', 'people', 'companies', 'presence'],
     render(root) {
       const manage = S.can('devices.manage');
       const reqs = D.requests.filter(r => r.status === 'matched' || r.status === 'pending');
       const open = D.codes.filter(c => !c.used && c.expiresAtMs > Date.now());
       const q = U.norm(U.filters.dev || '');
-      let devs = D.devices.slice().sort((a, b) => (TP.toDate(b.lastSeen) || 0) - (TP.toDate(a.lastSeen) || 0));
+      let devs = D.devices.map(TP.q.seen).sort((a, b) => (TP.toDate(b.lastSeen) || 0) - (TP.toDate(a.lastSeen) || 0));
       if (state.tab === 'online') devs = devs.filter(TP.q.online);
       else if (state.tab !== 'all') devs = devs.filter(d => d.kind === state.tab);
       if (q) devs = devs.filter(d => U.norm(d.name).includes(q) || shortId(d.id).toLowerCase().includes(q));

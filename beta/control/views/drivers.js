@@ -190,7 +190,7 @@
   }
 
   TP.views.drivers = {
-    deps: ['people', 'devices', 'lines', 'vehicles', 'driverCodes', 'companies', 'cards'],
+    deps: ['people', 'devices', 'lines', 'vehicles', 'driverCodes', 'companies', 'cards', 'presence'],
     render(root) {
       TP.actions.syncCards();
       const q = U.norm(U.filters.drivers || '');
@@ -216,7 +216,7 @@
                 <td>${lines.length ? lines.map(l => `<span class="tag">${esc(l.name)}</span>`).join('') : p.driverKind === 'line' ? '<span class="st st-warn">لسه مالوش خط</span>' : '<span class="muted small">—</span>'}</td>
                 <td class="mono">${v ? esc(v.plate) : '—'}</td>
                 <td>${U.expiry(p.licenseExpiry)}</td>
-                <td>${devs.length ? `<span class="dot ${on ? 'on' : ''}"></span>${on ? 'متصل' : TP.ago(devs[0].lastSeen)}` : '<span class="st st-warn">مش متفعل</span>'}</td>
+                <td>${devs.length ? `<span class="dot ${on ? 'on' : ''}"></span>${on ? 'متصل' : TP.ago(TP.q.seen(devs[0]).lastSeen)}` : '<span class="st st-warn">مش متفعل</span>'}</td>
                 <td class="acts"><button class="icon-btn" title="تعديل" data-edit="${p.id}">${TP.icon('edit', 16)}</button>
                   ${S.can('devices.manage') ? `<button class="icon-btn" title="كود تفعيل" data-code="${p.id}">${TP.icon('key', 16)}</button>` : ''}
                   <button class="icon-btn" title="رقم سري 1234" data-pin="${p.id}">${TP.icon('lock', 16)}</button>

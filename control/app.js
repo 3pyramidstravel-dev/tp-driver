@@ -51,6 +51,7 @@
     $('#me').innerHTML = `<span class="av">${esc((p.name || '?').trim()[0] || '?')}</span><div><b>${esc(p.name || '')}</b><small>${esc(role)}</small></div>`;
   }
 
+  const LAZY_PAGES = { audit: ['audit'], devices: ['presence'], drivers: ['presence'], staff: ['presence'], overview: ['presence'] };
   function go() {
     const want = (location.hash.match(/^#\/([\w-]+)/) || [])[1] || 'overview';
     const nav = NAV.find(n => n.id === want && !n.soon);
@@ -58,6 +59,7 @@
     if (id !== want) history.replaceState(null, '', '#/' + id);
     if (current && current !== id && TP.views[current] && TP.views[current].leave) { try { TP.views[current].leave(); } catch (e) { console.warn(e); } }
     current = id;
+    TP.data.need(LAZY_PAGES[id] || []);
     const meta = NAV.find(n => n.id === id);
     $('#vTitle').textContent = meta.label;
     $('#vEyebrow').textContent = meta.eyebrow || '';

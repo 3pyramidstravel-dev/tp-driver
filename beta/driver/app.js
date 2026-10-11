@@ -332,7 +332,7 @@
       if (t.st !== 'near' || !loc) return;
       const last = st.live[c.h];
       if (last && now - last.at < every) return;
-      if (last && O.dist(last, fix) < 30 && last.min === min) return;
+      if (last && O.dist(last, fix) < 80 && last.min === min) return;   // standing still: nothing new for the customer
       st.live[c.h] = { at: now, lat: fix.lat, lng: fix.lng, min };
       TP.fb.set('live/' + c.h, { driverId: me(), day, pos: { lat: Math.round(fix.lat * 1e5) / 1e5, lng: Math.round(fix.lng * 1e5) / 1e5, at: now }, eta: min ? now + min * 60000 : null, at: now }).catch(() => {});
     });

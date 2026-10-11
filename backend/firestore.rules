@@ -155,6 +155,17 @@ service cloud.firestore {
     }
 
     // ---------- activation (3-digit code + approval) ----------
+    // ---------- presence: each device's heartbeat (its own small document — read only by the pages showing "online") ----------
+    match /presence/{uid} {
+      allow read: if can('devices.manage') || can('tracking.view') || can('staff.manage') || can('drivers.manage')
+        || (signedIn() && request.auth.uid == uid);
+      allow create, update: if isActive() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['lastSeen', 'appVersion', 'screen', 'platform', 'battery', 'personId'])
+        && request.resource.data.lastSeen == request.time
+        && request.resource.data.personId == me().personId;
+      allow delete: if can('devices.manage');
+    }
+
     match /activationCodes/{cid} {
       allow read, write: if can('devices.manage');
     }

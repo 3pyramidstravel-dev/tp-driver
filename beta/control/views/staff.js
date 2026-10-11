@@ -120,7 +120,7 @@
   }
 
   TP.views.staff = {
-    deps: ['people', 'devices', 'companies'],
+    deps: ['people', 'devices', 'companies', 'presence'],
     render(root) {
       const q = U.norm(U.filters.staff || '');
       let list = TP.q.staff();

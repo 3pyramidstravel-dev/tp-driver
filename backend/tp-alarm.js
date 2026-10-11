@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-11T00:38Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-11T18:43Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).

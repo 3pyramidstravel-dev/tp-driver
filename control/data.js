@@ -12,11 +12,19 @@
     todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '', driverCodes: [],
     wakePlans: {}, wakeAcks: [], wakeWatch: null,
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
-    fleet: [], salaryBase: {},
+    fleet: [], salaryBase: {}, presence: {},
     loaded: {}
   };
   let unsubs = [];
+  const lazy = {};
+  let wanted = [];
+  const LAZY = {
+    audit: () => S.can('audit.view') && TP.fb.onCol('audit', { orderBy: ['at', 'desc'], limit: 300 }, l => { D.audit = l; emit('audit'); }, err => { console.warn('audit', err && err.code); emit('audit'); }),
+    presence: () => (S.can('devices.manage') || S.can('tracking.view') || S.can('staff.manage') || S.can('drivers.manage'))
+      && TP.fb.onCol('presence', null, l => { const m = {}; l.forEach(x => { m[x.id] = x; }); D.presence = m; emit('presence'); }, err => { console.warn('presence', err && err.code); emit('presence'); })
+  };
 
+  function dropLazy(keep) { Object.keys(lazy).forEach(k => { if (!keep.includes(k)) { try { lazy[k](); } catch (e) { /* ignore */ } delete lazy[k]; } }); }
   const emit = key => { D.loaded[key] = true; document.dispatchEvent(new CustomEvent('tp:data', { detail: key })); };
   const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
   const toMap = list => { const m = {}; list.forEach(x => { m[x.id] = x; }); return m; };
@@ -44,8 +52,9 @@
       unsubs.push(TP.fb.onDoc('system/lock', d => { D.lock = d; emit('lock'); }, () => emit('lock')));
       unsubs.push(TP.fb.onDoc('system/flightUsage', d => { D.flightUsage = d; emit('flightUsage'); }, () => {}));
       if (can('devices.manage')) {
-        sub('codes', 'activationCodes', null, l => l.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0)));
-        sub('requests', 'activationRequests', null);
+        // only the open ones (used codes and finished requests stay in the database, unread)
+        sub('codes', 'activationCodes', { where: [['used', '==', false]] }, l => l.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0)));
+        sub('requests', 'activationRequests', { where: [['status', 'in', ['pending', 'matched']]] });
       }
       sub('companies', 'companies', null, l => l.sort(byName));
       if (can('lines.manage') || can('tracking.view') || can('wake.supervise') || can('missions.manage') || can('reports.attendance') || can('times.correct') || can('overtime.approve')) sub('lines', 'lines', null, l => l.sort(byName));
@@ -59,7 +68,6 @@
       if (can('fleet.manage') || can('salary.manage') || can('tracking.view') || can('reports.finance') || can('month.close')) sub('fleet', 'fleet', null);
       if (can('salary.manage')) sub('salaryBase', 'salaryBase', null, toMap);
       unsubs.push(TP.fb.onDoc('system/settings', s => { D.settings = Object.assign({}, TP.DEFAULT_SETTINGS, s || {}); emit('settings'); }, () => emit('settings')));
-      if (can('audit.view')) sub('audit', 'audit', { orderBy: ['at', 'desc'], limit: 300 });
       /* phase 2 — the working day */
       const today = D.todayKey = TP.dayKey();
       if (TP.staffSeesDays(S.perms)) {
@@ -76,8 +84,21 @@
         sub('wakeAcks', 'wakeAcks', { where: [['day', 'in', days]] });
         if (can('wake.supervise') || can('tracking.view')) unsubs.push(TP.fb.onDoc('system/wakeWatch', d => { D.wakeWatch = d; emit('wake'); }, () => {}));
       }
+      TP.data.need(wanted);   // the open page's extra data (after a restart: new day, new permissions)
     },
-    stop() { unsubs.forEach(u => { try { u(); } catch (e) { /* ignore */ } }); unsubs = []; D.loaded = {}; },
+    stop() { unsubs.forEach(u => { try { u(); } catch (e) { /* ignore */ } }); unsubs = []; dropLazy([]); D.loaded = {}; },
+    /**
+     * Data only some pages need, read only while such a page is open (every change of a live list is a
+     * read for each open screen — the free daily quota): the audit trail, and who is online.
+     */
+    need(keys) {
+      wanted = keys.slice();
+      dropLazy(keys);
+      keys.forEach(k => {
+        if (lazy[k] || !LAZY[k]) return;
+        const u = LAZY[k](); if (u) lazy[k] = u; else emit(k);
+      });
+    },
     /** One extra live query owned by a view (closed when the view is left). */
     watch(colPath, opts, cb) {
       return TP.fb.onCol(colPath, opts, cb, err => { console.warn(colPath, err && err.code); cb([]); });
@@ -95,7 +116,9 @@
     drivers: kind => D.people.filter(p => p.type === 'driver' && (!kind || p.driverKind === kind)),
     staff: () => D.people.filter(p => p.type === 'staff' || p.type === 'hr'),
     devicesOf: pid => D.devices.filter(d => d.personId === pid),
-    online: d => { const t = TP.toDate(d.lastSeen); return !!t && (Date.now() - t.getTime()) < 7 * 60 * 1000; },
+    /** The device's last heartbeat (its presence document; older app versions wrote it on the device itself). */
+    seen: d => Object.assign({}, d, D.presence[d.id] || {}),
+    online: d => { const t = TP.toDate(TP.q.seen(d).lastSeen); return !!t && (Date.now() - t.getTime()) < 7 * 60 * 1000; },
     activeCodeFor: pid => D.codes.find(c => c.personId === pid && !c.used && c.expiresAtMs > Date.now()),
     /** Wake-up rows of today & tomorrow with their live status. */
     wakeRows: () => {
