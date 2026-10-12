@@ -156,7 +156,7 @@
     if (fl.alert === 'notfound') warn = '<span class="badge-s far">الرحلة مش لاقيينها — اكتب الميعاد بإيدك</span>';
     if (fl.alert === 'nokey' || fl.alert === 'limit' || fl.alert === 'error') warn = '<span class="badge-s far">البحث الأوتوماتيك واقف — اكتب الميعاد بإيدك</span>';
     if (fl.status === 'Canceled' || fl.status === 'CanceledUncertain') warn = '<span class="badge-s far">الرحلة ممكن تكون اتلغت — اتأكد</span>';
-    const radar = ` <a class="small" href="https://www.flightradar24.com/data/flights/${encodeURIComponent(fl.no.toLowerCase())}" target="_blank" rel="noopener">FlightRadar ↗</a>`;
+    const radar = ` <a class="small" href="https://airportinfo.live/flight/${encodeURIComponent(fl.no.toLowerCase().replace(/[^a-z0-9]/g, ""))}" target="_blank" rel="noopener" style="font-weight:700">✈ متابعة الرحلة ↗</a>`;
     const src = fl.src === 'api' ? ' <span class="muted small">· بيانات الرحلات: AeroDataBox</span>' : '';
     return parts.join(' · ') + (warn ? ' ' + warn : '') + radar + src;
   }
