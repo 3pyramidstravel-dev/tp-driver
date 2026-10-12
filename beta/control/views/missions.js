@@ -210,6 +210,10 @@
       if (!title) { TP.toast('اكتب وصف المشوار'); return false; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { TP.toast('اختار اليوم'); return false; }
     }
+    const chk = type === 'airport' ? U.val('fDate') : day;                                            // catch a swapped day/month (12-10 vs 10-12)
+    const ahead = Math.round((Date.parse(chk + 'T12:00:00Z') - Date.parse(TP.dayKey(TP.now()) + 'T12:00:00Z')) / 864e5);
+    if ((!old || (old.flight && old.flight.date || old.day) !== chk) && ahead > 7
+      && !(await TP.confirm('اتأكد من التاريخ', `المشوار ده هيتسجل يوم ${chk}، يعني بعد ${ahead} يوم من النهارده. السواق مش هيشوفه غير في اليوم ده. التاريخ مظبوط؟`, 'أيوه مظبوط'))) return false;
     const id = mid || TP.newId('M');
     const data = { title, day, month: O.monthOf(day), time, factoryId: U.val('mFactory'), client: U.val('mFactory') ? '' : U.val('mClient'), driverId, from, to,
       customers, notes: U.val('mNotes'), type, updatedAt: TP.fb.ts() };
