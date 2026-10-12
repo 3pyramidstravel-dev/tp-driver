@@ -161,6 +161,20 @@
     return parts.join(' · ') + (warn ? ' ' + warn : '') + radar + src;
   }
   TP.actions.flightLine = flightLine;
+  /** What would stop an open mission from reaching or being done by its driver, in words the dispatcher can act on. */
+  function problems(m) {
+    if (!['assigned', 'active'].includes(m.status)) return [];
+    const out = [], p = TP.q.person(m.driverId), today = TP.dayKey();
+    const days = Math.round((Date.parse(m.day + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 864e5);
+    if (!p) out.push('السواق مش موجود — اختار سواق تاني من تعديل ✎');
+    else if (p.active === false) out.push('السواق موقوف — فعّله من صفحة السواقين أو اختار سواق تاني');
+    else if (D.devices && (S.can('drivers.manage') || S.can('devices.manage') || S.can('tracking.view') || S.can('staff.manage')) && !TP.q.devicesOf(p.id).length)
+      out.push('السواق مش متفعل على موبايله، فالمشوار مش هيوصله — من صفحة السواقين اضغط 🔑 وابعتله الكود');
+    if (days > 7) out.push(`التاريخ بعد ${days} يوم — لو اليوم والشهر متبدلين صححه من تعديل ✎`);
+    else if (days < 0 && m.status === 'assigned') out.push('ميعاده عدّى ولسه السواق مبدأش — كلمه أو عدّل الميعاد');
+    return out;
+  }
+  TP.actions.missionProblems = problems;
 
   async function save(mid, old) {
     const type = (TP.$('#tp-modal').__mtype || (() => ''))();
@@ -241,7 +255,9 @@
     await TP.fb.batch(ops);
     TP.wakeTouch && TP.wakeTouch([day, old && old.day]);
     TP.audit(mid ? 'mission.update' : 'mission.create', title, `${day} — ${(TP.q.person(driverId) || {}).name || ''}${type === 'airport' ? ' — ✈ ' + flight.no : ''}`);
-    TP.toast('تم الحفظ ✓' + note + (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : ''));
+    const probs = problems(Object.assign({ status: mid ? old.status : 'assigned' }, data));
+    TP.toast('تم الحفظ ✓' + note + (probs.length ? ' — ⚠ ' + probs[0] : (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : '')));
+    if (state.month && O.monthOf(day) !== state.month) { state.month = O.monthOf(day); TP.rerender && TP.rerender(); }   // keep the saved mission in sight
     if (onSavedHook) { const h = onSavedHook; onSavedHook = null; h(id); }
   }
   const autoTitle = fl => fl ? `${fl.dir === 'dep' ? 'توصيل للمطار' : fl.dir === 'arr' ? 'استقبال من المطار' : 'مطار'} — ${fl.no}` : '';
@@ -331,7 +347,7 @@
             const cs = m.customers || [];
             return `<tr>
               <td class="small"><bdi dir="ltr">${esc(m.day)}</bdi>${m.time ? `<br>${esc(O.hm12(m.time))}` : (m.type === 'airport' ? '<br><span class="badge-s nogps">مستني الرحلة</span>' : '')}${m.day === today ? ' <span class="tag gold">النهارده</span>' : ''}</td>
-              <td><b>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</b><div class="muted small">${esc(f ? f.name : m.client || '')}${cs.length ? ' · ' + cs.length + ' عميل' : ''}${m.cash ? ` · <span class="tag gold">كاش ${esc(TP.money(m.cash.amount))}${m.cashGot ? ' ✓' : ''}</span>` : ''}</div>${m.flight ? `<div class="small">${flightLine(m)}</div>` : ''}</td>
+              <td><b>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</b><div class="muted small">${esc(f ? f.name : m.client || '')}${cs.length ? ' · ' + cs.length + ' عميل' : ''}${m.cash ? ` · <span class="tag gold">كاش ${esc(TP.money(m.cash.amount))}${m.cashGot ? ' ✓' : ''}</span>` : ''}</div>${m.flight ? `<div class="small">${flightLine(m)}</div>` : ''}${problems(m).map(t => `<div><span class="badge-s far">⚠ ${esc(t)}</span></div>`).join('')}</td>
               <td>${esc(TP.driverLabel(p))}${p && p.driverKind === 'tourism' ? '<div class="muted small">سياحة</div>' : ''}${m.subFrom ? `<div><span class="badge-s far">بديل عن ${esc(TP.q.dname(m.subFrom))}${seePrice ? ' — راجع السعر' : ''}</span></div>` : ''}</td>
               <td class="small">${esc((m.from && m.from.name) || '—')} ← ${esc((m.to && m.to.name) || '—')}</td>
               <td><span class="st ${s[1]}">${s[0]}</span>${steps ? `<div class="muted small">${esc(steps)}</div>` : ''}</td>
