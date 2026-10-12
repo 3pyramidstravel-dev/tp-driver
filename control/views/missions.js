@@ -259,6 +259,7 @@
     TP.toast('تم الحفظ ✓' + note + (probs.length ? ' — ⚠ ' + probs[0] : (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : '')));
     if (state.month && O.monthOf(day) !== state.month) { state.month = O.monthOf(day); TP.rerender && TP.rerender(); }   // keep the saved mission in sight
     if (onSavedHook) { const h = onSavedHook; onSavedHook = null; h(id); }
+    if (TP.actions.missionToGroup) setTimeout(() => TP.actions.missionToGroup(Object.assign({ id }, data, { flight })), 400);   // after the editor closes
   }
   const autoTitle = fl => fl ? `${fl.dir === 'dep' ? 'توصيل للمطار' : fl.dir === 'arr' ? 'استقبال من المطار' : 'مطار'} — ${fl.no}` : '';
 

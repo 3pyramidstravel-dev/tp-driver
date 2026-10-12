@@ -103,6 +103,26 @@
   }
 
   /* ---------- the car's schedule to its WhatsApp group (like the old manager screen) ---------- */
+  function schedItem(m) {
+    const f = TP.q.company(m.factoryId), air = m.type === 'airport' && m.flight, t = today();
+    return { id: m.id, when: m.day === t ? 'النهاردة' : m.day === O.addDays(t, 1) ? 'بكرة' : m.day, time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'سفر' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
+      flight: air && m.flight.dir === 'arr' ? m.flight.no : '', terminal: air ? (m.flight.terminal || '') : '', client: (m.customers || []).map(c => c.name).join('، '), phone: (m.customers || []).map(c => c.phone).filter(Boolean).join(' / '),
+      factory: f ? f.name : (m.client || ''), notes: m.notes || '' };
+  }
+  /** After the operations manager saves a mission: the same "copy and open the car's group" as the driver has.
+      The group opens from the tap on the button (a link opened later would be blocked as a popup). */
+  TP.actions.missionToGroup = async function (m) {
+    const p = TP.q.person(m.driverId), vid = p && p.vehicleId, car = vid && (D.fleet || []).find(c => c.id === vid && c.on !== false);
+    if (!car) return;                                                                                         // not a car on the trip order
+    if (!car.group) { TP.toast('جروب العربية ' + carName(vid) + ' لسه متحطش — حطه من أمر الشغل ← العربيات', 'warn'); return; }
+    const msg = FL().scheduleMessage(carName(vid), [schedItem(m)]);
+    if (!(await TP.confirm('ابعت التشغيل لجروب العربية', `${carName(vid)} — ${p.name}. دوس "افتح الجروب"، وفي الواتساب دوس لصق وابعت.`, 'افتح الجروب'))) return;
+    let copied = false;
+    try { await navigator.clipboard.writeText(msg); copied = true; } catch (e) { /* blocked */ }
+    window.open(car.group, '_blank');
+    TP.toast(copied ? 'التشغيل اتنسخ ✓ — دوس لصق وابعت' : 'انسخ التشغيل وابعته', '');
+    TP.audit('fleet.schedule', carName(vid), '1 مشوار');
+  };
   async function schedule(vid) {
     const car = D.fleet.find(c => c.id === vid), drv = driverOf(vid);
     if (!drv) return TP.toast('مفيش سواق على العربية دي — اربطه من صفحة السواقين', 'warn');
@@ -110,12 +130,7 @@
     TP.openModal('جدول المشاوير لجروب ' + carName(vid), '<div class="spinner"></div>', null, { noSave: true, wide: true });
     const list = (await TP.fb.list('missions', { where: [['driverId', '==', drv.id], ['day', 'in', [t, tm]]] }).catch(() => []))
       .filter(m => m.status === 'assigned' || m.status === 'active').sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || '')));
-    const items = list.map(m => {
-      const f = TP.q.company(m.factoryId), air = m.type === 'airport' && m.flight;
-      return { id: m.id, when: m.day === t ? 'النهاردة' : 'بكرة', time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'سفر' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
-        flight: air && m.flight.dir === 'arr' ? m.flight.no : '', terminal: air ? (m.flight.terminal || '') : '', client: (m.customers || []).map(c => c.name).join('، '), phone: (m.customers || []).map(c => c.phone).filter(Boolean).join(' / '),
-        factory: f ? f.name : (m.client || ''), notes: m.notes || '' };
-    });
+    const items = list.map(schedItem);
     const body = items.length ? `<p class="modal-text">${items.length} مشوار لـ ${esc(drv.name)} (النهارده وبكره). علّم على اللي يتبعت:</p>
       <div class="opt-list">${items.map((x, i) => `<label class="check"><input type="checkbox" data-si="${i}" checked><span>${esc(x.when)} ${esc(O.hm12(x.time) || '')} — ${esc(x.type)}: ${esc(x.from)} ← ${esc(x.to)}${x.client ? ' · ' + esc(x.client) : ''}</span></label>`).join('')}</div>
       <p class="muted small" style="margin-top:8px">${car && car.group ? 'هيتنسخ الجدول ويفتح جروب العربية — دوس لصق وابعت.' : 'جروب العربية لسه متحطش — الجدول هيتنسخ بس.'}</p>`
