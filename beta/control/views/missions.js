@@ -318,7 +318,7 @@
       const usage = D.flightUsage && D.flightUsage.month === M ? D.flightUsage.calls || 0 : 0, limit = Number(D.settings.flightMonthlyLimit) || 190;
       root.innerHTML = `<section class="card">
         <div class="toolbar">
-          <div class="chips">${months.map(m => `<button class="chip ${state.month === m ? 'active' : ''}" data-month="${m}">${esc(O.monthName(m))}</button>`).join('')}</div>
+          <div class="chips">${months.map(m => `<button class="chip ${state.month === m ? 'active' : ''}" data-month="${m}">${esc(O.monthName(m))}</button>`).join('')}<input class="input" type="month" id="mMonthPick" title="شهر تاني" style="width:auto;min-width:150px" value="${esc(state.month)}"></div>
           <div class="toolbar-end">${U.filterBox('missionsQ', 'بحث بالوصف أو السواق أو رقم الرحلة', U.filters.missions)}${canEdit ? `<button class="btn btn-primary" id="addM">${TP.icon('plus', 18)}مشوار جديد</button>` : ''}</div>
         </div>
         <div class="chips" style="margin-bottom:12px">${[['', 'الكل'], ['regular', 'مشاوير'], ['airport', '✈ مطار']].map(([k, l]) => `<button class="chip ${state.type === k ? 'active' : ''}" data-type="${k}">${l}</button>`).join('')}<span style="width:12px"></span>${filters.map(([k, l]) => `<button class="chip ${state.filter === k ? 'active' : ''}" data-filter="${k}">${l}</button>`).join('')}</div>
@@ -346,6 +346,7 @@
       U.bindFilter(root, 'missionsQ', 'missions');
       const guard = fn => id => fn(id).catch(e => TP.toast(TP.errorText(e), 'warn'));
       root.querySelectorAll('[data-month]').forEach(b => b.onclick = () => { state.month = b.dataset.month; TP.rerender(); });
+      const mp = root.querySelector('#mMonthPick'); if (mp) mp.onchange = () => { if (/^\d{4}-\d{2}$/.test(mp.value)) { state.month = mp.value; TP.rerender(); } };
       root.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { state.filter = b.dataset.filter; TP.rerender(); });
       root.querySelectorAll('[data-type]').forEach(b => b.onclick = () => { state.type = b.dataset.type; TP.rerender(); });
       const add = root.querySelector('#addM'); if (add) add.onclick = () => openEditor(null, state.type === 'airport' ? { type: 'airport' } : null);
