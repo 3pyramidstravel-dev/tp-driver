@@ -110,19 +110,25 @@
       dv().render && dv().render();
     } finally { st.saving = false; }
   }
-  /** Copies the text and opens the car's WhatsApp group (the link is never in the code — it comes with the car). */
-  async function shareToGroup(msg) {
-    let copied = false;
-    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(msg); copied = true; } } catch (e) { /* no clipboard */ }
-    if (!copied) { try { const ta = document.createElement('textarea'); ta.value = msg; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); copied = document.execCommand('copy'); ta.remove(); } catch (e) { /* ignore */ } }
-    const link = st.car && st.car.group;
-    if (link && /^https:\/\/chat\.whatsapp\.com\//.test(link)) {
-      TP.toast(copied ? 'التقرير اتنسخ ✓ — الجروب هيفتح: دوس لصق وابعت' : 'الجروب هيفتح — انسخ التقرير وابعته', '');
-      setTimeout(() => window.open(link, '_blank'), 600);
-    } else {
-      TP.toast(copied ? 'التقرير اتنسخ ✓ — جروب العربية لسه متحطش، ابعته بإيدك' : 'جروب العربية لسه متحطش', 'warn');
-    }
+  /** Copies the text and opens the car's WhatsApp group (the link is never in the code — it comes with the car).
+      The group opens from a tap on "افتح الجروب": a link opened after the save would be blocked as a popup. */
+  async function copyText(msg) {
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(msg); return true; } } catch (e) { /* no clipboard */ }
+    try { const ta = document.createElement('textarea'); ta.value = msg; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); const c = document.execCommand('copy'); ta.remove(); return c; } catch (e) { return false; }
   }
+  const groupLink = () => { const l = st.car && st.car.group; return l && /^https:\/\/chat\.whatsapp\.com\//.test(l) ? l : ''; };
+  async function shareToGroup(msg) {
+    st.lastMsg = msg; try { localStorage.setItem('tp.fleetLastMsg.' + st.vid, msg); } catch (e) { /* ignore */ }
+    const link = groupLink();
+    if (!link) { const c = await copyText(msg); TP.toast(c ? 'التقرير اتنسخ ✓ — جروب العربية لسه متحطش، كلّم الإدارة وابعته بإيدك' : 'جروب العربية لسه متحطش — كلّم الإدارة', 'warn'); return; }
+    if (!(await TP.confirm('ابعت التقرير للجروب', 'دوس "افتح الجروب"، وفي الواتساب دوس مطوّل في خانة الكتابة ← لصق ← ابعت.', 'افتح الجروب'))) {
+      TP.toast('تقدر تبعته بعدين من زرار "ابعت آخر تقرير للجروب"'); return;
+    }
+    const c = await copyText(msg);
+    window.open(link, '_blank');
+    TP.toast(c ? 'التقرير اتنسخ ✓ — دوس لصق وابعت' : 'انسخ التقرير وابعته', '');
+  }
+  function lastMsg() { if (st.lastMsg) return st.lastMsg; try { return localStorage.getItem('tp.fleetLastMsg.' + st.vid) || ''; } catch (e) { return ''; } }
 
   /* ---------- fuel & custody ---------- */
   function addFill() {
@@ -175,7 +181,7 @@
         <div class="sum-row">${tile('رصيد العهدة', esc(money(bal)), bal <= (Number(settings().custodyLow) || 100) ? 'neg' : '')}${tile('آخر عداد', esc(String(lastOdo() || '—')))}</div>
         ${cards}
         <button type="button" class="btn btn-ghost btn-block" id="addTrip" style="margin-top:10px">${TP.icon('plus', 18)}مشوار تاني</button>
-        <button type="button" class="act" id="sendTrips" style="margin-top:12px">${TP.icon('check', 28)}<span><b>سجّل وابعت للجروب</b><small>بيتسجل في البرنامج، والتقرير بيتنسخ ويفتح جروب العربية</small></span></button>
+        <button type="button" class="act" id="sendTrips" style="margin-top:12px">${TP.icon('check', 28)}<span><b>سجّل وابعت للجروب</b><small>بيتسجل في البرنامج، والتقرير بيتنسخ ويفتح جروب العربية</small></span></button>${lastMsg() ? `<button type="button" class="btn btn-ghost btn-sm" id="resendTrips" style="margin-top:8px">${TP.icon('external', 16)}ابعت آخر تقرير للجروب</button>` : ''}
       </section>
       <section class="glass card"><div class="dv-h"><div><h2>مشاوير الشهر</h2><div class="sub">${esc(O.monthName(M()))} — ${month.length} مشوار · ${km} كم · ${esc(money(exp))}</div></div>${month.length ? `<button type="button" class="btn btn-ghost btn-sm" id="tripsDown">${TP.icon('file', 16)}تنزيل</button>` : ''}</div>
         ${month.length ? month.slice(0, 40).map(t => `<div class="exp-row"><span><b>${esc(t.task)}</b><small class="muted"> ${esc(t.day)}${t.time ? ' · ' + esc(O.hm12(t.time)) : ''} · ${t.before || '-'} ← ${t.after || '-'}</small></span><span>${Number(t.expense) ? esc(money(t.expense)) : ''}</span></div>`).join('') : '<div class="empty">لسه مفيش مشاوير الشهر ده.</div>'}</section>`;
@@ -252,6 +258,7 @@
       const add = root.querySelector('#addTrip');
       if (add) add.onclick = () => { const d = readForm(root), lastT = d.trips[d.trips.length - 1]; d.trips.push(blank(lastT && lastT.after ? lastT.after : (lastT && lastT.before) || lastOdo() || '')); saveDraft(); render(root); };
       root.querySelectorAll('[data-rmtrip]').forEach(b => b.onclick = () => { const d = readForm(root); d.trips = d.trips.filter(t => t.id !== b.dataset.rmtrip); saveDraft(); render(root); });
+      const rs = root.querySelector('#resendTrips'); if (rs) rs.onclick = () => shareToGroup(lastMsg());
       root.querySelector('#sendTrips').onclick = () => sendTrips(root).catch(e => { console.error(e); TP.toast(TP.errorText(e), 'warn'); });
       const dl = root.querySelector('#tripsDown'); if (dl) dl.onclick = tripsReport;
     }
