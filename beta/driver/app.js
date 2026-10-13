@@ -329,7 +329,7 @@
       const t = st.track[c.h]; if (!t) return;
       const min = eta();
       if (!(t.day === day && ['near', 'arrived', 'picked', 'dropped', 'evening', 'done', 'noshow', 'skip'].includes(t.st))) { custStatus(c.h, 'near', day, nearMsg(min, ''), min ? { eta: now + min * 60000 } : null); st.live[c.h] = { at: now, lat: fix.lat, lng: fix.lng, min }; return; }
-      if (t.st !== 'near' || !loc) return;
+      if (t.st !== 'near') return;   // no pickup location set → the customer still sees the car (no time left)
       const last = st.live[c.h];
       if (last && now - last.at < every) return;
       if (last && O.dist(last, fix) < 80 && last.min === min) return;   // standing still: nothing new for the customer
@@ -365,8 +365,14 @@
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
       if (!auto) tellCustomers(m, step);
+      if (step.key === 'start' && (m.customers || []).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
     } finally { st.inflight.delete(flight); }
+  }
+  /** After "اتحركت": the customer follows the car live only while this app stays open (GPS stops in the background, iPhone above all). */
+  function keepOpenNote() {
+    const show = () => TP.toast('🚗 العميل شايف عربيتك على الخريطة دلوقتي — خلي التطبيق مفتوح لحد ما توصل له', 'warn');
+    show(); setTimeout(show, 3000);
   }
   /** After "اتحركت" / "وصلت": a WhatsApp message to each guest, one tap each (WhatsApp opens with the text ready). */
   function tellCustomers(m, step) {
