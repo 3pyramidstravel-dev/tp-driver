@@ -15,7 +15,8 @@
   const state = { month: '', filter: 'open', type: '' };
   let live = { month: null, unsubs: [], list: [], pd: {}, pf: {} };
   const money = () => TP.financeOn(D.settings);
-  const MAX_TRIP_CUST = 4;   // a private car: 4 passengers at most (the cloud alarm updates up to 4 links per trip)
+  // the company's safety rule: at most N passengers in a car (the setting, 3 by default; the cloud alarm updates up to 4 links per trip)
+  const maxTripCust = () => Math.min(4, Math.max(1, Number(TP.D.settings.maxCustomersPerCar) || 3));
 
   function watch(month) {
     if (live.month === month) return;
@@ -131,7 +132,7 @@
         <div class="loc-row"><input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" list="custBookP" autocomplete="off" value="${esc(c.phone)}" maxlength="20"><button type="button" class="btn btn-ghost btn-sm" data-ppaste="${i}" title="لصق الرقم">📋</button>${canContacts() ? `<button type="button" class="btn btn-ghost btn-sm" data-pbook="${i}" title="من الأسماء">📇</button>` : ''}</div>
         <select class="input" data-c="lang" title="لغة الضيف (صفحته ورسايله)">${TP.i18n.LANGS.map(l => `<option value="${l.id}" ${(c.lang || 'ar') === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
         <button type="button" class="icon-btn danger" data-rmc="${i}" title="شيل">${TP.icon('trash', 16)}</button></div>`).join('') +
-      (custs.length < MAX_TRIP_CUST ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
+      (custs.length < maxTripCust() ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
     box.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { readCusts(); custs.splice(Number(b.dataset.rmc), 1); drawCusts(); });
     const rowOf = el => el.closest('.cust-row'), get = (r, k) => r.querySelector(`[data-c=${k}]`);
     const fillFrom = (r, hit) => { if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; if (hit.sex) get(r, 'sex').value = hit.sex; };
@@ -285,6 +286,7 @@
       if (!h) { const k = await TP.cust.newLink(); h = k.h; fresh[h] = k.token; }
       customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar', sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') });
     }
+    if (customers.length > maxTripCust()) { TP.toast(`العربية فيها ${maxTripCust()} ركاب بس — سياسة الأمان`); return false; }
     const cashAmt = U.money('mCash');
     if (Number.isNaN(cashAmt)) { TP.toast('مبلغ الكاش لازم يكون رقم'); return false; }
     let flight = null, flightCheckAt = null, driveMin = null;

@@ -142,3 +142,11 @@ body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.45)
 .ms-mini b { grid-row: span 2; align-self: center; color: var(--maroon-2, #6b1a1d); white-space: nowrap; }
 .ms-mini span { font-weight: 800; }
 .ms-mini small { font-size: 12px; }
+
+/* the WhatsApp message waiting to be sent (never while driving) */
+.dv-out { position: fixed; z-index: 31; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); width: min(520px, calc(100% - 24px));
+  border: 0; border-radius: 16px; padding: 13px 16px; background: #1f7a4d; color: #fff; font-weight: 900; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+.dv-out.mv { background: #8a6d3b; }
+.dv-out[hidden] { display: none; }
+.gm-pre { white-space: pre-wrap; background: rgba(0,0,0,.04); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.7; }
+.gm-acts { display: grid; gap: 8px; }

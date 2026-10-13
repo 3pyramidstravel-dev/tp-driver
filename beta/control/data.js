@@ -12,7 +12,7 @@
     todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '', driverCodes: [],
     wakePlans: {}, wakeAcks: [], wakeWatch: null,
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
-    fleet: [], salaryBase: {}, presence: {},
+    fleet: [], salaryBase: {}, presence: {}, signups: [],
     loaded: {}
   };
   let unsubs = [];
@@ -58,6 +58,8 @@
       }
       sub('companies', 'companies', null, l => l.sort(byName));
       if (can('lines.manage') || can('tracking.view') || can('wake.supervise') || can('missions.manage') || can('reports.attendance') || can('times.correct') || can('overtime.approve')) sub('lines', 'lines', null, l => l.sort(byName));
+      // line sign-ups waiting to be added (the open Control Tower adds them by itself — lines.js)
+      if (can('lines.manage')) sub('signups', 'signups', { where: [['status', '==', 'new']] });
       sub('vehicles', 'vehicles', null, l => l.sort((a, b) => String(a.plate).localeCompare(String(b.plate))));
       if (can('prices.view')) {
         sub('factoryRates', 'factoryRates', null, toMap);

@@ -1,0 +1,6 @@
+/* Line sign-up page (uses the customer page's look) */
+.r-seats { align-self: flex-start; padding: 6px 12px; border-radius: 999px; background: #fff8ec; border: 1px solid #efd29a; font-weight: 800; }
+.r-sex { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.r-sex .btn.on { background: var(--maroon-2); color: #fff; border-color: var(--maroon-2); }
+.r-loc { font-weight: 700; color: var(--ok); min-height: 1em; }
+.c-mk { background: none; border: 0; }

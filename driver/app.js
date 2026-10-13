@@ -123,6 +123,7 @@
       updateDistances();
       autoCheck();
       liveTick();
+      outTick();
     }, e => {
       st.gps = e && e.code === 1 ? 'denied' : 'weak';
       renderStatus();
@@ -239,6 +240,7 @@
         : TP.fb.set('days/' + id, Object.assign({ lineId: line.id, factoryId: line.factoryId, driverId: me(), day, month: O.monthOf(day), events: { [step.key]: ev }, lastKey: step.key, updatedAt: TP.fb.ts() }, Object.keys(picked).length ? { picked } : {}), true);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onLineStep(line, day, step, Object.assign({}, (doc && doc.events) || {}, { [step.key]: ev }));
+      offerOut({ kind: 'line', lineId: line.id, text: lineGroupText(line, day, step, Object.assign({}, (doc && doc.events) || {}, { [step.key]: ev }), doc), group: line.waGroup || '' }, auto);
       // first press of the day on a line with customer links: they follow the car from now on
       if (!auto && !doc && O.lineCustomers(line).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
@@ -366,7 +368,7 @@
       const p = TP.fb.update('missions/' + m.id, patch);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
-      if (!auto) tellCustomers(m, step);
+      if (!auto && ['start', 'pickup'].includes(step.key)) { if (moving()) offerOut({ kind: 'trip', missionId: m.id, stepKey: step.key }, true); else tellCustomers(m, step); }
       if (step.key === 'start' && (m.customers || []).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
     } finally { st.inflight.delete(flight); }
@@ -409,11 +411,102 @@
   }
 
   /* ---------- rendering ---------- */
+  /* ---------- WhatsApp after each step: the line group (line drivers) / the trip customer (tourism) ----------
+     Never while driving: the message waits ("مش دلوقتي — علشان انت سايق") and the app reminds the driver
+     when the car has stood still for half a minute. Waiting messages of the line go out together. */
+  const outKey = () => 'tp-dv-outbox-' + ((S.person && S.person.id) || '');
+  const moving = () => !!(st.fix && Date.now() - st.fix.t < 20000 && st.speed > 10);
+  let stillSince = 0, remindAt = 0;
+  function outbox() {
+    const today = TP.dayKey(TP.now()), o = TP.store.get(outKey(), null);
+    return o && o.day === today && Array.isArray(o.items) ? o : { day: today, items: [] };
+  }
+  function saveOut(o) { TP.store.set(outKey(), o); renderOut(); }
+  const drivingNote = () => TP.toast(`⏸️ مش دلوقتي — علشان انت سايق يا ${first(S.person.name)}. الرسالة محفوظة، وهفكّرك تبعتها أول ما تقف`, 'warn');
+  function offerOut(item, later) {
+    const o = outbox(); o.items.push(Object.assign({ at: TP.now() }, item)); saveOut(o);
+    if (later || moving()) { drivingNote(); return; }
+    openOut();
+  }
+  const waShare = text => 'https://wa.me/?text=' + encodeURIComponent(text || '');
+  function openOut() {
+    const o = outbox(); if (!o.items.length) return;
+    if (moving()) { drivingNote(); return; }
+    const trip = o.items.find(x => x.kind === 'trip');
+    if (trip) {
+      o.items = o.items.filter(x => x !== trip); saveOut(o);
+      const m = allMissions().find(x => x.id === trip.missionId), step = m && O.missionSteps(m).find(x => x.key === trip.stepKey);
+      if (m && step) tellCustomers(m, step);
+      return;
+    }
+    const items = o.items.filter(x => x.kind === 'line'); if (!items.length) return;
+    const text = items.map(x => x.text).join('\n\n'), group = (items.find(x => x.group) || {}).group || '';
+    const done = () => { const o2 = outbox(); o2.items = o2.items.filter(x => x.kind !== 'line'); saveOut(o2); TP.closeModal(); };
+    TP.openModal('📤 ابعت لجروب الخط', `
+      <div class="gm-pre">${esc(text)}</div>
+      <p class="modal-text">دوس "ابعت للجروب" — واتساب هيفتح والرسالة مكتوبة، اختار جروب الخط ودوس إرسال.</p>
+      <div class="gm-acts">
+        <a class="btn btn-primary btn-block" id="oSend" href="${esc(waShare(text))}" target="_blank" rel="noopener">📤 ابعت للجروب</a>
+        ${group ? `<a class="btn btn-ghost btn-block" id="oGroup" href="${esc(group)}" target="_blank" rel="noopener">📋 انسخ الرسالة وافتح جروب الخط</a>` : ''}
+        <button type="button" class="btn btn-ghost btn-block" id="oLater">⏸️ مش دلوقتي — علشان انت سايق يا ${esc(first(S.person.name))}</button>
+      </div>`, null, { noSave: true });
+    TP.$('#oSend').onclick = done;
+    const g = TP.$('#oGroup'); if (g) g.onclick = () => { copyText(text); done(); };
+    TP.$('#oLater').onclick = () => { remindAt = Date.now(); TP.closeModal(); TP.toast('الرسالة محفوظة — هفكّرك أول ما تقف 👍'); };
+  }
+  function copyText(text) {
+    try { if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(() => TP.toast('اتنسخت ✓ — في الجروب دوس مطوّل والصق'), () => {}); return; } } catch (e) { /* fall back */ }
+    const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); TP.toast('اتنسخت ✓ — في الجروب دوس مطوّل والصق'); } catch (e) { /* ignore */ } t.remove();
+  }
+  /** GPS tick: the car stood still for 30 s with a message waiting → remind (at most every 3 minutes). */
+  function outTick() {
+    if (moving()) stillSince = 0; else if (!stillSince) stillSince = Date.now();
+    const o = outbox();
+    if (o.items.length && stillSince && Date.now() - stillSince > 30000 && Date.now() - remindAt > 180000) {
+      remindAt = Date.now();
+      try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* ignore */ }
+      TP.toast(o.items.some(x => x.kind === 'trip') ? '📤 فيه رسالة للعميل مستنياك — دوس عليها تحت' : '📤 فيه رسالة للجروب مستنياك — دوس عليها تحت', 'warn');
+    }
+    renderOut();
+  }
+  function renderOut() {
+    let el = TP.$('#dvOut');
+    if (!el) { el = document.createElement('button'); el.type = 'button'; el.id = 'dvOut'; el.className = 'dv-out'; el.onclick = openOut; document.body.appendChild(el); }
+    const n = outbox().items.length, mv = moving();
+    el.hidden = !n;
+    el.classList.toggle('mv', mv);
+    el.textContent = !n ? '' : mv ? `⏸️ ${n === 1 ? 'رسالة' : n + ' رسايل'} مستنية — ابعتها لما تقف` : `📤 ${n === 1 ? 'فيه رسالة' : 'فيه ' + n + ' رسايل'} مستنياك — دوس وابعت`;
+  }
+  /** The line group's message for one step: what happened, when, how long since the last point, who rode. */
+  function lineGroupText(line, day, step, ev, doc) {
+    const at = (ev[step.key] && ev[step.key].at) || TP.now(), t = TP.fmtTime(at), f = st.companies[line.factoryId] || {}, fname = f.name || 'المصنع';
+    const mins = (a, b) => Math.max(0, Math.round((b - a) / 60000));
+    const steps = stepsOf(line, day, ev), idx = steps.findIndex(x => x.key === step.key);
+    const prev = idx > 0 ? steps.slice(0, idx).reverse().find(x => ev[x.key] && x.phase === step.phase) : null;
+    const leg = prev && step.kind === 'arr' ? ` (${mins(ev[prev.key].at, at)} دقيقة من ${prev.target === 'factory' ? fname : prev.name})` : '';
+    const who = c => TP.i18n.honor('ar', c.name, c.sex);
+    let body;
+    if (step.target === 'point' && step.kind === 'arr') body = `📍 وصلت *${step.name}* — ${t}${leg}`;
+    else if (step.target === 'point' && step.kind === 'dep') {
+      const cs = O.lineCustomers(line).filter(c => c.pointIdx === step.i), arr = ev['p' + step.i + '_arr'];
+      const ns = cs.filter(c => doc && doc.noshow && doc.noshow[c.id]), sk = cs.filter(c => !ns.includes(c) && skipsDay(c, day)), rd = cs.filter(c => !ns.includes(c) && !sk.includes(c));
+      body = [`✅ اتحركت من *${step.name}* — ${t}${arr ? ` (استنيت ${mins(arr.at, at)} دقيقة)` : ''}`,
+        rd.length ? `ركب: ${rd.map(who).join('، ')}` : '', ns.length ? `⏳ مجاش: ${ns.map(who).join('، ')}` : '', sk.length ? `📝 مش راكب النهارده: ${sk.map(who).join('، ')}` : ''].filter(Boolean).join('\n');
+    } else if (step.key === 'fm_arr') {
+      const ats = steps.filter(x => x.phase === 'm' && x.key !== 'fm_arr' && ev[x.key]).map(x => ev[x.key].at);
+      body = `🏭 وصلت *${fname}* — ${t}${leg}${ats.length ? `\nمدة الرحلة: ${mins(Math.min(...ats), at)} دقيقة` : ''}`;
+    } else if (step.key === 'fe_arr') body = `🏭 وصلت *${fname}* للرجوع — ${t}`;
+    else if (step.key === 'fe_dep') body = `🚗 اتحركت من *${fname}* (الرجوع) — ${t}`;
+    else body = `🏁 خلصت اليوم — ${t}`;
+    return `🚗 *${line.name}* — الكابتن ${first(S.person.name)}\n${body}`;
+  }
   function queue() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); }
   function render() {
     if (!S.ready || !S.person) return;
     syncTrack();
     renderStatus();
+    renderOut();
     checkNew();
     TP.$$('.dv-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === st.tab));
     // "عربيتي" (trip order, custody, fuel, salary) only for a driver who has it

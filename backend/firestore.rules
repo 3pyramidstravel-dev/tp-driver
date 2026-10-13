@@ -575,6 +575,39 @@ service cloud.firestore {
       allow delete: if staffTrack();
     }
     // "مش راكب" said by the customer himself (the cloud alarm writes it from his answers): {lineId, factoryId, day, month, c.{custId}: {at, n}}
+    // ---- line sign-up links (r/#TOKEN): whoever holds a line's link adds himself — name, phone, home pin ----
+    //   regLinks/{lineId}: the secret token (staff only) · regs/{sha256(token)}: what the page shows + the seat counter
+    //   signups/{rh_n}: one per seat; the Control Tower turns each into a customer of the line (point + link)
+    function regPath(rh) { return /databases/$(database)/documents/regs/$(rh); }
+    match /regLinks/{lid} {
+      allow read, write: if can('lines.manage');
+    }
+    match /regs/{rh} {
+      allow get: if true;
+      allow list: if false;
+      allow create, delete: if can('lines.manage');
+      // the page takes the next seat in the same write as its sign-up (never past the line's free seats)
+      allow update: if can('lines.manage')
+        || (changed().hasOnly(['n']) && resource.data.open == true
+            && request.resource.data.n == resource.data.n + 1 && request.resource.data.n <= resource.data.lim
+            && existsAfter(/databases/$(database)/documents/signups/$(rh + '_' + string(request.resource.data.n))));
+    }
+    match /signups/{sid} {
+      function signupOk(d) {
+        let reg = getAfter(regPath(d.rh)).data;
+        return d.keys().hasOnly(['rh', 'n', 'lineId', 'tok', 'ch', 'name', 'phone', 'sex', 'loc', 'status', 'at'])
+          && d.rh is string && d.n is int && sid == d.rh + '_' + string(d.n)
+          && reg.n == d.n && get(regPath(d.rh)).data.n == d.n - 1 && d.lineId == reg.lineId
+          && d.tok is string && d.tok.size() >= 20 && d.tok.size() <= 80 && d.ch == hashOf(d.tok)
+          && d.name is string && d.name.size() >= 2 && d.name.size() <= 60
+          && d.phone is string && d.phone.size() >= 8 && d.phone.size() <= 20
+          && d.sex in ['m', 'f', '']
+          && d.loc is map && d.loc.keys().hasOnly(['lat', 'lng', 'acc']) && d.loc.lat is number && d.loc.lng is number
+          && d.status == 'new' && d.at == request.time;
+      }
+      allow create: if signupOk(request.resource.data);
+      allow read, update, delete: if can('lines.manage');
+    }
     match /excused/{eid} {
       allow read: if staffDays() || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
       allow write: if false;

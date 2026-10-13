@@ -49,7 +49,7 @@
       </div>`).join('') + `
       <div class="point factory"><div class="point-head"><span class="point-no">${TP.icon('factory', 16)}</span><b>الوجهة: ${esc((factory && factory.name) || 'المصنع')}</b></div>
         ${factory ? U.mapLink(factory.location, 'لوكيشن المصنع') : '<span class="muted small">اختار المصنع</span>'}</div>
-      ${points.length < MAX_POINTS ? '<button type="button" class="btn btn-ghost" id="pAdd">+ إضافة نقطة</button>' : ''}`;
+      <div class="btn-row">${points.length < MAX_POINTS ? '<button type="button" class="btn btn-ghost" id="pAdd">+ إضافة نقطة</button>' : ''}${points.length > 1 ? '<button type="button" class="btn btn-ghost" id="pSort" title="الأبعد عن المصنع الأول">↕ رتّب النقط حسب الطريق</button>' : ''}</div>`;
     const check = el => {
       const span = el.parentElement.querySelector('[data-loccheck]'), raw = el.value.trim(), loc = TP.parseLocation(raw);
       span.innerHTML = !raw ? '<small class="muted">بدون لوكيشن — السواق الجديد مش هيعرف يوصل، والعميل مش هيعرف العربية قربت</small>' : loc ? `<small>${U.mapLink(loc, 'جرّب')}</small>` : '<small style="color:var(--danger)">مش مقروء</small>';
@@ -64,6 +64,15 @@
     act('[data-rmc]', v => { const [i, ci] = v.split('|').map(Number); points[i].customers.splice(ci, 1); });
     const add = TP.$('#pAdd');
     if (add) add.onclick = () => { readPoints(); points.push({ customers: [] }); redraw(); };
+    const srt = TP.$('#pSort');
+    if (srt) srt.onclick = () => {
+      readPoints();
+      const fl = factory && factory.location;
+      if (!fl) { TP.toast('حط لوكيشن المصنع الأول من صفحة المصانع'); return; }
+      const far = p => { const l2 = TP.parseLocation(p.locText || ''); const d = l2 ? O.dist(l2, fl) : null; return d === null ? -1 : d; };
+      points.sort((a, b) => far(b) - far(a));
+      redraw(); TP.toast('اترتبت: الأبعد عن المصنع الأول ✓');
+    };
   }
 
   function openEditor(lid) {
@@ -83,6 +92,7 @@
         <label class="fld">ميعاد الرجوع من المصنع<input class="input" id="lEvening" type="time" value="${esc(l.eveningTime || '')}"></label>
         <div class="full"><h4 style="margin:6px 0 10px;color:var(--maroon-2)">النقط بالترتيب وعملاء كل نقطة</h4><div class="points" id="pBox"></div></div>
         <label class="fld full">ملاحظات للسواق<textarea class="input" id="lNotes" rows="2">${esc(l.notes || '')}</textarea></label>
+        <label class="fld full">لينك جروب الواتساب بتاع الخط (مرة واحدة — منه بيتبعت لينك التسجيل)<input class="input" id="lWa" dir="ltr" value="${esc(l.waGroup || '')}" placeholder="https://chat.whatsapp.com/..."></label>
         <label class="check full"><input type="checkbox" id="lActive" ${l.active !== false ? 'checked' : ''}><span>الخط شغال</span></label>
       </div>`, () => save(lid), { wide: true, saveLabel: lid ? 'حفظ' : 'إضافة' });
     drawPoints(TP.q.company(l.factoryId));
@@ -137,7 +147,9 @@
     }
     if (!clean.length) { TP.toast('ضيف نقطة واحدة على الأقل'); return false; }
     const driverId = U.val('lDriver');
-    const form = { vehicleId: U.val('lVehicle') || '', morningTime: U.val('lMorning'), eveningTime: U.val('lEvening'), notes: U.val('lNotes'), active: U.checked('lActive') };
+    const waGroup = U.val('lWa');
+    if (waGroup && !/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/.test(waGroup)) { TP.toast('لينك الجروب لازم يبدأ بـ https://chat.whatsapp.com/'); return false; }
+    const form = { vehicleId: U.val('lVehicle') || '', morningTime: U.val('lMorning'), eveningTime: U.val('lEvening'), notes: U.val('lNotes'), active: U.checked('lActive'), waGroup: waGroup || '' };
     const clash = driverId && D.lines.find(x => x.id !== lid && x.driverId === driverId && x.active !== false);
     if (clash && !(await TP.confirm('السواق على خط تاني', `${(TP.q.person(driverId) || {}).name} متسجل على خط "${clash.name}". تكمل؟`, 'أيوه، كمّل'))) return false;
     const data = Object.assign({ name, factoryId, driverId: driverId || '', points: clean, updatedAt: TP.fb.ts() }, form);
@@ -180,6 +192,122 @@
     TP.$$('#tp-modal [data-copy]').forEach(b => b.onclick = () => TP.actions.copy(b.dataset.copy));
   }
 
+  /* ---------- sign-up link of a line (r/#token): the passengers add themselves ---------- */
+  const regUrl = token => TP.siteUrl('r/#' + token);
+  const pendingOf = lid => D.signups.filter(x => x.lineId === lid).length;
+  const seatsOf = l => Math.max(0, maxCust() - O.lineCustomers(l).length - pendingOf(l.id));
+  /** The line's link (made the first time, or new when `rotate`), its free seats kept right. */
+  async function regLink(l, rotate) {
+    const f = TP.q.company(l.factoryId) || {};
+    let link = await TP.fb.get('regLinks/' + l.id);
+    if (!link || !link.rh || rotate) {
+      const k = await TP.cust.newLink(), ops = [];
+      if (link && link.rh) ops.push({ op: 'delete', path: 'regs/' + link.rh });
+      ops.push({ op: 'set', path: 'regLinks/' + l.id, data: { token: k.token, rh: k.h, at: TP.fb.ts() } });
+      ops.push({ op: 'set', path: 'regs/' + k.h, data: { lineId: l.id, lineName: l.name, factoryName: f.name || '', n: 0, lim: seatsOf(l), open: true, at: TP.fb.ts() } });
+      await TP.fb.batch(ops);
+      link = { token: k.token, rh: k.h };
+    }
+    const reg = (await TP.fb.get('regs/' + link.rh)) || { n: 0, open: true };
+    const upd = {}, lim = (reg.n || 0) + seatsOf(l);
+    if (reg.lim !== lim) upd.lim = lim;
+    if (reg.lineName !== l.name) upd.lineName = l.name;
+    if (reg.factoryName !== (f.name || '')) upd.factoryName = f.name || '';
+    if (Object.keys(upd).length) { await TP.fb.set('regs/' + link.rh, Object.assign({ lineId: l.id }, upd), true); Object.assign(reg, upd); }
+    return { link, reg };
+  }
+  async function openReg(lid, rotate) {
+    const l = TP.q.line(lid); if (!l) return;
+    const { link, reg } = await regLink(l, rotate);
+    const url = regUrl(link.token), seats = seatsOf(l), open = reg.open !== false;
+    const msg = `أهلاً بحضراتكم 🌹\nده لينك تسجيل ركاب *${l.name}* — Three Pyramids Travel.\nكل واحد يفتحه، ويكتب اسمه ورقمه، ويحدد مكان بيته — وهيوصله لينك متابعة عربيته على طول:\n${url}`;
+    TP.openModal('تسجيل ركاب ' + l.name, `
+      <div class="banner ${seats && open ? 'info' : 'warn'}" style="margin-bottom:10px">${TP.icon('users')}<span class="grow">${!open ? 'التسجيل مقفول' : seats ? `الأماكن الفاضية: <b>${seats}</b> من ${maxCust()} — اللينك بيقفل لوحده لما تكمل` : 'العربية مكتملة — اللينك مش هيقبل حد'}</span></div>
+      <p class="muted small" style="margin-bottom:8px">ابعته مرة واحدة لجروب الخط أو للأشخاص دول بس. كل واحد يتسجل بيتضاف للخط هنا لوحده (لازم الصفحة دي تكون مفتوحة على أي جهاز للإدارة)، ومكانه بيبقى نقطة ركوبه.</p>
+      <div class="mono small" dir="ltr" style="word-break:break-all;margin-bottom:10px">${esc(url)}</div>
+      <div class="btn-row" style="flex-wrap:wrap;gap:8px">
+        ${l.waGroup ? '<button type="button" class="btn btn-primary" id="rgGroup">📤 ابعت لجروب الخط</button>' : ''}
+        <a class="btn ${l.waGroup ? 'btn-ghost' : 'btn-primary'}" href="${esc('https://wa.me/?text=' + encodeURIComponent(msg))}" target="_blank" rel="noopener">واتساب (اختار الجروب)</a>
+        <button type="button" class="btn btn-ghost" id="rgCopy">${TP.icon('copy', 16)}انسخ</button>
+        <button type="button" class="btn btn-ghost" id="rgOpen">${open ? 'اقفل التسجيل' : 'افتح التسجيل'}</button>
+        <button type="button" class="btn btn-ghost" id="rgNew">لينك جديد</button>
+      </div>
+      ${l.waGroup ? '' : '<p class="muted small" style="margin-top:8px">حط لينك جروب الواتساب في تعديل الخط، وبعد كده يبقى الإرسال للجروب بلمسة.</p>'}`, null, { noSave: true, wide: true });
+    const g = TP.$('#rgGroup');
+    if (g) g.onclick = () => { TP.actions.copy(msg); setTimeout(() => window.open(l.waGroup, '_blank', 'noopener'), 400); TP.toast('الرسالة اتنسخت — في الجروب دوس مطوّل والصق ✓'); };
+    TP.$('#rgCopy').onclick = () => TP.actions.copy(msg);
+    TP.$('#rgOpen').onclick = async () => { await TP.fb.update('regs/' + link.rh, { open: !open }); TP.closeModal(); openReg(lid); };
+    TP.$('#rgNew').onclick = async () => {
+      if (!(await TP.confirm('لينك جديد', 'اللينك القديم هيقف خالص، واللي اتسجلوا بيفضلوا زي ما هم.', 'لينك جديد'))) return;
+      TP.closeModal(); openReg(lid, true);
+    };
+  }
+
+  /* Sign-ups → customers: the open Control Tower adds each one to its line (a point at his home, or the
+     point within 200 m), keeps the order of the road (farthest from the factory first, unless today's
+     trip already started), makes his follow-up link from the token his page made — then his page opens it. */
+  const taking = new Set();
+  async function takeSignups() {
+    if (!TP.session.can('lines.manage') || !D.loaded.lines || !D.loaded.signups) return;
+    for (const sg of D.signups.slice()) {
+      if (taking.has(sg.id)) continue;
+      taking.add(sg.id);
+      try { await takeOne(sg); } catch (e) { console.warn('signup', e); taking.delete(sg.id); }
+    }
+  }
+  async function takeOne(sg) {
+    const close = status => TP.fb.update('signups/' + sg.id, { status, doneAt: TP.fb.ts() });
+    const l = TP.q.line(sg.lineId);
+    if (!l) return close('rejected');
+    const custs = O.lineCustomers(l);
+    if (custs.some(c => c.h === sg.ch)) return close('done');
+    if (custs.length >= maxCust()) { TP.toast(`${sg.name} حاول يتسجل على ${l.name} — العربية مكتملة`, 'warn'); return close('full'); }
+    if ((await TP.sha256(String(sg.tok || ''))) !== sg.ch) return close('rejected');
+    const loc = sg.loc && isFinite(sg.loc.lat) && isFinite(sg.loc.lng) ? { lat: sg.loc.lat, lng: sg.loc.lng } : null;
+    const c = { id: TP.newId('C'), h: sg.ch, name: String(sg.name || '').slice(0, 60), phone: sg.phone || '', home: loc, sex: sg.sex === 'm' || sg.sex === 'f' ? sg.sex : '' };
+    const pts = (l.points || []).map(p => Object.assign({}, p, { customers: O.custsOf(p).slice() }));
+    const near = loc ? pts.findIndex(p => { const d = O.dist(p.location, loc); return d !== null && d <= 200; }) : -1;
+    if (near >= 0) pts[near].customers.push(c);
+    else if (pts.length >= MAX_POINTS) pts[pts.length - 1].customers.push(c);
+    else {
+      const f = TP.q.company(l.factoryId), fl = f && f.location;
+      const started = D.todayDays.some(d => d.lineId === l.id && d.events && Object.keys(d.events).length);
+      let at = pts.length;
+      if (!started && fl && loc) { const mine = O.dist(loc, fl); const i = pts.findIndex(p => { const d = O.dist(p.location, fl); return d !== null && d < mine; }); if (i >= 0) at = i; }
+      pts.splice(at, 0, { name: 'بيت ' + TP.i18n.honor('ar', c.name, c.sex), location: loc, customers: [c] });
+    }
+    const data = Object.assign({}, l, { points: pts, updatedAt: TP.fb.ts() }); delete data.id;
+    const ops = TP.actions.lineSaveOps(l.id, data, l, { [c.h]: sg.tok });
+    ops.push({ op: 'update', path: 'signups/' + sg.id, data: { status: 'done', doneAt: TP.fb.ts(), custId: c.id } });
+    await TP.fb.batch(ops);
+    TP.audit('line.signup', l.name, c.name);
+    TP.toast(`✅ ${TP.i18n.honor('ar', c.name, c.sex)} اتسجل على ${l.name}`);
+  }
+  document.addEventListener('tp:data', e => { if (e.detail === 'signups' || e.detail === 'lines') takeSignups(); });
+
+  /* ---------- the time between the points (the last days of the line) ---------- */
+  async function openLegs(lid) {
+    const l = TP.q.line(lid); if (!l) return;
+    const today = TP.dayKey(TP.now()), M = O.monthOf(today);
+    const months = [M, O.addMonths(M, -1)];
+    const lists = await Promise.all(months.map(m => TP.fb.list('days', { where: [['lineId', '==', lid], ['month', '==', m]] }).catch(() => [])));
+    const days = lists.flat().filter(d => d.events).sort((a, b) => String(b.day).localeCompare(String(a.day))).slice(0, 14);
+    const pts = l.points || [], f = TP.q.company(l.factoryId) || {};
+    // the legs of the morning: point 1 → 2 → … → the factory (arrival to arrival)
+    const legs = pts.map((p, i) => ({ from: i ? pts[i - 1].name : null, to: p.name, a: i ? 'p' + (i - 1) + '_arr' : null, b: 'p' + i + '_arr' })).slice(1)
+      .concat(pts.length ? [{ from: pts[pts.length - 1].name, to: f.name || 'المصنع', a: 'p' + (pts.length - 1) + '_arr', b: 'fm_arr' }] : []);
+    const mins = (d, a, b) => { const x = d.events[a], y = d.events[b]; return x && y && y.at > x.at ? Math.round((y.at - x.at) / 60000) : null; };
+    const total = d => { const x = d.events.p0_arr, y = d.events.fm_arr; return x && y && y.at > x.at ? Math.round((y.at - x.at) / 60000) : null; };
+    const avg = arr => { const v = arr.filter(x => x !== null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+    const cell = v => v === null ? '<td class="muted">—</td>' : `<td class="mono">${v}</td>`;
+    TP.openModal('أوقات الطريق — ' + l.name, days.length && legs.length ? `
+      <p class="muted small" style="margin-bottom:8px">بالدقايق، من وصول النقطة لوصول اللي بعدها (الصبح). آخر ${days.length} يوم.</p>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>اليوم</th>${legs.map(g => `<th class="small">${esc(g.from)} ← ${esc(g.to)}</th>`).join('')}<th>الرحلة كلها</th></tr></thead>
+      <tbody>${days.map(d => `<tr><td class="mono">${esc(d.day)}</td>${legs.map(g => cell(mins(d, g.a, g.b))).join('')}${cell(total(d))}</tr>`).join('')}
+      <tr><td><b>المتوسط</b></td>${legs.map(g => cell(avg(days.map(d => mins(d, g.a, g.b))))).join('')}${cell(avg(days.map(total)))}</tr></tbody></table></div>`
+      : U.empty('مفيش أيام متسجلة للخط ده لسه'), null, { noSave: true, wide: true });
+  }
+
   TP.views.lines = {
     deps: ['lines', 'companies', 'people', 'vehicles', 'settings'],
     render(root) {
@@ -206,13 +334,15 @@
                 <td class="mono">${v ? esc(v.plate) : '—'}</td>
                 <td class="small">الصبح ${esc(l.morningTime || '—')}<br>الرجوع ${esc(l.eveningTime || '—')}</td>
                 <td class="small">${(l.points || []).length} نقط · ${custs.length} عميل${noLoc ? `<br><span class="st st-warn">${noLoc} بدون لوكيشن</span>` : ''}${noPhone ? `<br><span class="st st-warn">${noPhone} من غير موبايل</span>` : ''}</td>
-                <td class="acts"><button class="icon-btn" title="لينكات العملاء" data-links="${l.id}">${TP.icon('external', 16)}</button><button class="icon-btn" title="تعديل" data-edit="${l.id}">${TP.icon('edit', 16)}</button><button class="icon-btn danger" title="حذف" data-del="${l.id}">${TP.icon('trash', 16)}</button></td></tr>`;
+                <td class="acts"><button class="icon-btn" title="لينك تسجيل الركاب" data-reg="${l.id}">${TP.icon('users', 16)}</button><button class="icon-btn" title="أوقات الطريق بين النقط" data-legs="${l.id}">⏱</button><button class="icon-btn" title="لينكات العملاء" data-links="${l.id}">${TP.icon('external', 16)}</button><button class="icon-btn" title="تعديل" data-edit="${l.id}">${TP.icon('edit', 16)}</button><button class="icon-btn danger" title="حذف" data-del="${l.id}">${TP.icon('trash', 16)}</button></td></tr>`;
             }).join('')}</tbody></table></div>` : U.empty(D.companies.length ? 'مفيش خطوط هنا لسه' : 'ضيف المصانع الأول من صفحة المصانع')}
         </section>`;
       U.bindFilter(root, 'linesQ', 'lines');
       root.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { state.factory = b.dataset.f; TP.rerender(); });
       root.querySelector('#addL').onclick = () => openEditor(null);
       root.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEditor(b.dataset.edit));
+      root.querySelectorAll('[data-reg]').forEach(b => b.onclick = () => openReg(b.dataset.reg).catch(e => TP.toast(TP.errorText(e), 'warn')));
+      root.querySelectorAll('[data-legs]').forEach(b => b.onclick = () => openLegs(b.dataset.legs).catch(e => TP.toast(TP.errorText(e), 'warn')));
       root.querySelectorAll('[data-links]').forEach(b => b.onclick = () => openLinks(b.dataset.links).catch(e => TP.toast(TP.errorText(e), 'warn')));
       root.querySelectorAll('[data-del]').forEach(b => b.onclick = () => remove(b.dataset.del).catch(e => TP.toast(TP.errorText(e), 'warn')));
     }
