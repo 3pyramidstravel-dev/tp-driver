@@ -28,8 +28,8 @@
       driver = drv && typeof drv === 'object' ? (L !== 'ar' && drv.nameEn ? drv.nameEn : drv.name || '') : drv || '', t = (k, v) => I().t(L, k, v), fl = m.flight || {};
     const arr = m.type === 'airport' && fl.dir === 'arr', term = fl.terminal ? t('termTag', { t: fl.terminal }) : '';
     const when = (() => {
-      const ms = TP.ops.cairoMs(m.day, m.time || '00:00');
-      return L === 'ar' ? `${TP.fmtDay(m.day + 'T12:00:00')} الساعة ${TP.ops.hm12(m.time || '')}` : `${I().fmtDay(L, ms)} — ${I().fmtTime(L, ms)}`;
+      const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');   // no time yet (the flight is being looked up) → the date only
+      return L === 'ar' ? `${TP.fmtDay(m.day + 'T12:00:00')}${hasT ? ' الساعة ' + TP.ops.hm12(m.time) : ''}` : `${I().fmtDay(L, ms)}${hasT ? ' — ' + I().fmtTime(L, ms) : ''}`;
     })();
     const out = [];
     if (link) out.push(arr
@@ -40,22 +40,28 @@
     return out;
   }
 
-  /** One window: the ready messages + "ترجم وابعت", sent on WhatsApp to that guest. */
-  function compose(m, c, link, driver) {
+  /** WhatsApp without a number: WhatsApp opens its own list of chats and groups to choose from. */
+  const waShare = text => 'https://wa.me/?text=' + encodeURIComponent(text || '');
+  /** One window: the ready messages + "ترجم وابعت" — to the guest's own number, to a group / anyone (WhatsApp's list), or copied. */
+  function compose(m, c, link, driver, car) {
     const L0 = I().ok(c.lang) ? c.lang : 'ar';
     let L = L0;
     const draw = () => {
-      const list = messages(m, Object.assign({}, c, { lang: L }), link, driver);
+      const cc = Object.assign({}, c, { lang: L });
+      // the driver (no link): "on my way" / "I am here" first, in the guest's language
+      const steps = link ? [] : [['start', 'إني اتحركت'], ['pickup', 'إني وصلت']].map(([k, label]) => ({ k: 's' + k, label, text: stepMessage(m, cc, k, driver, car) })).filter(x => x.text);
+      const list = steps.concat(messages(m, cc, link, driver));
       const wa = text => TP.waLink(c.phone, text);
+      const btns = (text, key) => `${c.phone && wa(text) ? `<a class="btn btn-primary btn-sm" href="${esc(wa(text))}" target="_blank" rel="noopener">📱 للعميل</a>` : ''}<a class="btn btn-ghost btn-sm" href="${esc(waShare(text))}" target="_blank" rel="noopener" title="الواتساب هيفتح قايمة الشاتات والجروبات — اختار">👥 لجروب / حد تاني</a><button type="button" class="btn btn-ghost btn-sm" data-gcopy="${esc(key)}">انسخ</button>`;
       TP.openModal('رسالة لـ ' + c.name, `
         <div class="chips" style="margin-bottom:10px">${I().LANGS.map(l => `<button type="button" class="chip ${l.id === L ? 'active' : ''}" data-gl="${l.id}">${esc(l.name)}</button>`).join('')}</div>
-        ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.label)}</b>${c.phone ? `<a class="btn btn-primary btn-sm" href="${esc(wa(x.text))}" target="_blank" rel="noopener">واتساب</a>` : ''}<button type="button" class="btn btn-ghost btn-sm" data-gcopy="${esc(x.k)}">انسخ</button></div><p class="gm-t" dir="${I().info(L).dir}">${esc(x.text)}</p></div>`).join('')}
+        ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.label)}</b>${btns(x.text, x.k)}</div><p class="gm-t" dir="${I().info(L).dir}">${esc(x.text)}</p></div>`).join('')}
         <div class="gm"><div class="gm-h"><b>ترجم وابعت</b><small class="muted">اكتب بالعربي، والرسالة تطلع بـ ${esc(I().info(L).name)}</small></div>
           <textarea class="input" id="gIn" rows="3" maxlength="1000" placeholder="مثال: السواق قدام البوابة رقم 2، العربية بيضا"></textarea>
           <div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="gGo" ${L === 'ar' ? 'disabled' : ''}>ترجم</button><span class="muted small" id="gSt"></span></div>
           <textarea class="input" id="gOut" rows="3" dir="${I().info(L).dir}" style="margin-top:8px" placeholder="الترجمة هتظهر هنا — تقدر تعدّل فيها"></textarea>
-          <div style="display:flex;gap:8px;margin-top:8px">${c.phone ? '<button type="button" class="btn btn-primary btn-sm" id="gSend">ابعت واتساب</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="gCopy">انسخ</button></div></div>
-        ${c.phone ? '' : '<p class="muted small">الضيف ده مالوش موبايل متسجل — انسخ الرسالة وابعتها.</p>'}`, null, { noSave: true, wide: true, noFocus: true });
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${c.phone ? '<button type="button" class="btn btn-primary btn-sm" id="gSend">📱 للعميل</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="gShare">👥 لجروب / حد تاني</button><button type="button" class="btn btn-ghost btn-sm" id="gCopy">انسخ</button></div></div>
+        ${c.phone ? '' : '<p class="muted small">العميل ده مالوش موبايل متسجل — ابعتها لجروب أو انسخها.</p>'}`, null, { noSave: true, wide: true, noFocus: true });
       TP.$$('#tp-modal [data-gl]').forEach(b => b.onclick = () => { L = b.dataset.gl; draw(); });
       TP.$$('#tp-modal [data-gcopy]').forEach(b => b.onclick = () => { const x = list.find(y => y.k === b.dataset.gcopy); copy(x.text); });
       const go = TP.$('#gGo'), out = TP.$('#gOut'), stEl = TP.$('#gSt');
@@ -66,7 +72,9 @@
         catch (e) { console.warn(e); stEl.textContent = 'الترجمة مش متاحة دلوقتي — اكتبها بإيدك أو استخدم ترجمة الكيبورد'; }
         finally { go.disabled = false; }
       };
-      const send = TP.$('#gSend'); if (send) send.onclick = () => { const v = out.value.trim() || TP.$('#gIn').value.trim(); if (!v) return TP.toast('اكتب الرسالة'); window.open(wa(v), '_blank'); };
+      const typed = () => out.value.trim() || TP.$('#gIn').value.trim();
+      const send = TP.$('#gSend'); if (send) send.onclick = () => { const v = typed(); if (!v) return TP.toast('اكتب الرسالة'); window.open(wa(v), '_blank'); };
+      TP.$('#gShare').onclick = () => { const v = typed(); if (!v) return TP.toast('اكتب الرسالة'); window.open(waShare(v), '_blank'); };
       TP.$('#gCopy').onclick = () => copy(out.value.trim() || TP.$('#gIn').value.trim());
     };
     draw();

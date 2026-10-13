@@ -376,8 +376,8 @@
       .map(c => ({ c, text: TP.guest.stepMessage(m, c, step.key, S.person, car) })).filter(x => x.text);
     if (!list.length) return;
     TP.openModal(step.key === 'start' ? 'بلّغ العميل إنك اتحركت' : 'بلّغ العميل إنك وصلت', `
-      <p class="modal-text">دوس "واتساب" — الرسالة هتتفتح جاهزة، دوس ابعت.</p>
-      ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">واتساب</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
+      <p class="modal-text">دوس "للعميل" يروح على رقمه، أو "لجروب" والواتساب يوريك الجروبات تختار — الرسالة جاهزة، دوس ابعت.</p>
+      ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">📱 للعميل</a><a class="btn btn-ghost btn-sm" href="${esc('https://wa.me/?text=' + encodeURIComponent(x.text))}" target="_blank" rel="noopener">👥 لجروب</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
   }
   function onMissionStep(m, step) {
     const drv = first(S.person.name), air = m.type === 'airport' && m.flight;
@@ -411,8 +411,12 @@
     // "عربيتي" (trip order, custody, fuel, salary) only for a driver who has it
     const car = !!(TP.dvCar && TP.dvCar.available()), carBtn = TP.$('.dv-nav [data-tab="car"]');
     if (carBtn) carBtn.hidden = !car;
-    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${car ? 4 : 3}, 1fr)`;
+    // "حسابي" is pay per trip / shift — a tourism driver has a monthly salary (in "عربيتي")
+    const acct = S.person.driverKind !== 'tourism', acctBtn = TP.$('.dv-nav [data-tab="account"]');
+    if (acctBtn) acctBtn.hidden = !acct;
+    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${2 + (car ? 1 : 0) + (acct ? 1 : 0)}, 1fr)`;
     if (st.tab === 'car' && !car) st.tab = 'today';
+    if (st.tab === 'account' && !acct) st.tab = 'today';
     ['today', 'missions', 'account', 'car'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
     if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else renderAccount();
     const openM = allMissions().filter(m => (m.status === 'assigned' || m.status === 'active') && m.day <= TP.dayKey(TP.now())).length;
@@ -560,7 +564,7 @@
     });
     root.querySelectorAll('[data-guestm]').forEach(b => b.onclick = () => {
       const [, oid, , cid] = b.dataset.guestm.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);
-      if (c) TP.guest.compose(m, c, null, S.person);   // the driver has no link to send — the ready messages + "ترجم وابعت"
+      if (c) TP.guest.compose(m, c, null, S.person, (TP.dvCar && TP.dvCar.carText && TP.dvCar.carText()) || "");   // the driver has no link to send — the ready messages + "ترجم وابعت"
     });
     root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
       const [, oid, , cid] = b.dataset.pick.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);
@@ -629,10 +633,16 @@
         ${Object.keys(ev).length ? `<div class="meta small muted" style="margin-top:6px">${steps.filter(x => ev[x.key]).map(x => `${esc(x.short)} ${esc(TP.fmtTime(ev[x.key].at))} ${stepBadges(ev[x.key])}`).join(' · ')}</div>` : ''}
         ${custs}${cash}${action}${extras}</div>`;
     };
-    root.innerHTML = `<section class="glass card"><div class="dv-h"><h2>المشاوير</h2></div>${open.length ? open.map(card).join('') : '<div class="empty">مفيش مشاوير عليك دلوقتي.</div>'}</section>
+    // the next trip big on top (the one under way first), the rest one line each by time — a tap opens one
+    const focus = open.find(m => m.status === 'active') || open[0];
+    const mini = m => `<button type="button" class="ms-mini" data-mopen="${esc(m.id)}"><b>${m.day === today ? '' : esc(TP.fmtDay(m.day + 'T12:00:00')) + ' · '}${m.time ? esc(O.hm12(m.time)) : '—'}</b><span>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title || 'مشوار')}</span><small class="muted">${esc((m.from && m.from.name) || '')}${m.to && m.to.name ? ' ← ' + esc(m.to.name) : ''}</small></button>`;
+    const rest = open.filter(m => m !== focus);
+    root.innerHTML = `<section class="glass card"><div class="dv-h"><h2>${rest.length ? 'المشوار الجاي' : 'المشاوير'}</h2></div>${focus ? card(focus) : '<div class="empty">مفيش مشاوير عليك دلوقتي.</div>'}</section>
+      ${rest.length ? `<section class="glass card"><div class="dv-h"><h2>بعده (${rest.length})</h2></div>${rest.map(m => st.mOpen === m.id ? card(m) : mini(m)).join('')}</section>` : ''}
       ${st.myExpenses.length ? `<section class="glass card"><div class="dv-h"><h2>مصاريفي الشهر ده</h2></div>${st.myExpenses.map(x => `<div class="exp-row"><span>${esc((EXP[x.kind] || x.kind))} — ${esc(TP.money(x.amount))}<small class="muted"> ${esc(x.day)}</small></span><span class="st ${x.status === 'approved' ? 'st-ok' : x.status === 'rejected' ? 'st-danger' : 'st-warn'}">${x.status === 'approved' ? 'اتقبل' : x.status === 'rejected' ? 'اترفض' + (x.decisionNote ? ': ' + esc(x.decisionNote) : '') : 'مستني'}</span></div>`).join('')}</section>` : ''}
       ${done.length ? `<section class="glass card"><div class="dv-h"><h2>اللي خلص</h2></div>${done.map(card).join('')}</section>` : ''}`;
     const find = id => allMissions().find(x => x.id === id);
+    root.querySelectorAll('[data-mopen]').forEach(b => b.onclick = () => { st.mOpen = b.dataset.mopen; renderMissions(); TP.hydrateIcons(root); });
     root.querySelectorAll('[data-mpress]').forEach(b => b.onclick = () => {
       const [, mid, key] = b.dataset.mpress.split('|');
       const m = find(mid), step = m && O.missionSteps(m).find(x => x.key === key);

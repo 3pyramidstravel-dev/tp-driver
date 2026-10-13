@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-13T13:48Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-13T18:11Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -461,7 +461,7 @@
     pushBanner: ['فعّل الإشعارات علشان يوصلك لما العربية تقرب وتوصل حتى والصفحة مقفولة', 'Turn on notifications to know when your car is near and arrives — even with this page closed', 'Aktivieren Sie Benachrichtigungen, um zu erfahren, wann Ihr Fahrzeug naht und ankommt — auch bei geschlossener Seite', "Activez les notifications pour savoir quand votre voiture approche et arrive — même page fermée", 'Включите уведомления, чтобы узнать, когда машина подъезжает и прибывает — даже при закрытой странице', '开启通知，即使关闭页面也能知道车辆何时接近和到达', '페이지를 닫아도 차량이 가까워지거나 도착하면 알림을 받으려면 알림을 켜세요'],
     pushOn: ['فعّل', 'Turn on', 'Aktivieren', 'Activer', 'Включить', '开启', '켜기'],
     pushOk: ['الإشعارات اتفعلت ✓', 'Notifications are on ✓', 'Benachrichtigungen sind aktiv ✓', 'Notifications activées ✓', 'Уведомления включены ✓', '通知已开启 ✓', '알림이 켜졌습니다 ✓'],
-    pushFail: ['مقدرناش نفعّل الإشعارات — اسمح بيها من إعدادات المتصفح', 'Could not turn on notifications — please allow them in your browser settings', 'Benachrichtigungen konnten nicht aktiviert werden — bitte in den Browsereinstellungen erlauben', "Impossible d'activer les notifications — autorisez-les dans les réglages du navigateur", 'Не удалось включить уведомления — разрешите их в настройках браузера', '无法开启通知 — 请在浏览器设置中允许', '알림을 켤 수 없습니다 — 브라우저 설정에서 허용해 주세요'],
+    pushFail: ['الإشعارات مقفولة على الموبايل ده. علشان تفتحها: دوس على العلامة اللي جنب اللينك فوق ← الأذونات (أو إعدادات الموقع) ← الإشعارات ← سماح، وبعدها دوس "فعّل" تاني.', 'Notifications are blocked on this phone. To allow them: tap the icon next to the address at the top → Permissions (or Site settings) → Notifications → Allow, then tap the button again.', 'Benachrichtigungen sind auf diesem Telefon blockiert. Tippen Sie oben auf das Symbol neben der Adresse → Berechtigungen (oder Website-Einstellungen) → Benachrichtigungen → Zulassen, dann tippen Sie erneut auf die Schaltfläche.', "Les notifications sont bloquées sur ce téléphone. Touchez l'icône à côté de l'adresse en haut → Autorisations (ou Paramètres du site) → Notifications → Autoriser, puis touchez à nouveau le bouton.", 'Уведомления на этом телефоне заблокированы. Нажмите на значок рядом с адресом вверху → Разрешения (или Настройки сайта) → Уведомления → Разрешить, затем снова нажмите кнопку.', '此手机已屏蔽通知。请点击顶部网址旁的图标 → 权限（或网站设置）→ 通知 → 允许，然后再次点击按钮。', '이 휴대폰에서 알림이 차단되어 있습니다. 상단 주소 옆 아이콘 → 권한(또는 사이트 설정) → 알림 → 허용을 누른 뒤 버튼을 다시 눌러 주세요.'],
     pushNo: ['الموبايل ده مش بيدعم الإشعارات — خلي الصفحة مفتوحة', "This phone doesn't support notifications — please keep this page open", 'Dieses Telefon unterstützt keine Benachrichtigungen — bitte Seite geöffnet lassen', 'Ce téléphone ne prend pas en charge les notifications — gardez cette page ouverte', 'Этот телефон не поддерживает уведомления — держите страницу открытой', '此手机不支持通知 — 请保持此页面打开', '이 휴대폰은 알림을 지원하지 않습니다 — 이 페이지를 열어 두세요'],
     pushIos: ['، أو ضيفها للشاشة الرئيسية (مشاركة ← Add to Home Screen) وافتحها من هناك', ', or add it to your Home Screen (Share → Add to Home Screen) and open it from there', ' oder zum Home-Bildschirm hinzufügen (Teilen → Zum Home-Bildschirm) und dort öffnen', " ou ajoutez-la à l'écran d'accueil (Partager → Sur l'écran d'accueil) et ouvrez-la depuis là", ' или добавьте её на экран «Домой» (Поделиться → На экран «Домой») и откройте оттуда', '，或添加到主屏幕（分享 → 添加到主屏幕）后从那里打开', ' 또는 홈 화면에 추가(공유 → 홈 화면에 추가)한 뒤 그곳에서 여세요'],
     call: ['كلّم الشركة', 'Call the company', 'Firma anrufen', "Appeler l'agence", 'Позвонить в компанию', '致电公司', '회사에 전화'],
@@ -1105,6 +1105,48 @@ export async function notifyMission(req, env, f, nowMs) {
   return out({ ok: true, sent: ctx.pushed.length });
 }
 
+/* ---------------- a short map link (maps.app.goo.gl …) → its place ---------------- */
+const MAP_HOSTS = /^(maps\.app\.goo\.gl|goo\.gl|g\.co|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+|consent\.google\.[a-z.]+)$/i;
+const perUidR = new Map();
+/** The coordinates written in a Google Maps address (or its page), if any. */
+export function coordsIn(text) {
+  const t = String(text || '');
+  const m = t.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || t.match(/[?&](?:q|query|ll|destination|center)=(-?\d{1,2}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i)
+    || t.match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/) || t.match(/center=(-?\d{1,2}\.\d+)%2C(-?\d{1,3}\.\d+)/i);
+  if (!m) return null;
+  const lat = Number(m[1]), lng = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+}
+/** POST /resolve {url} from signed-in staff: follows the short link (Google hosts only) and returns {lat, lng}. */
+export async function resolveMap(req, env, f, nowMs) {
+  const H = cors(req), out = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H) });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: H });
+  if (req.method !== 'POST') return out({ error: 'POST only' }, 405);
+  const ctx = { env, now: nowMs || Date.now(), reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
+  ctx.f = (u, o) => { ctx.calls++; return f ? f(u, o) : fetch(u, o); };
+  let uid;
+  try { uid = await verifyIdToken(ctx, (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')); } catch (e) { return out({ error: 'sign in first' }, 401); }
+  const dev = await getDoc(ctx, 'devices/' + uid).catch(() => null);
+  if (!dev || dev.active !== true || dev.kind !== 'staff') return out({ error: 'not allowed' }, 403);
+  const hist = (perUidR.get(uid) || []).filter(t => ctx.now - t < 60000); if (hist.length >= 30) return out({ error: 'too many — wait a minute' }, 429); hist.push(ctx.now); perUidR.set(uid, hist);
+  let body = {}; try { body = await req.json(); } catch (e) { /* empty */ }
+  let url = String(body.url || '').trim().slice(0, 600);
+  for (let hop = 0; hop < 6; hop++) {
+    let u; try { u = new URL(url); } catch (e) { return out({ error: 'not a link' }, 400); }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return out({ error: 'not a link' }, 400);
+    if (!MAP_HOSTS.test(u.hostname)) return out({ error: 'Google Maps links only' }, 400);
+    if (/^consent\./i.test(u.hostname) && u.searchParams.get('continue')) { url = u.searchParams.get('continue'); continue; }   // the cookie page: the real address is inside
+    const c = coordsIn(decodeURIComponent(url)); if (c) return out(Object.assign({ ok: true }, c));
+    const r = await ctx.f(url, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36', 'accept-language': 'en' } });
+    const loc = r.headers && r.headers.get && r.headers.get('location');
+    if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, url).toString(); continue; }
+    const page = r.ok ? (await r.text()).slice(0, 400000) : '';
+    const inPage = coordsIn(page); if (inPage) return out(Object.assign({ ok: true }, inPage));
+    break;
+  }
+  return out({ error: 'no place in this link' }, 422);
+}
+
 /* ---------------- one run (every minute) ---------------- */
 export async function run(env, now, f) {
   const raw = f || ((u, o) => fetch(u, o));
@@ -1239,6 +1281,7 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === '/translate') return translate(req, env);
     if (url.pathname === '/notify') return notifyMission(req, env);
+    if (url.pathname === '/resolve') return resolveMap(req, env);
     if (url.pathname === '/check') {
       try {
         if (!env.GOOGLE_SA) return Response.json({ ok: false, error: 'GOOGLE_SA secret is missing' }, { status: 500 });

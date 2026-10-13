@@ -31,7 +31,57 @@
   const find = id => live.list.find(m => m.id === id);
   const placeHtml = (prefix, p, label) => `
     <label class="fld">${label || (prefix === 'from' ? 'من (المكان)' : 'إلى (المكان)')}<input class="input" id="${prefix}Name" value="${esc((p && p.name) || '')}"></label>
-    <label class="fld">لوكيشن ${prefix === 'from' ? 'البداية' : 'الوجهة'} <small>اختياري — بيسجّل الوصول لوحده</small><input class="input" id="${prefix}Loc" dir="ltr" placeholder="لينك جوجل ماب أو 30.29, 31.74" value="${esc(U.locText(p && p.location))}"></label>`;
+    <div class="fld loc-drop" data-locbox="${prefix}"><span>لوكيشن ${prefix === 'from' ? 'البداية' : 'الوجهة'} <small>اسحبه من الواتساب هنا أو الصقه</small></span>
+      <div class="loc-row"><input class="input" id="${prefix}Loc" dir="ltr" placeholder="لينك جوجل ماب أو 30.29, 31.74" value="${esc(U.locText(p && p.location))}"><button type="button" class="btn btn-ghost btn-sm" data-locpaste="${prefix}" title="لصق">📋</button></div>
+      <small class="muted" id="${prefix}LocSt"></small><div class="loc-prev" id="${prefix}Prev"></div></div>`;
+  /* ---------- a place from WhatsApp: dropped, pasted or typed — a short link is opened by the cloud alarm; a small map to check ---------- */
+  const WURL = () => TP.WORKER_URL || 'https://tp-alarm.3pyramidstravel.workers.dev';
+  async function resolveShort(url) {
+    const tok = await TP.fb.idToken();
+    const r = await fetch(WURL() + '/resolve', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ url }) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && isFinite(j.lat) ? { lat: j.lat, lng: j.lng } : null;
+  }
+  function locPreview(prefix, loc) {
+    const box = TP.$('#' + prefix + 'Prev'); if (!box) return;
+    if (!loc || !isFinite(loc.lat)) { box.innerHTML = ''; return; }
+    const d = 0.004, bb = [loc.lng - d * 1.5, loc.lat - d, loc.lng + d * 1.5, loc.lat + d].map(x => x.toFixed(5)).join(',');
+    box.innerHTML = `<iframe title="المكان" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${bb}&layer=mapnik&marker=${loc.lat},${loc.lng}"></iframe>`;
+  }
+  async function fixLoc(prefix) {
+    const inp = TP.$('#' + prefix + 'Loc'), st = TP.$('#' + prefix + 'LocSt'); if (!inp) return;
+    const raw = inp.value.trim(); st.textContent = '';
+    if (!raw) return locPreview(prefix, null);
+    const loc = TP.parseLocation(raw);
+    if (loc && isFinite(loc.lat)) { if (loc.url && raw.length > 80) inp.value = `${loc.lat}, ${loc.lng}`; return locPreview(prefix, loc); }
+    if (!loc || !loc.url) { st.textContent = 'مش مقروء — الصق لينك جوجل ماب أو الإحداثيات'; return locPreview(prefix, null); }
+    st.textContent = 'بيقرا اللينك…';
+    const c = await resolveShort(loc.url).catch(() => null);
+    if (inp.value.trim() !== raw) return;                                   // changed meanwhile
+    if (c) { inp.value = `${c.lat}, ${c.lng}`; st.textContent = 'اتقرا ✓ — اتأكد من المكان على الخريطة'; locPreview(prefix, c); }
+    else { st.textContent = 'اللينك ده مفيهوش مكان واضح — افتحه في جوجل ماب وانسخ اللينك من فوق'; locPreview(prefix, null); }
+  }
+  async function pasteInto(inp) {
+    try { const t = await navigator.clipboard.readText(); if (t) { inp.value = t.trim(); inp.dispatchEvent(new Event('change')); return true; } }
+    catch (e) { /* not allowed */ }
+    inp.focus(); TP.toast('دوس مطوّل في الخانة واختار "لصق"'); return false;
+  }
+  function bindLoc(prefix) {
+    const box = TP.$(`#tp-modal [data-locbox="${prefix}"]`), inp = TP.$('#' + prefix + 'Loc'); if (!box || !inp) return;
+    inp.addEventListener('change', () => fixLoc(prefix));
+    TP.$(`#tp-modal [data-locpaste="${prefix}"]`).onclick = () => pasteInto(inp);
+    box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('over'); });
+    box.addEventListener('dragleave', () => box.classList.remove('over'));
+    box.addEventListener('drop', e => {
+      e.preventDefault(); box.classList.remove('over');
+      const dt = e.dataTransfer, txt = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').split(/\r?\n/).find(x => x && !x.startsWith('#')) || '';
+      const html = dt.getData('text/html') || '', href = (html.match(/href="([^"]+)"/) || [])[1] || '';
+      const v = (TP.parseLocation(txt) && txt) || href.replace(/&amp;/g, '&') || txt;
+      if (!v) return TP.toast('مقدرتش أقرا اللي اتسحب — انسخ اللوكيشن والصقه');
+      inp.value = v.trim(); fixLoc(prefix);
+    });
+    if (inp.value.trim()) fixLoc(prefix);
+  }
   function readPlace(prefix) {
     const name = U.val(prefix + 'Name'), raw = U.val(prefix + 'Loc');
     const location = raw ? TP.parseLocation(raw) : null;
@@ -55,16 +105,51 @@
 
   /* ---------- customers of a trip ---------- */
   let custs = [];
+  // the customers this office used before (this month's trips + this browser's list) — typing a name or number fills the rest
+  const BOOK = 'tp-custbook';
+  function custBook() {
+    const out = new Map();
+    const add = c => { if (!c || !c.name) return; const k = (TP.phoneIntl(c.phone || '') || '') + '|' + c.name; if (!out.has(k)) out.set(k, { name: c.name, phone: c.phone || '', lang: c.lang || 'ar' }); };
+    live.list.slice().reverse().forEach(m => (m.customers || []).forEach(add));
+    (TP.store.get(BOOK, []) || []).forEach(add);
+    return [...out.values()];
+  }
+  function rememberCusts(list) {
+    const old = TP.store.get(BOOK, []) || [];
+    const keep = list.filter(c => c.name).map(c => ({ name: c.name, phone: c.phone || '', lang: c.lang || 'ar' }));
+    const seen = new Set(keep.map(c => c.name + '|' + c.phone));
+    TP.store.set(BOOK, keep.concat(old.filter(c => !seen.has(c.name + '|' + c.phone))).slice(0, 300));
+  }
+  const cleanPhone = v => { let t = TP.latinDigits(String(v || '')).trim(); const plus = /^\s*(\+|00)/.test(t); t = t.replace(/\D/g, ''); if (/^00/.test(t)) t = t.slice(2); return (plus ? '+' : '') + t; };
+  const canContacts = () => !!(navigator.contacts && navigator.contacts.select && window.ContactsManager);
   function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value })); }
   function drawCusts() {
     const box = TP.$('#mCusts');
-    box.innerHTML = custs.map((c, i) => `<div class="cust-row two" data-id="${esc(c.id)}" data-h="${esc(c.h || '')}">
-        <input class="input" data-c="name" placeholder="اسم العميل" value="${esc(c.name)}" maxlength="60">
-        <input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" value="${esc(c.phone)}" maxlength="16">
+    const book = custBook();
+    box.innerHTML = `<datalist id="custBookN">${book.map(c => `<option value="${esc(c.name)}">${esc(c.phone)}</option>`).join('')}</datalist><datalist id="custBookP">${book.filter(c => c.phone).map(c => `<option value="${esc(c.phone)}">${esc(c.name)}</option>`).join('')}</datalist>` + custs.map((c, i) => `<div class="cust-row two" data-id="${esc(c.id)}" data-h="${esc(c.h || '')}">
+        <input class="input" data-c="name" placeholder="اسم العميل — اكتب أوله" list="custBookN" autocomplete="off" value="${esc(c.name)}" maxlength="60">
+        <div class="loc-row"><input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" list="custBookP" autocomplete="off" value="${esc(c.phone)}" maxlength="20"><button type="button" class="btn btn-ghost btn-sm" data-ppaste="${i}" title="لصق الرقم">📋</button>${canContacts() ? `<button type="button" class="btn btn-ghost btn-sm" data-pbook="${i}" title="من الأسماء">📇</button>` : ''}</div>
         <select class="input" data-c="lang" title="لغة الضيف (صفحته ورسايله)">${TP.i18n.LANGS.map(l => `<option value="${l.id}" ${(c.lang || 'ar') === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
         <button type="button" class="icon-btn danger" data-rmc="${i}" title="شيل">${TP.icon('trash', 16)}</button></div>`).join('') +
       (custs.length < MAX_TRIP_CUST ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
     box.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { readCusts(); custs.splice(Number(b.dataset.rmc), 1); drawCusts(); });
+    const rowOf = el => el.closest('.cust-row'), get = (r, k) => r.querySelector(`[data-c=${k}]`);
+    const fillFrom = (r, hit) => { if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; };
+    box.querySelectorAll('[data-c=name]').forEach(inp => inp.addEventListener('change', () => { const r = rowOf(inp), v = inp.value.trim(); fillFrom(r, book.find(c => c.name === v)); }));
+    box.querySelectorAll('[data-c=phone]').forEach(inp => inp.addEventListener('change', () => {
+      const r = rowOf(inp); inp.value = cleanPhone(inp.value);
+      const n = TP.phoneIntl(inp.value); if (n) fillFrom(r, book.find(c => TP.phoneIntl(c.phone) === n));
+    }));
+    box.querySelectorAll('[data-ppaste]').forEach(b => b.onclick = () => pasteInto(get(rowOf(b), 'phone')));
+    box.querySelectorAll('[data-pbook]').forEach(b => b.onclick = async () => {
+      try {
+        const [ct] = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+        if (!ct) return;
+        const r = rowOf(b), tel = (ct.tel || [])[0], nm = (ct.name || [])[0];
+        if (tel) { get(r, 'phone').value = cleanPhone(tel); }
+        if (nm && !get(r, 'name').value.trim()) get(r, 'name').value = nm;
+      } catch (e) { TP.toast('مقدرتش أفتح الأسماء — الصق الرقم'); }
+    });
     const add = TP.$('#mAddC'); if (add) add.onclick = () => { readCusts(); custs.push({ id: '', h: '', name: '', phone: '', lang: 'ar' }); drawCusts(); };
   }
 
@@ -90,7 +175,10 @@
 
   /* ---------- editor ---------- */
   let onSavedHook = null;
-  function openEditor(mid, prefill, onSaved) {
+  // several trips for the same driver: page k of n; the driver, day and client carry over, the prompts come once at the end
+  let batch = null;
+  function openEditor(mid, prefill, onSaved, bt) {
+    batch = mid ? null : (bt || { n: 1, k: 1, saved: [] });
     const base = { day: TP.dayKey(), factoryId: '', status: 'assigned', type: '' };
     const m = mid ? find(mid) : Object.assign(base, prefill || {});
     if (!m) return;
@@ -101,7 +189,11 @@
     custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar' }));
     if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '', lang: 'ar' }];
     const manualTime = fl.src === 'manual' && fl.sched ? O.hm(fl.sched) : '';
-    TP.openModal(mid ? 'تعديل مشوار' : 'مشوار جديد', `
+    const bk = batch;
+    const saveLbl = () => mid ? 'حفظ' : bk.k < bk.n ? `حفظ والتالي (${bk.k} من ${bk.n})` : bk.n > 1 ? `إضافة (${bk.k} من ${bk.n})` : 'إضافة';
+    TP.openModal(mid ? 'تعديل مشوار' : bk.n > 1 ? `مشوار جديد — ${bk.k} من ${bk.n}` : 'مشوار جديد', `
+      ${!mid && bk.k === 1 ? `<label class="fld" style="max-width:260px;margin-bottom:10px">عدد المشاوير <small>لنفس السواق — صفحة لكل مشوار</small><select class="input" id="mCount">${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}" ${bk.n === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
+      ${!mid && bk.k > 1 ? `<div class="banner" style="margin-bottom:10px">مشوار ${bk.k} من ${bk.n} — نفس السواق واليوم، غيّر اللي محتاج</div>` : ''}
       <div class="chips" style="margin-bottom:12px"><button type="button" class="chip ${m.type !== 'airport' ? 'active' : ''}" data-mt="">${TP.icon('file', 16)}مشوار عادي</button><button type="button" class="chip ${m.type === 'airport' ? 'active' : ''}" data-mt="airport">${TP.icon('plane', 16)}مطار</button></div>
       <div class="form-grid">
         <div class="full form-grid" id="mAir" style="padding:12px;border:1px dashed var(--line-strong);border-radius:14px;background:#fffaf1">
@@ -125,7 +217,8 @@
         <label class="fld">ملاحظة الكاش<input class="input" id="mCashNote" value="${m.cash ? esc(m.cash.note || '') : ''}" maxlength="120"></label>
         <label class="fld full">ملاحظات للسواق<textarea class="input" id="mNotes" rows="2" maxlength="500">${esc(m.notes || '')}</textarea></label>
         ${canPrice ? priceFields(m, live.pd[mid], live.pf[mid]) : (money() ? '<p class="muted small full">السعر بيحطه المدير المالي أو المدير العام من نفس الصفحة.</p>' : '')}
-      </div>`, () => save(mid, m), { wide: true, saveLabel: mid ? 'حفظ' : 'إضافة' });
+      </div>`, () => save(mid, m), { wide: true, saveLabel: saveLbl(), onCancel: () => { if (!mid && bk.saved.length) setTimeout(() => afterSave(bk.saved), 300); } });
+    const cnt = TP.$('#mCount'); if (cnt) cnt.onchange = () => { bk.n = Number(cnt.value) || 1; TP.$('#tp-modal-save').textContent = saveLbl(); TP.$('#tp-modal-title').textContent = bk.n > 1 ? `مشوار جديد — 1 من ${bk.n}` : 'مشوار جديد'; };
     let type = m.type || '';
     const syncType = () => {
       TP.$('#mAir').hidden = type !== 'airport';
@@ -137,7 +230,7 @@
     };
     TP.$$('#tp-modal [data-mt]').forEach(b => b.onclick = () => { type = b.dataset.mt; TP.$$('#tp-modal [data-mt]').forEach(x => x.classList.toggle('active', x === b)); syncType(); });
     TP.$('#fDir').onchange = syncType;
-    syncType(); drawCusts();
+    syncType(); drawCusts(); bindLoc('from'); bindLoc('to');
     const fsel = TP.$('#mFactory'), pfIn = TP.$('#mPF');
     if (fsel && pfIn) fsel.onchange = () => { pfIn.disabled = !fsel.value; if (!fsel.value) pfIn.value = ''; };
     TP.$('#tp-modal').__mtype = () => type;
@@ -255,14 +348,49 @@
       if (money()) note = ' — السعر محتاج يتحط تاني';
     }
     await TP.fb.batch(ops);
+    rememberCusts(customers);
     TP.wakeTouch && TP.wakeTouch([day, old && old.day]);
     TP.audit(mid ? 'mission.update' : 'mission.create', title, `${day} — ${(TP.q.person(driverId) || {}).name || ''}${type === 'airport' ? ' — ✈ ' + flight.no : ''}`);
     const probs = problems(Object.assign({ status: mid ? old.status : 'assigned' }, data));
     TP.toast('تم الحفظ ✓' + note + (probs.length ? ' — ⚠ ' + probs[0] : (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : '')));
     if (state.month && O.monthOf(day) !== state.month) { state.month = O.monthOf(day); TP.rerender && TP.rerender(); }   // keep the saved mission in sight
     if (onSavedHook) { const h = onSavedHook; onSavedHook = null; h(id); }
-    if (renotify && (!mid || old.status === 'assigned')) notifyDriver(id);
-    if (TP.actions.missionToGroup) setTimeout(() => TP.actions.missionToGroup(Object.assign({ id }, data, { flight })), 400);   // after the editor closes
+    const one = { id, data: Object.assign({}, data, { flight }), renotify, tell: renotify && (!mid || old.status === 'assigned') };
+    if (!mid && batch && batch.k < batch.n) {                                       // the next page: same driver, day and client
+      batch.saved.push(one);
+      const next = { n: batch.n, k: batch.k + 1, saved: batch.saved };
+      const pre = { driverId, day: type === 'airport' ? (U.val('fDate') || day) : day, factoryId: data.factoryId, client: data.client };
+      setTimeout(() => openEditor(null, pre, null, next), 300);
+      return;
+    }
+    const all = (!mid && batch ? batch.saved : []).concat([one]); batch = null;
+    setTimeout(() => afterSave(all), 400);                                           // after the editor closes
+  }
+  /** After saving (one trip or the last page): the driver's phone rings, then "ابعت للعميل", then the car's group. */
+  async function afterSave(all) {
+    all.forEach(x => { if (x.tell) notifyDriver(x.id); });
+    const toGroup = () => { if (TP.actions.missionToGroup) TP.actions.missionToGroup(all.map(x => Object.assign({ id: x.id }, x.data))); };
+    const send = all.filter(x => x.renotify && (x.data.customers || []).some(c => TP.phoneIntl(c.phone || '')));
+    if (!send.length) return toGroup();
+    const tok = await TP.cust.tokens([].concat(...send.map(x => x.data.customers))).catch(() => ({}));
+    const drv = TP.q.person(all[0].data.driverId) || '';
+    const rows = [];
+    send.forEach(x => (x.data.customers || []).forEach(c => {
+      if (!TP.phoneIntl(c.phone || '') || !tok[c.h]) return;
+      const msg = TP.guest.messages(x.data, c, TP.custUrl(tok[c.h]), drv)[0];
+      if (msg) rows.push({ c, title: x.data.title || '', text: msg.text });
+    }));
+    if (!rows.length) return toGroup();
+    const dirOf = l => TP.i18n.info(TP.i18n.ok(l) ? l : 'ar').dir;
+    const waitFl = send.some(x => x.data.type === 'airport' && x.data.flight && x.data.flight.src === 'wait');
+    TP.openModal('ابعت للعميل', `<p class="modal-text">دوس "واتساب" لكل عميل — الرسالة جاهزة بلغته ومعاها لينك متابعة العربية.</p>
+      ${waitFl ? `<div class="banner warn" style="margin-bottom:8px">${TP.icon('plane')}<span>ميعاد الطيارة لسه جاي (دقيقتين). لو عايز الميعاد يبقى في الرسالة، ابعتها بعدين من زرار ↗ لينكات العملاء في صف المشوار.</span></div>` : ''}
+      ${rows.map((r, i) => `<div class="gm"><div class="gm-h"><b>${esc(r.c.name)}</b>${r.c.lang && r.c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(r.c.lang).name)}</span>` : ''}${all.length > 1 ? ` <small class="muted">${esc(r.title)}</small>` : ''}
+        <a class="btn btn-primary btn-sm" href="${esc(TP.waLink(r.c.phone, r.text))}" target="_blank" rel="noopener" data-wsent="${i}">واتساب</a><button type="button" class="btn btn-ghost btn-sm" data-wcopy="${i}">انسخ</button></div>
+        <p class="gm-t" dir="${dirOf(r.c.lang)}">${esc(r.text)}</p></div>`).join('')}`, null,
+      { noSave: true, wide: true, noFocus: true, cancelLabel: TP.actions.missionToGroup ? 'التالي: جروب العربية' : 'إغلاق', onCancel: toGroup });
+    TP.$$('#tp-modal [data-wsent]').forEach(a => a.addEventListener('click', () => { a.textContent = 'اتبعت ✓'; a.classList.replace('btn-primary', 'btn-ghost'); }));
+    TP.$$('#tp-modal [data-wcopy]').forEach(b => b.onclick = () => TP.actions.copy(rows[Number(b.dataset.wcopy)].text));
   }
   /** A push to the driver's phone right away (the cloud alarm sends it); the app rings until he presses "استلمت". */
   async function notifyDriver(id) {

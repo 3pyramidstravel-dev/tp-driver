@@ -144,7 +144,7 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
 .photo-pick label.btn { cursor: pointer; }
 .print-head { display: none; }
 .tbl.rep td.num, .tbl.rep th { white-space: nowrap; }
-@media (max-width: 700px) { .cust-row, .cust-row.two { grid-template-columns: minmax(0, 1fr) auto; } .cust-row [data-c=phone], .cust-row [data-c=home] { grid-column: 1; } }
+@media (max-width: 700px) { .cust-row, .cust-row.two { grid-template-columns: minmax(0, 1fr) auto; } .cust-row [data-c=phone], .cust-row [data-c=home], .cust-row > .loc-row { grid-column: 1; } }
 @media print {
   body { background: #fff !important; }
   .ct-side, .ct-top, #alerts, .no-print, .acts, .tp-toast, #tp-modal { display: none !important; }

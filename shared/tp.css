@@ -187,3 +187,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 /* the trial copy (…/beta/) */
 .tp-beta{position:fixed;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 78px);z-index:9999;pointer-events:none;background:#b8860b;color:#fff;font:700 11px/1 Cairo,system-ui,sans-serif;padding:6px 10px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.25);opacity:.92}
 @media print{.tp-beta{display:none}}
+
+/* a place: drop / paste a location, then a small map to check it */
+.loc-drop { border: 1.5px dashed transparent; border-radius: 14px; padding: 2px; transition: border-color .15s, background .15s; }
+.loc-drop.over { border-color: var(--gold, #c9963f); background: rgba(212,162,76,.12); }
+.loc-row { display: flex; gap: 6px; align-items: center; }
+.loc-row .input { flex: 1; min-width: 0; }
+.loc-prev iframe { width: 100%; height: 150px; border: 0; border-radius: 12px; margin-top: 6px; }

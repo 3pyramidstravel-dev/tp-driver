@@ -111,17 +111,19 @@
   }
   /** After the operations manager saves a mission: the same "copy and open the car's group" as the driver has.
       The group opens from the tap on the button (a link opened later would be blocked as a popup). */
-  TP.actions.missionToGroup = async function (m) {
+  TP.actions.missionToGroup = async function (ms) {
+    const list = (Array.isArray(ms) ? ms : [ms]).slice().sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || ''))), m = list[0];
+    if (!m) return;
     const p = TP.q.person(m.driverId), vid = p && p.vehicleId, car = vid && (D.fleet || []).find(c => c.id === vid && c.on !== false);
     if (!car) return;                                                                                         // not a car on the trip order
     if (!car.group) { TP.toast('جروب العربية ' + carName(vid) + ' لسه متحطش — حطه من أمر الشغل ← العربيات', 'warn'); return; }
-    const msg = FL().scheduleMessage(carName(vid), [schedItem(m)]);
+    const msg = FL().scheduleMessage(carName(vid), list.map(schedItem));
     if (!(await TP.confirm('ابعت التشغيل لجروب العربية', `${carName(vid)} — ${p.name}. دوس "افتح الجروب"، وفي الواتساب دوس لصق وابعت.`, 'افتح الجروب'))) return;
     let copied = false;
     try { await navigator.clipboard.writeText(msg); copied = true; } catch (e) { /* blocked */ }
     window.open(car.group, '_blank');
     TP.toast(copied ? 'التشغيل اتنسخ ✓ — دوس لصق وابعت' : 'انسخ التشغيل وابعته', '');
-    TP.audit('fleet.schedule', carName(vid), '1 مشوار');
+    TP.audit('fleet.schedule', carName(vid), list.length + ' مشوار');
   };
   async function schedule(vid) {
     const car = D.fleet.find(c => c.id === vid), drv = driverOf(vid);
