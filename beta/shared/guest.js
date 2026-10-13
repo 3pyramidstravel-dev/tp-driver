@@ -33,8 +33,8 @@
     })();
     const out = [];
     if (link) out.push(arr
-      ? { k: 'welcome', label: 'رسالة الترحيب', text: t('msgWelcome', { n: first(c.name), f: fl.no || '', d: driver || '', link }) }
-      : { k: 'pickup', label: 'رسالة الميعاد', text: t('msgPickup', { n: first(c.name), d: driver || '', w: when, link }) });
+      ? { k: 'welcome', label: 'رسالة الترحيب', text: t('msgWelcome', { n: I().honor(L, c.name, c.sex), f: fl.no || '', d: driver || '', link }) }
+      : { k: 'pickup', label: 'رسالة الميعاد', text: t('msgPickup', { n: I().honor(L, c.name, c.sex), d: driver || '', w: when, link }) });
     if (arr) out.push({ k: 'waiting', label: 'السواق مستنيك', text: t('msgWaiting', { d: driver || '', t: term }) });
     if (m.type === 'airport' && Number(fl.delayMin) >= 15) out.push({ k: 'delay', label: 'الطيارة متأخرة', text: t('msgDelay', { f: fl.no || '', d: driver || '' }) });
     return out;
@@ -88,7 +88,7 @@
     const L = I().ok(c.lang) ? c.lang : 'ar', t = (k, v) => I().t(L, k, v), fl = m.flight || {};
     const driver = drv && typeof drv === 'object' ? (L !== 'ar' && drv.nameEn ? drv.nameEn : drv.name || '') : drv || '';
     car = car ? t('carTag', { c: car }) : '';
-    if (key === 'start') return t('msgOnWay', { n: first(c.name), d: driver, c: car || '' });
+    if (key === 'start') return t('msgOnWay', { n: I().honor(L, c.name, c.sex), d: driver, c: car || '' });
     if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { d: driver, c: car || '' });
     return '';
   }

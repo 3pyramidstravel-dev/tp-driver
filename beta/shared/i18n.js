@@ -17,7 +17,7 @@
   ];
   // [ar, en, de, fr, ru, zh, ko]
   const T = {
-    hello: ['أهلاً {n} 👋', 'Hello {n} 👋', 'Hallo {n} 👋', 'Bonjour {n} 👋', 'Здравствуйте, {n} 👋', '{n}，您好 👋', '{n}님, 안녕하세요 👋'],
+    hello: ['أهلاً بحضرتك {n} 🌹', 'Welcome, {n}', 'Hallo {n} 👋', 'Bonjour {n} 👋', 'Здравствуйте, {n} 👋', '{n}，您好 👋', '{n}님, 안녕하세요 👋'],
     yourRide: ['مشوارك', 'Your ride', 'Ihre Fahrt', 'Votre trajet', 'Ваша поездка', '您的行程', '고객님의 이동'],
     st_near: ['العربية في الطريق ليك', 'Your car is on the way', 'Ihr Fahrzeug ist unterwegs', 'Votre voiture est en route', 'Машина уже едет к вам', '车辆正在前往接您', '차량이 고객님께 가고 있습니다'],
     st_arrived: ['العربية وصلت وجاهزة', 'Your car has arrived', 'Ihr Fahrzeug ist angekommen', 'Votre voiture est arrivée', 'Машина прибыла', '车辆已到达', '차량이 도착했습니다'],
@@ -79,22 +79,22 @@
     onlyYou: ['اللينك ده ليك انت بس — متبعتهوش لحد', 'This link is for you only — please do not share it', 'Dieser Link ist nur für Sie — bitte nicht weitergeben', 'Ce lien est personnel — merci de ne pas le partager', 'Эта ссылка только для вас — не передавайте её', '此链接仅供您本人使用，请勿转发', '이 링크는 고객님 전용입니다 — 공유하지 마세요'],
     lang: ['اللغة', 'Language', 'Sprache', 'Langue', 'Язык', '语言', '언어'],
     // ready messages (WhatsApp, sent by the staff or the driver with one tap)
-    msgWelcome: ['أهلاً {n} 👋\nأهلاً بيك في مصر! معاك Three Pyramids Travel، وإحنا مسئولين عنك من أول ما توصل.\nرحلتك: {f}\nالسواق: {d}\nتابع عربيتك من هنا: {link}',
-      'Hello {n} 👋\nWelcome to Egypt! This is Three Pyramids Travel — we will take care of you from the moment you arrive.\nYour flight: {f}\nYour driver: {d}\nFollow your car here: {link}',
+    msgWelcome: ['أهلاً بحضرتك {n} 🌹\nمصر نوّرت بحضرتك! معاك Three Pyramids Travel، ويشرفنا نكون في خدمة حضرتك من أول لحظة وصول.\nرحلة حضرتك: {f}\nالكابتن: {d}\nتقدر حضرتك تتابع عربيتك من هنا: {link}',
+      'Dear {n},\nWelcome to Egypt! This is Three Pyramids Travel — it is our pleasure to look after you from the moment you arrive.\nYour flight: {f}\nYour chauffeur: {d}\nFollow your car here: {link}',
       'Hallo {n} 👋\nWillkommen in Ägypten! Hier ist Three Pyramids Travel — ab Ihrer Ankunft kümmern wir uns um Sie.\nIhr Flug: {f}\nIhr Fahrer: {d}\nVerfolgen Sie Ihr Fahrzeug hier: {link}',
       'Bonjour {n} 👋\nBienvenue en Égypte ! Ici Three Pyramids Travel — nous prenons soin de vous dès votre arrivée.\nVotre vol : {f}\nVotre chauffeur : {d}\nSuivez votre voiture ici : {link}',
       'Здравствуйте, {n} 👋\nДобро пожаловать в Египет! Это Three Pyramids Travel — мы позаботимся о вас с момента прилёта.\nВаш рейс: {f}\nВаш водитель: {d}\nСледите за машиной здесь: {link}',
       '{n}，您好 👋\n欢迎来到埃及！我们是 Three Pyramids Travel，从您抵达的那一刻起由我们负责照顾您。\n您的航班：{f}\n您的司机：{d}\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\n이집트에 오신 것을 환영합니다! Three Pyramids Travel입니다. 도착하시는 순간부터 저희가 모시겠습니다.\n항공편: {f}\n기사: {d}\n차량 위치 확인: {link}'],
-    msgPickup: ['أهلاً {n} 👋\nمعاك Three Pyramids Travel. السواق {d} هيكون عندك {w}.\nتابع عربيتك من هنا: {link}',
-      'Hello {n} 👋\nThis is Three Pyramids Travel. Your driver {d} will pick you up {w}.\nFollow your car here: {link}',
+    msgPickup: ['أهلاً بحضرتك {n} 🌹\nمعاك Three Pyramids Travel. الكابتن {d} هيكون في انتظار حضرتك {w}.\nتقدر حضرتك تتابع عربيتك لحظة بلحظة من هنا: {link}',
+      'Dear {n},\nThis is Three Pyramids Travel. Your chauffeur {d} will be waiting for you {w}.\nFollow your car live here: {link}',
       'Hallo {n} 👋\nHier ist Three Pyramids Travel. Ihr Fahrer {d} holt Sie {w} ab.\nVerfolgen Sie Ihr Fahrzeug hier: {link}',
       'Bonjour {n} 👋\nIci Three Pyramids Travel. Votre chauffeur {d} viendra vous chercher {w}.\nSuivez votre voiture ici : {link}',
       'Здравствуйте, {n} 👋\nЭто Three Pyramids Travel. Ваш водитель {d} заберёт вас {w}.\nСледите за машиной здесь: {link}',
       '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
     msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', 'Your driver {d} is waiting for you in front of the arrivals hall{t}, holding a sign with your name.', 'Ihr Fahrer {d} wartet vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.', "Votre chauffeur {d} vous attend devant le hall des arrivées{t} avec une pancarte à votre nom.", 'Водитель {d} ждёт вас у зала прилёта{t} с табличкой с вашим именем.', '您的司机 {d} 正在到达大厅前{t}等候，手持写有您名字的接机牌。', '기사 {d}님이 도착 홀 앞{t}에서 고객님 성함이 적힌 피켓을 들고 기다리고 있습니다.'],
-    msgOnWay: ['أهلاً {n} 👋 السواق {d} اتحرك وجاي لك دلوقتي{c}.', 'Hello {n} 👋 Your driver {d} is on the way to you now{c}.', 'Hallo {n} 👋 Ihr Fahrer {d} ist jetzt auf dem Weg zu Ihnen{c}.', 'Bonjour {n} 👋 Votre chauffeur {d} est en route vers vous{c}.', 'Здравствуйте, {n} 👋 Ваш водитель {d} уже едет к вам{c}.', '{n}，您好 👋 您的司机 {d} 正在前往接您{c}。', '{n}님, 안녕하세요 👋 기사 {d}님이 지금 출발했습니다{c}.'],
+    msgOnWay: ['أهلاً بحضرتك {n} 🌹 الكابتن {d} اتحرك وفي الطريق لحضرتك دلوقتي{c}.', 'Dear {n}, your chauffeur {d} is now on the way to you{c}.', 'Hallo {n} 👋 Ihr Fahrer {d} ist jetzt auf dem Weg zu Ihnen{c}.', 'Bonjour {n} 👋 Votre chauffeur {d} est en route vers vous{c}.', 'Здравствуйте, {n} 👋 Ваш водитель {d} уже едет к вам{c}.', '{n}，您好 👋 您的司机 {d} 正在前往接您{c}。', '{n}님, 안녕하세요 👋 기사 {d}님이 지금 출발했습니다{c}.'],
     msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', 'Your driver {d} has arrived and is waiting for you 🚗{c}.', 'Ihr Fahrer {d} ist angekommen und wartet auf Sie 🚗{c}.', 'Votre chauffeur {d} est arrivé et vous attend 🚗{c}.', 'Ваш водитель {d} приехал и ждёт вас 🚗{c}.', '您的司机 {d} 已到达，正在等您 🚗{c}。', '기사 {d}님이 도착해서 기다리고 있습니다 🚗{c}.'],
     carTag: [' — العربية {c}', ' — car: {c}', ' — Auto: {c}', ' — voiture : {c}', ' — машина: {c}', '，车辆：{c}', ' — 차량: {c}'],
     msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', 'Your flight {f} is delayed — your driver {d} knows and will wait for you. No need to do anything.', 'Ihr Flug {f} ist verspätet — Ihr Fahrer {d} weiß Bescheid und wartet. Sie müssen nichts tun.', "Votre vol {f} est retardé — votre chauffeur {d} est informé et vous attendra. Rien à faire de votre côté.", 'Ваш рейс {f} задерживается — водитель {d} знает и подождёт. Ничего делать не нужно.', '您的航班 {f} 延误 — 司机 {d} 已知悉并会等候您，您无需做任何事。', '항공편 {f}이(가) 지연되었습니다 — 기사 {d}님이 알고 기다릴 예정이니 따로 하실 일은 없습니다.'],
@@ -123,6 +123,13 @@
   const I = {
     LANGS,
     ok: l => LANGS.some(x => x.id === l),
+    /** how we address a customer: "أستاذ محمد" / "أستاذة هبة", "Mr. John Smith"… (sex: 'm' | 'f' | '') */
+    honor(l, name, sex) {
+      const full = String(name || '').trim().replace(/\s+/g, ' '), first = full.split(' ')[0] || '';
+      const T = { ar: ['أستاذ ', 'أستاذة '], en: ['Mr. ', 'Ms. '], de: ['Herr ', 'Frau '], fr: ['M. ', 'Mme '] }[I.ok(l) ? l : 'ar'];
+      if (!T || (sex !== 'm' && sex !== 'f')) return first;
+      return T[sex === 'm' ? 0 : 1] + (l === 'ar' || !I.ok(l) ? first : full);
+    },
     info: l => LANGS[idx(l)],
     /** text in a language, with {n}-style values */
     t(l, key, vars) {

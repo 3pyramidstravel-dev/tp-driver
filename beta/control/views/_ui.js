@@ -13,6 +13,8 @@
       return `<div class="who"><span class="av ${off ? 'off' : ''}">${TP.ui.initial(name)}</span><div><b>${esc(name || '—')}</b>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
     },
     empty: t => `<div class="empty">${esc(t)}</div>`,
+    /** أستاذ / أستاذة in front of a customer's name (used in his messages and his page) */
+    sexSel: v => `<select class="input sex-sel" data-c="sex" title="أستاذ ولا أستاذة؟ (بيظهر في رسايله)"><option value="">—</option><option value="m" ${v === 'm' ? 'selected' : ''}>أستاذ</option><option value="f" ${v === 'f' ? 'selected' : ''}>أستاذة</option></select>`,
     opts(list, selected, valueOf, labelOf, placeholder) {
       return (placeholder !== undefined ? `<option value="">${esc(placeholder)}</option>` : '') +
         list.map(x => { const v = valueOf(x); return `<option value="${esc(v)}" ${String(v) === String(selected ?? '') ? 'selected' : ''}>${esc(labelOf(x))}</option>`; }).join('');

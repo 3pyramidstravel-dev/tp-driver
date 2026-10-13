@@ -109,32 +109,32 @@
   const BOOK = 'tp-custbook';
   function custBook() {
     const out = new Map();
-    const add = c => { if (!c || !c.name) return; const k = (TP.phoneIntl(c.phone || '') || '') + '|' + c.name; if (!out.has(k)) out.set(k, { name: c.name, phone: c.phone || '', lang: c.lang || 'ar' }); };
+    const add = c => { if (!c || !c.name) return; const k = (TP.phoneIntl(c.phone || '') || '') + '|' + c.name; if (!out.has(k)) out.set(k, { name: c.name, phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '' }); };
     live.list.slice().reverse().forEach(m => (m.customers || []).forEach(add));
     (TP.store.get(BOOK, []) || []).forEach(add);
     return [...out.values()];
   }
   function rememberCusts(list) {
     const old = TP.store.get(BOOK, []) || [];
-    const keep = list.filter(c => c.name).map(c => ({ name: c.name, phone: c.phone || '', lang: c.lang || 'ar' }));
+    const keep = list.filter(c => c.name).map(c => ({ name: c.name, phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '' }));
     const seen = new Set(keep.map(c => c.name + '|' + c.phone));
     TP.store.set(BOOK, keep.concat(old.filter(c => !seen.has(c.name + '|' + c.phone))).slice(0, 300));
   }
   const cleanPhone = v => { let t = TP.latinDigits(String(v || '')).trim(); const plus = /^\s*(\+|00)/.test(t); t = t.replace(/\D/g, ''); if (/^00/.test(t)) t = t.slice(2); return (plus ? '+' : '') + t; };
   const canContacts = () => !!(navigator.contacts && navigator.contacts.select && window.ContactsManager);
-  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value })); }
+  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value, sex: r.querySelector('[data-c=sex]').value })); }
   function drawCusts() {
     const box = TP.$('#mCusts');
     const book = custBook();
     box.innerHTML = `<datalist id="custBookN">${book.map(c => `<option value="${esc(c.name)}">${esc(c.phone)}</option>`).join('')}</datalist><datalist id="custBookP">${book.filter(c => c.phone).map(c => `<option value="${esc(c.phone)}">${esc(c.name)}</option>`).join('')}</datalist>` + custs.map((c, i) => `<div class="cust-row two" data-id="${esc(c.id)}" data-h="${esc(c.h || '')}">
-        <input class="input" data-c="name" placeholder="اسم العميل — اكتب أوله" list="custBookN" autocomplete="off" value="${esc(c.name)}" maxlength="60">
+        <div class="loc-row">${U.sexSel(c.sex)}<input class="input" data-c="name" placeholder="اسم العميل — اكتب أوله" list="custBookN" autocomplete="off" value="${esc(c.name)}" maxlength="60"></div>
         <div class="loc-row"><input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" list="custBookP" autocomplete="off" value="${esc(c.phone)}" maxlength="20"><button type="button" class="btn btn-ghost btn-sm" data-ppaste="${i}" title="لصق الرقم">📋</button>${canContacts() ? `<button type="button" class="btn btn-ghost btn-sm" data-pbook="${i}" title="من الأسماء">📇</button>` : ''}</div>
         <select class="input" data-c="lang" title="لغة الضيف (صفحته ورسايله)">${TP.i18n.LANGS.map(l => `<option value="${l.id}" ${(c.lang || 'ar') === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
         <button type="button" class="icon-btn danger" data-rmc="${i}" title="شيل">${TP.icon('trash', 16)}</button></div>`).join('') +
       (custs.length < MAX_TRIP_CUST ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
     box.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { readCusts(); custs.splice(Number(b.dataset.rmc), 1); drawCusts(); });
     const rowOf = el => el.closest('.cust-row'), get = (r, k) => r.querySelector(`[data-c=${k}]`);
-    const fillFrom = (r, hit) => { if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; };
+    const fillFrom = (r, hit) => { if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; if (hit.sex) get(r, 'sex').value = hit.sex; };
     box.querySelectorAll('[data-c=name]').forEach(inp => inp.addEventListener('change', () => { const r = rowOf(inp), v = inp.value.trim(); fillFrom(r, book.find(c => c.name === v)); }));
     box.querySelectorAll('[data-c=phone]').forEach(inp => inp.addEventListener('change', () => {
       const r = rowOf(inp); inp.value = cleanPhone(inp.value);
@@ -150,7 +150,7 @@
         if (nm && !get(r, 'name').value.trim()) get(r, 'name').value = nm;
       } catch (e) { TP.toast('مقدرتش أفتح الأسماء — الصق الرقم'); }
     });
-    const add = TP.$('#mAddC'); if (add) add.onclick = () => { readCusts(); custs.push({ id: '', h: '', name: '', phone: '', lang: 'ar' }); drawCusts(); };
+    const add = TP.$('#mAddC'); if (add) add.onclick = () => { readCusts(); custs.push({ id: '', h: '', name: '', phone: '', lang: 'ar', sex: '' }); drawCusts(); };
   }
 
   /** The fixed part of a trip customer's link. */
@@ -158,7 +158,7 @@
     const f = TP.q.company(m.factoryId);
     const loc = l => l && isFinite(l.lat) ? { lat: l.lat, lng: l.lng } : null;
     const fl = m.flight ? { no: m.flight.no || '', dir: m.flight.dir || '', terminal: m.flight.terminal || '', airport: m.flight.airport || '', airportName: m.flight.airportName || '', other: m.flight.other || '', airline: m.flight.airline || '', sched: m.flight.sched || null, est: m.flight.est || null, status: m.flight.status || '', delayMin: Number(m.flight.delayMin) || 0 } : null;
-    return { kind: 'mission', custId: c.id, name: c.name, lang: c.lang || 'ar', missionId: id, factoryId: m.factoryId || '', factoryName: f ? f.name : (m.client || ''), title: m.title || '',
+    return { kind: 'mission', custId: c.id, name: c.name, sex: c.sex || '', lang: c.lang || 'ar', missionId: id, factoryId: m.factoryId || '', factoryName: f ? f.name : (m.client || ''), title: m.title || '',
       type: m.type || '', day: m.day, time: m.time || '', fromName: (m.from && m.from.name) || '', toName: (m.to && m.to.name) || '', fromLoc: loc(m.from && m.from.location), toLoc: loc(m.to && m.to.location), flight: fl, updatedAt: TP.fb.ts() };
   }
   function trackOps(id, m, old, fresh) {
@@ -186,8 +186,8 @@
     const canPrice = S.can('prices.edit') && money();
     const drivers = TP.q.drivers().filter(p => p.active !== false || p.id === m.driverId);
     const fl = m.flight || {};
-    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar' }));
-    if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '', lang: 'ar' }];
+    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '' }));
+    if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '', lang: 'ar', sex: '' }];
     const manualTime = fl.src === 'manual' && fl.sched ? O.hm(fl.sched) : '';
     const bk = batch;
     const saveLbl = () => mid ? 'حفظ' : bk.k < bk.n ? `حفظ والتالي (${bk.k} من ${bk.n})` : bk.n > 1 ? `إضافة (${bk.k} من ${bk.n})` : 'إضافة';
@@ -283,7 +283,7 @@
       if (c.phone && !TP.phoneIntl(c.phone)) { TP.toast(`موبايل ${c.name} مش مظبوط`); return false; }
       let h = c.h;
       if (!h) { const k = await TP.cust.newLink(); h = k.h; fresh[h] = k.token; }
-      customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar' });
+      customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar', sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') });
     }
     const cashAmt = U.money('mCash');
     if (Number.isNaN(cashAmt)) { TP.toast('مبلغ الكاش لازم يكون رقم'); return false; }
@@ -418,7 +418,7 @@
     const tok = await TP.cust.tokens(m.customers);
     const list = (m.customers || []).filter(c => tok[c.h]).map(c => Object.assign({}, c, { token: tok[c.h] }));
     TP.openModal('لينكات العملاء — ' + (m.title || ''), list.length ? `<p class="muted small" style="margin-bottom:10px">لينك للمشوار ده بس، بيوري رحلة العميل من غير أسعار.</p><div class="table-wrap"><table class="tbl"><tbody>${list.map(c => {
-      const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token, m.type === 'airport' ? 'رحلتك للمطار' : 'مشوارك'));
+      const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token, m.type === 'airport' ? 'رحلتك للمطار' : 'مشوارك', c.sex));
       const guest = (c.lang && c.lang !== 'ar') || m.type === 'airport';
       return `<tr><td><b>${esc(c.name)}</b>${c.lang && c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(c.lang).name)}</span>` : ''}<div class="muted small" dir="ltr">${esc(c.phone || '')}</div></td><td class="acts"><button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(TP.custUrl(c.token))}">${TP.icon('copy', 16)}انسخ</button>${guest ? `<button type="button" class="btn btn-gold btn-sm" data-guest="${esc(c.h)}">${TP.icon('users', 16)}رسايل بلغته</button>` : ''}${wa ? `<a class="btn btn-primary btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}<a class="icon-btn" href="${esc(TP.custUrl(c.token))}" target="_blank" rel="noopener">${TP.icon('external', 16)}</a></td></tr>`;
     }).join('')}</tbody></table></div>` : U.empty('المشوار ده مفيهوش عملاء — ضيفهم من التعديل'), null, { noSave: true, wide: true });

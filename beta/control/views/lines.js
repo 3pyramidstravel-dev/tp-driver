@@ -20,7 +20,7 @@
       const custs = TP.$$('.cust-row', el).map(r => ({
         id: r.dataset.id || '', h: r.dataset.h || '',
         name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()),
-        homeText: r.querySelector('[data-c=home]').value.trim()
+        homeText: r.querySelector('[data-c=home]').value.trim(), sex: r.querySelector('[data-c=sex]').value
       }));
       points[i] = { name: el.querySelector('[data-f=name]').value.trim(), locText: el.querySelector('[data-f=loc]').value.trim(), customers: custs };
     });
@@ -28,7 +28,7 @@
   const totalCust = () => points.reduce((a, p) => a + (p.customers || []).length, 0);
   function custRow(c, i, ci) {
     return `<div class="cust-row" data-id="${esc(c.id || '')}" data-h="${esc(c.h || '')}">
-      <input class="input" data-c="name" placeholder="اسم العميل" value="${esc(c.name || '')}" maxlength="60">
+      <div class="loc-row">${TP.ui.sexSel(c.sex)}<input class="input" data-c="name" placeholder="اسم العميل" value="${esc(c.name || '')}" maxlength="60"></div>
       <input class="input" data-c="phone" placeholder="الموبايل" inputmode="tel" dir="ltr" value="${esc(c.phone || '')}" maxlength="16">
       <input class="input" data-c="home" placeholder="لوكيشن البيت (اختياري)" dir="ltr" value="${esc(c.homeText || '')}">
       <button type="button" class="icon-btn danger" title="شيل العميل" data-rmc="${i}|${ci}">${TP.icon('trash', 16)}</button></div>`;
@@ -70,7 +70,7 @@
     const l = lid ? TP.q.line(lid) : { factoryId: state.factory || '', active: true, points: [{}] };
     if (!l) return;
     points = (l.points || []).map(p => ({ name: p.name, locText: U.locText(p.location),
-      customers: O.custsOf(p).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', homeText: U.locText(c.home) })) }));
+      customers: O.custsOf(p).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', homeText: U.locText(c.home), sex: c.sex || '' })) }));
     if (!points.length) points = [{ customers: [] }];
     const lineDrivers = TP.q.drivers('line').filter(p => p.active !== false);
     TP.openModal(lid ? 'تعديل خط ' + l.name : 'إضافة خط', `
@@ -93,7 +93,7 @@
   function trackStatic(line, lid, c, i, p) {
     const f = TP.q.company(line.factoryId) || {};
     const loc = p.location && isFinite(p.location.lat) ? { lat: p.location.lat, lng: p.location.lng } : null;
-    return { kind: 'line', custId: c.id, name: c.name, lineId: lid, lineName: line.name, factoryId: line.factoryId, factoryName: f.name || '',
+    return { kind: 'line', custId: c.id, name: c.name, sex: c.sex || '', lineId: lid, lineName: line.name, factoryId: line.factoryId, factoryName: f.name || '',
       pointIdx: i, pointName: p.name, pointLoc: loc, morningTime: line.morningTime || '', eveningTime: line.eveningTime || '', updatedAt: TP.fb.ts() };
   }
   /** Line + every customer link in one batch (removed customers lose their link). `fresh` = { h: token } of new customers. */
@@ -131,7 +131,7 @@
         if (c.homeText && !home) { TP.toast(`لوكيشن بيت ${c.name} مش مقروء`); return false; }
         let h = c.h;
         if (!h) { const k = await TP.cust.newLink(); h = k.h; fresh[h] = k.token; }
-        customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', home: home || null });
+        customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', home: home || null, sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') });
       }
       clean.push({ name: p.name, location: loc, customers });
     }
@@ -157,7 +157,7 @@
   }
 
   /** The WhatsApp message that carries the customer's link. */
-  TP.actions.custMessage = (name, token, what) => `أهلاً ${String(name || '').split(' ')[0]} 👋\nده لينك ${what || 'عربيتك'} من Three Pyramids Travel:\n${TP.custUrl(token)}\nافتحه ودوس "فعّل الإشعارات" — هيوصلك لما العربية تتحرك ليك ولما توصل.`;
+  TP.actions.custMessage = (name, token, what, sex) => `أهلاً بحضرتك ${TP.i18n.honor('ar', name, sex)} 🌹\nيسعدنا إن Three Pyramids Travel تكون في خدمة حضرتك.\nده لينك متابعة ${what || 'عربيتك'} الخاص بحضرتك:\n${TP.custUrl(token)}\nبرجاء فتحه والضغط على "فعّل الإشعارات"، علشان يوصل لحضرتك تنبيه أول ما العربية تتحرك وأول ما توصل.\nنتمنالك رحلة مريحة.`;
   TP.actions.copy = function (text) {
     const done = () => TP.toast('اتنسخ ✓');
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(done, () => TP.toast(text));
@@ -171,7 +171,7 @@
     const list = O.lineCustomers(l).filter(c => tok[c.h]).map(c => Object.assign({}, c, { token: tok[c.h] }));
     TP.openModal('لينكات عملاء ' + l.name, list.length ? `<p class="muted small" style="margin-bottom:10px">كل عميل ليه لينك ثابت — بيتبعت مرة واحدة بس. اللينك بيوري رحلته هو بس، من غير أسعار.</p>
       <div class="table-wrap"><table class="tbl"><tbody>${list.map(c => {
-        const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token));
+        const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token, '', c.sex));
         return `<tr><td><b>${esc(c.name)}</b><div class="muted small">${esc(c.pointName)} · <span dir="ltr">${esc(c.phone || 'من غير موبايل')}</span></div></td>
           <td class="acts"><button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(TP.custUrl(c.token))}">${TP.icon('copy', 16)}انسخ</button>
           ${wa ? `<a class="btn btn-primary btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}

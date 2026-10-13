@@ -86,6 +86,30 @@
     st.leaflet.catch(() => { st.mapFail = true; });
     return st.leaflet;
   }
+  // the car seen from above (company colours) and the customer's pin
+  const CAR_SVG = '<div class="c-car"><svg viewBox="0 0 44 44" width="44" height="44" aria-hidden="true"><ellipse cx="22" cy="23" rx="11" ry="18" fill="rgba(0,0,0,.18)"/><rect x="12" y="4" width="20" height="36" rx="8" fill="#7a1f22" stroke="#fff" stroke-width="2"/><path d="M15 13.5q7-4 14 0l-1.6 6h-10.8z" fill="#f2d48e"/><path d="M16.2 31h11.6l1.4 4.2q-7.2 2.6-14.4 0z" fill="#f2d48e" opacity=".85"/><rect x="15" y="21" width="14" height="8" rx="2" fill="#5e1e15"/><circle cx="15.5" cy="6.5" r="1.4" fill="#fee68e"/><circle cx="28.5" cy="6.5" r="1.4" fill="#fee68e"/></svg></div>';
+  const PIN_SVG = '<svg viewBox="0 0 34 44" width="34" height="44" aria-hidden="true"><path d="M17 43s14-14.6 14-25.5A14 14 0 0 0 3 17.5C3 28.4 17 43 17 43z" fill="#c3853c" stroke="#fff" stroke-width="2"/><circle cx="17" cy="17.5" r="5.5" fill="#5e1e15"/></svg>';
+  const bearing = (a, b) => { const r = Math.PI / 180, y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r), x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r); return (Math.atan2(y, x) / r + 360) % 360; };
+  /** glide the car to its new place (no jumps) and turn it the way it is driving */
+  function moveCar(pos) {
+    const mp = st.map, from = mp.at, to = { lat: pos.lat, lng: pos.lng };
+    const far = Math.abs(to.lat - from.lat) + Math.abs(to.lng - from.lng);
+    if (far > 0.00003) {
+      mp.deg = bearing(from, to);
+      const ic = mp.car.getElement && mp.car.getElement(), body = ic && ic.querySelector('.c-car');
+      if (body) body.style.transform = 'rotate(' + mp.deg + 'deg)';
+    }
+    cancelAnimationFrame(mp.anim);
+    const t0 = performance.now(), dur = far > 0.05 ? 0 : 2400;   // a big jump (first fix, GPS reset): place it at once
+    const step = now => {
+      const k = dur ? Math.min(1, (now - t0) / dur) : 1, e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const cur = { lat: from.lat + (to.lat - from.lat) * e, lng: from.lng + (to.lng - from.lng) * e };
+      mp.car.setLatLng([cur.lat, cur.lng]); mp.at = cur;
+      if (mp.line && mp.target) mp.line.setLatLngs([[cur.lat, cur.lng], [mp.target.lat, mp.target.lng]]);
+      if (k < 1) mp.anim = requestAnimationFrame(step);
+    };
+    mp.anim = requestAnimationFrame(step);
+  }
   async function drawMap(d, pos) {
     let el = TP.$('#cMap'); if (!el || !pos) return;
     const target = d.kind === 'line' ? d.pointLoc : d.fromLoc;
@@ -97,10 +121,12 @@
       if (!st.map) {
         const m = L.map(el, { zoomControl: false, attributionControl: true });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(m);
-        st.map = { el, m, fitted: false, car: L.circleMarker([pos.lat, pos.lng], { radius: 11, color: '#fff', weight: 3, fillColor: '#7a1f22', fillOpacity: 1 }).addTo(m),
-          me: target ? L.circleMarker([target.lat, target.lng], { radius: 9, color: '#7a1f22', weight: 3, fillColor: '#f2d48e', fillOpacity: 1 }).addTo(m) : null };
+        const car = L.marker([pos.lat, pos.lng], { icon: L.divIcon({ className: 'c-mk', html: CAR_SVG, iconSize: [44, 44], iconAnchor: [22, 22] }), keyboard: false, zIndexOffset: 1000 }).addTo(m);
+        const me = target ? L.marker([target.lat, target.lng], { icon: L.divIcon({ className: 'c-mk', html: PIN_SVG, iconSize: [34, 44], iconAnchor: [17, 42] }), keyboard: false }).addTo(m) : null;
+        const line = target ? L.polyline([[pos.lat, pos.lng], [target.lat, target.lng]], { color: '#7a1f22', weight: 3, opacity: .55, dashArray: '2 8', lineCap: 'round' }).addTo(m) : null;
+        st.map = { el, m, fitted: false, car, me, line, target, at: { lat: pos.lat, lng: pos.lng }, deg: 0, anim: 0 };
       }
-      st.map.car.setLatLng([pos.lat, pos.lng]);
+      moveCar(pos);
       // fit once — then only the car moves (the customer may have zoomed)
       if (!st.map.fitted) {
         const pts = [[pos.lat, pos.lng]].concat(target ? [[target.lat, target.lng]] : []);
@@ -214,7 +240,7 @@
     // a line customer who said "مش راكب" sees that (the driver's copy arrives within a minute)
     const shown = d.kind === 'line' && s === 'idle' && skipOn(today()) ? 'skip' : s;
     if (d.driverId && isToday(d)) loadCard(d.driverId);
-    const name = String(d.name || '').split(' ')[0];
+    const name = I.honor(lang(), d.name, d.sex);
     let h = `<section class="glass card c-card">${langPick()}<div class="c-hello">${esc(t('hello', { n: name }))}</div>`;
     if (d.kind === 'line') h += `<div class="c-sub">${esc(d.lineName || '')}${d.factoryName ? ' — ' + esc(d.factoryName) : ''}<br>نقطتك: <b>${esc(d.pointName || '')}</b>${d.morningTime ? ` · العربية بتبدأ الساعة ${esc(O.hm12(d.morningTime))}` : ''}</div>`;
     else h += `<div class="c-sub"><b>${esc(lang() === 'ar' ? (d.title || t('yourRide')) : t('yourRide'))}</b><br>${esc(dayOf(d.day))}${d.time ? ' · ' + esc(timeOf(d.day, d.time)) : ''}<br><bdi>${esc(d.fromName || '')}</bdi>${d.toName ? (lang() === 'ar' ? ' ← ' : ' → ') + '<bdi>' + esc(d.toName) + '</bdi>' : ''}</div>${flightHtml(d.flight)}${delayHtml(d)}`;
