@@ -123,7 +123,7 @@
   }
   const cleanPhone = v => { let t = TP.latinDigits(String(v || '')).trim(); const plus = /^\s*(\+|00)/.test(t); t = t.replace(/\D/g, ''); if (/^00/.test(t)) t = t.slice(2); return (plus ? '+' : '') + t; };
   const canContacts = () => !!(navigator.contacts && navigator.contacts.select && window.ContactsManager);
-  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value, sex: r.querySelector('[data-c=sex]').value })); }
+  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value, sex: '' })); }
   function drawCusts() {
     const box = TP.$('#mCusts');
     const book = custBook();

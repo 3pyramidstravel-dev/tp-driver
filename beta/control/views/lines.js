@@ -20,7 +20,7 @@
       const custs = TP.$$('.cust-row', el).map(r => ({
         id: r.dataset.id || '', h: r.dataset.h || '',
         name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()),
-        homeText: r.querySelector('[data-c=home]').value.trim(), sex: r.querySelector('[data-c=sex]').value
+        homeText: r.querySelector('[data-c=home]').value.trim(), sex: ''
       }));
       points[i] = { name: el.querySelector('[data-f=name]').value.trim(), locText: el.querySelector('[data-f=loc]').value.trim(), customers: custs };
     });
@@ -169,7 +169,7 @@
   }
 
   /** The WhatsApp message that carries the customer's link. */
-  TP.actions.custMessage = (name, token, what, sex) => `أهلاً بحضرتك ${TP.i18n.honor('ar', name, sex)} 🌹\nيسعدنا إن Three Pyramids Travel تكون في خدمة حضرتك.\nده لينك متابعة ${what || 'عربيتك'} الخاص بحضرتك:\n${TP.custUrl(token)}\nبرجاء فتحه والضغط على "فعّل الإشعارات"، علشان يوصل لحضرتك تنبيه أول ما العربية تتحرك وأول ما توصل.\nنتمنالك رحلة مريحة.`;
+  TP.actions.custMessage = (name, token, what, sex) => `أهلاً يا فندم 🌹\nيسعدنا إن Three Pyramids Travel تكون في خدمة حضرتك.\nده لينك متابعة ${what || 'عربيتك'} الخاص بحضرتك:\n${TP.custUrl(token)}\nبرجاء فتحه والضغط على "فعّل الإشعارات"، علشان يوصل لحضرتك تنبيه أول ما العربية تتحرك وأول ما توصل.\nنتمنالك رحلة مريحة.`;
   TP.actions.copy = function (text) {
     const done = () => TP.toast('اتنسخ ✓');
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(done, () => TP.toast(text));

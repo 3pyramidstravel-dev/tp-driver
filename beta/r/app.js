@@ -66,7 +66,6 @@
       <p class="c-sub">ده تسجيل ركاب <b>${esc(r.lineName || 'الخط')}</b>${r.factoryName ? ` — ${esc(r.factoryName)}` : ''}.<br>اكتب بياناتك وحدد مكان بيتك، وهيوصلك لينك متابعة عربيتك.</p>
       <div class="r-seats">الأماكن الفاضية: <b>${left}</b></div>
       <label class="fld">الاسم<input class="input" id="rName" maxlength="60" autocomplete="name" placeholder="الاسم بالكامل"></label>
-      <div class="r-sex"><button type="button" class="btn btn-ghost" data-sex="m">أستاذ</button><button type="button" class="btn btn-ghost" data-sex="f">أستاذة</button></div>
       <label class="fld">رقم الموبايل (واتساب)<input class="input" id="rPhone" inputmode="tel" dir="ltr" maxlength="20" autocomplete="tel" placeholder="01xxxxxxxxx"></label>
       <button type="button" class="btn btn-ghost btn-block" id="rGps">📍 حدد مكاني</button>
       <div class="c-map" id="rMap" hidden></div>
@@ -81,7 +80,6 @@
     if (st.busy) return;
     const name = TP.$('#rName').value.trim().replace(/\s+/g, ' '), phone = TP.latinDigits(TP.$('#rPhone').value.trim()).replace(/[^\d+]/g, '');
     if (name.length < 2) { TP.toast('اكتب اسمك'); return; }
-    if (!st.sex) { TP.toast('اختار أستاذ أو أستاذة'); return; }
     if (!TP.phoneIntl(phone)) { TP.toast('رقم الموبايل مش مظبوط'); return; }
     if (!st.loc) { TP.toast('دوس "حدد مكاني" الأول'); return; }
     st.busy = true; const b = TP.$('#rSend'); b.disabled = true; b.textContent = 'بيتسجل…';
@@ -111,7 +109,7 @@
   function waitForLink() {
     const me = TP.store.get(KEY(), null); if (!me) return form();
     card(`<div class="c-hello">تم تسجيلك ✅</div>
-      <p class="c-sub">${esc(TP.i18n.honor('ar', me.name, me.sex))}، اتسجلت على ${esc((st.reg && st.reg.lineName) || 'الخط')}.<br>بنجهّز لينك متابعة عربيتك — هيفتح هنا لوحده.</p>
+      <p class="c-sub">تمام يا فندم، اتسجلت على ${esc((st.reg && st.reg.lineName) || 'الخط')}.<br>بنجهّز لينك متابعة عربيتك — هيفتح هنا لوحده.</p>
       <div class="spinner"></div>`);
     const go = () => { location.href = TP.custUrl(me.tok); };
     const check = () => TP.fb.get('track/' + me.ch).then(d => { if (d) go(); else setTimeout(check, 8000); }).catch(() => setTimeout(check, 15000));
