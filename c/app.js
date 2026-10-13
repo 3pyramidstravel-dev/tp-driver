@@ -159,7 +159,7 @@
     if (st.busy) return; st.busy = true;
     try {
       const t = await TP.fb.pushToken(true).catch(() => null);
-      if (!t) { TP.toast(tx('pushFail'), 'warn'); return; }
+      if (!t) { TP.toast(tx('pushFail'), 'warn', 15000); return; }   // long enough to follow the steps
       if (mine().fcm !== t) await save({ fcm: t, fcmAt: TP.now() });
       TP.toast(tx('pushOk'));
     } finally { st.busy = false; render(); }

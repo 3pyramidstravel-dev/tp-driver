@@ -162,11 +162,11 @@
 
   /* ---------- toast ---------- */
   let toastTimer;
-  TP.toast = function (msg, kind) {
+  TP.toast = function (msg, kind, ms) {
     let t = $('#tp-toast');
     if (!t) { t = document.createElement('div'); t.id = 'tp-toast'; t.className = 'tp-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
     t.textContent = msg; t.className = 'tp-toast show' + (kind ? ' ' + kind : '');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2600);
   };
 
   /* ---------- modal: onSave returns false to stay open ---------- */

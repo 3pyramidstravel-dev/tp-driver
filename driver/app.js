@@ -469,7 +469,7 @@
     root.querySelectorAll('[data-ot]').forEach(b => b.onclick = () => askOvertime(b.dataset.ot));
     const wr = root.querySelector('#wReady'); if (wr) wr.onclick = () => markReady();
     const wc = root.querySelector('#wChange'); if (wc) wc.onclick = () => changeWake();
-    const wp = root.querySelector('#wPush'); if (wp) wp.onclick = () => TP.push.enable().then(ok => { TP.toast(ok ? 'التنبيهات اتفعلت ✓' : 'مقدرناش نفعّل التنبيهات — اسمح بيها من إعدادات المتصفح', ok ? '' : 'warn'); render(); });
+    const wp = root.querySelector('#wPush'); if (wp) wp.onclick = () => TP.push.enable().then(ok => { TP.toast(ok ? 'التنبيهات اتفعلت ✓' : TP.i18n.t('ar', 'pushFail'), ok ? '' : 'warn', ok ? 0 : 15000); render(); });
   }
 
   function lineCard(en, today) {
