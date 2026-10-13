@@ -40,7 +40,7 @@
         const doc = row.day === D.todayKey ? D.todayDays.find(x => x.lineId === job.id) : null;
         if (doc && doc.driverId !== sid && S.can('times.correct')) ops.push({ op: 'update', path: 'days/' + doc.id, data: { driverId: sid, updatedAt: TP.fb.ts() } });
       } else {
-        ops.push({ op: 'update', path: 'missions/' + job.id, data: { driverId: sid, subFrom: row.pid, updatedAt: TP.fb.ts() } });
+        ops.push({ op: 'update', path: 'missions/' + job.id, data: { driverId: sid, subFrom: row.pid, ack: TP.fb.del(), updatedAt: TP.fb.ts() } });
       }
       ops.push({ op: 'update', path: 'wake/' + row.day, data: { ['d.' + row.pid + '.outcome']: { type: 'replaced', subId: sid, by: S.person.name, at: TP.now() }, lastEdit: row.pid, rebuild: true } });
       await TP.fb.batch(ops);

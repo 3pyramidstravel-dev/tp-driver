@@ -235,6 +235,8 @@
     else if (mid && old.cash) data.cash = TP.fb.del();
     if (type === 'airport') Object.assign(data, { flight, flightCheckAt, driveMin });
     else if (mid && old.flight) Object.assign(data, { flight: TP.fb.del(), flightCheckAt: TP.fb.del() });
+    const renotify = !mid || old.driverId !== driverId || old.day !== day || (old.time || '') !== (time || '');
+    if (mid && renotify && old.ack) data.ack = TP.fb.del();                                   // the driver must take the changed trip again
     if (mid && ['done', 'active'].includes(old.status)) Object.assign(data, TP.lockFix(old.day < day ? old.day : day, 'تعديل المشوار بعد التصدير'));
     const ops = [];
     if (mid) ops.push({ op: 'update', path: 'missions/' + id, data });
@@ -259,7 +261,15 @@
     TP.toast('تم الحفظ ✓' + note + (probs.length ? ' — ⚠ ' + probs[0] : (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : '')));
     if (state.month && O.monthOf(day) !== state.month) { state.month = O.monthOf(day); TP.rerender && TP.rerender(); }   // keep the saved mission in sight
     if (onSavedHook) { const h = onSavedHook; onSavedHook = null; h(id); }
+    if (renotify && (!mid || old.status === 'assigned')) notifyDriver(id);
     if (TP.actions.missionToGroup) setTimeout(() => TP.actions.missionToGroup(Object.assign({ id }, data, { flight })), 400);   // after the editor closes
+  }
+  /** A push to the driver's phone right away (the cloud alarm sends it); the app rings until he presses "استلمت". */
+  async function notifyDriver(id) {
+    try {
+      const tok = await TP.fb.idToken();
+      await fetch((TP.WORKER_URL || 'https://tp-alarm.3pyramidstravel.workers.dev') + '/notify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ id }) });
+    } catch (e) { console.warn('notify', e); }
   }
   const autoTitle = fl => fl ? `${fl.dir === 'dep' ? 'توصيل للمطار' : fl.dir === 'arr' ? 'استقبال من المطار' : 'مطار'} — ${fl.no}` : '';
 
@@ -351,7 +361,7 @@
               <td><b>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</b><div class="muted small">${esc(f ? f.name : m.client || '')}${cs.length ? ' · ' + cs.length + ' عميل' : ''}${m.cash ? ` · <span class="tag gold">كاش ${esc(TP.money(m.cash.amount))}${m.cashGot ? ' ✓' : ''}</span>` : ''}</div>${m.flight ? `<div class="small">${flightLine(m)}</div>` : ''}${problems(m).map(t => `<div><span class="badge-s far">⚠ ${esc(t)}</span></div>`).join('')}</td>
               <td>${esc(TP.driverLabel(p))}${p && p.driverKind === 'tourism' ? '<div class="muted small">سياحة</div>' : ''}${m.subFrom ? `<div><span class="badge-s far">بديل عن ${esc(TP.q.dname(m.subFrom))}${seePrice ? ' — راجع السعر' : ''}</span></div>` : ''}</td>
               <td class="small">${esc((m.from && m.from.name) || '—')} ← ${esc((m.to && m.to.name) || '—')}</td>
-              <td><span class="st ${s[1]}">${s[0]}</span>${steps ? `<div class="muted small">${esc(steps)}</div>` : ''}</td>
+              <td><span class="st ${s[1]}">${s[0]}</span>${m.status === 'assigned' ? (m.ack ? `<div class="small" style="color:var(--ok,#1d7a46)">✓ السواق استلم ${esc(O.hm12(O.hm(m.ack.at)))}</div>` : '<div><span class="badge-s nogps">⏳ السواق لسه ما استلمش</span></div>') : ''}${steps ? `<div class="muted small">${esc(steps)}</div>` : ''}</td>
               ${seePrice ? `<td class="num">${m.factoryId ? (live.pf[m.id] ? esc(TP.money(live.pf[m.id].amount)) : '<span class="st st-warn">لسه</span>') : '—'}</td><td class="num">${live.pd[m.id] ? esc(TP.money(live.pd[m.id].amount)) : '<span class="st st-warn">لسه</span>'}</td>` : ''}
               <td class="acts">${cs.length ? `<button class="icon-btn" title="لينكات العملاء" data-links="${esc(m.id)}">${TP.icon('external', 16)}</button>` : ''}
                 ${canEdit ? `<button class="icon-btn" title="تعديل" data-edit="${esc(m.id)}">${TP.icon('edit', 16)}</button>` : ''}

@@ -406,6 +406,7 @@
     if (!S.ready || !S.person) return;
     syncTrack();
     renderStatus();
+    checkNew();
     TP.$$('.dv-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === st.tab));
     // "عربيتي" (trip order, custody, fuel, salary) only for a driver who has it
     const car = !!(TP.dvCar && TP.dvCar.available()), carBtn = TP.$('.dv-nav [data-tab="car"]');
@@ -828,14 +829,47 @@
     }
     if (now >= w.wakeAt || forceRing) startRing();
   }
+  /* a new trip: the full screen rings (like the wake-up) until he presses "استلمت" — the Control Tower sees it */
+  let newTimer = null;
+  const acked = new Set();
+  function pendingNew() {
+    const today = TP.dayKey(TP.now());
+    return allMissions().filter(m => m.status === 'assigned' && !m.ack && !acked.has(m.id) && m.driverId === me() && m.day >= today)
+      .sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || '')));
+  }
+  function stopNewRing() { clearInterval(newTimer); newTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) { /* ignore */ } }
+  function checkNew() {
+    const ov = TP.$('#newOv'); if (!ov || !S.ready || !S.person) return;
+    const list = pendingNew();
+    if (!list.length) { if (!ov.hidden) { ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = ''; } stopNewRing(); return; }
+    const key = list.map(m => m.id).join(','), today = TP.dayKey(TP.now());
+    if (ov.hidden || ov.dataset.key !== key) {
+      ov.dataset.key = key;
+      ov.innerHTML = `<div class="sun">🔔</div><h1>${list.length > 1 ? list.length + ' مشاوير جديدة' : 'مشوار جديد'}</h1>
+        ${list.slice(0, 3).map(m => `<p><b>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title || 'مشوار')}</b><br>${m.day === today ? 'النهارده' : m.day === O.addDays(today, 1) ? 'بكره' : esc(m.day)}${m.time ? ' الساعة ' + esc(O.hm12(m.time)) : ''}${m.from && m.from.name ? '<br>' + esc(m.from.name) + ' ← ' + esc((m.to && m.to.name) || '') : ''}</p>`).join('')}
+        <button type="button" class="big" id="ackBtn">استلمت</button>
+        <p class="small">الإدارة هتعرف إنك استلمت</p>`;
+      ov.hidden = false;
+      TP.$('#ackBtn', ov).onclick = () => ackNew(list);
+    }
+    if (!newTimer) { beep(); newTimer = setInterval(beep, 2000); }
+  }
+  function ackNew(list) {
+    const ov = TP.$('#newOv');
+    list.forEach(m => acked.add(m.id));
+    stopNewRing(); ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = '';
+    track(Promise.all(list.map(m => TP.fb.update('missions/' + m.id, { ack: { at: TP.now(), sv: TP.fb.ts() }, updatedAt: TP.fb.ts() }))), list.length > 1 ? 'استلمت المشاوير ✓' : 'استلمت المشوار ✓');
+    st.tab = 'missions'; render();
+  }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { st.openedAt = TP.now(); setTimeout(() => checkWake(), 3200); } });
   document.addEventListener('tp:push', e => {
     const d = (e.detail && e.detail.data) || {};
     if (d.type === 'wake') checkWake(true);
+    else if (d.type === 'mission') checkNew();
     else if (e.detail && e.detail.notification && e.detail.notification.title) TP.toast(e.detail.notification.title);
   });
   document.addEventListener('tp:push-state', () => render());
-  setInterval(() => { if (S.ready) checkWake(); }, 10000);
+  setInterval(() => { if (S.ready) { checkWake(); checkNew(); } }, 10000);
 
   /* ---------- SOS & reports ---------- */
   function openSos() {

@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-11T18:43Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-13T13:48Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -505,6 +505,9 @@
       '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
     msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', 'Your driver {d} is waiting for you in front of the arrivals hall{t}, holding a sign with your name.', 'Ihr Fahrer {d} wartet vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.', "Votre chauffeur {d} vous attend devant le hall des arrivées{t} avec une pancarte à votre nom.", 'Водитель {d} ждёт вас у зала прилёта{t} с табличкой с вашим именем.', '您的司机 {d} 正在到达大厅前{t}等候，手持写有您名字的接机牌。', '기사 {d}님이 도착 홀 앞{t}에서 고객님 성함이 적힌 피켓을 들고 기다리고 있습니다.'],
+    msgOnWay: ['أهلاً {n} 👋 السواق {d} اتحرك وجاي لك دلوقتي{c}.', 'Hello {n} 👋 Your driver {d} is on the way to you now{c}.', 'Hallo {n} 👋 Ihr Fahrer {d} ist jetzt auf dem Weg zu Ihnen{c}.', 'Bonjour {n} 👋 Votre chauffeur {d} est en route vers vous{c}.', 'Здравствуйте, {n} 👋 Ваш водитель {d} уже едет к вам{c}.', '{n}，您好 👋 您的司机 {d} 正在前往接您{c}。', '{n}님, 안녕하세요 👋 기사 {d}님이 지금 출발했습니다{c}.'],
+    msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', 'Your driver {d} has arrived and is waiting for you 🚗{c}.', 'Ihr Fahrer {d} ist angekommen und wartet auf Sie 🚗{c}.', 'Votre chauffeur {d} est arrivé et vous attend 🚗{c}.', 'Ваш водитель {d} приехал и ждёт вас 🚗{c}.', '您的司机 {d} 已到达，正在等您 🚗{c}。', '기사 {d}님이 도착해서 기다리고 있습니다 🚗{c}.'],
+    carTag: [' — العربية {c}', ' — car: {c}', ' — Auto: {c}', ' — voiture : {c}', ' — машина: {c}', '，车辆：{c}', ' — 차량: {c}'],
     msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', 'Your flight {f} is delayed — your driver {d} knows and will wait for you. No need to do anything.', 'Ihr Flug {f} ist verspätet — Ihr Fahrer {d} weiß Bescheid und wartet. Sie müssen nichts tun.', "Votre vol {f} est retardé — votre chauffeur {d} est informé et vous attendra. Rien à faire de votre côté.", 'Ваш рейс {f} задерживается — водитель {d} знает и подождёт. Ничего делать не нужно.', '您的航班 {f} 延误 — 司机 {d} 已知悉并会等候您，您无需做任何事。', '항공편 {f}이(가) 지연되었습니다 — 기사 {d}님이 알고 기다릴 예정이니 따로 하실 일은 없습니다.'],
     termTag: [' (صالة {t})', ' (Terminal {t})', ' (Terminal {t})', ' (Terminal {t})', ' (терминал {t})', '（{t} 号航站楼）', ' ({t} 터미널)']
   };
@@ -1074,6 +1077,34 @@ export async function translate(req, env, f, nowMs) {
   } catch (e) { return out({ error: 'translation failed' }, 502); }
 }
 
+/* ---------------- a new trip: tell the driver's phone right away ---------------- */
+const perUidN = new Map();
+/** POST /notify {id} from the Control Tower (missions.manage) after saving a trip → a push to the driver's phones. */
+export async function notifyMission(req, env, f, nowMs) {
+  const H = cors(req), out = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H) });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: H });
+  if (req.method !== 'POST') return out({ error: 'POST only' }, 405);
+  const ctx = { env, now: nowMs || Date.now(), reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
+  ctx.f = (u, o) => { ctx.calls++; return f ? f(u, o) : fetch(u, o); };
+  let uid;
+  try { uid = await verifyIdToken(ctx, (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')); } catch (e) { return out({ error: 'sign in first' }, 401); }
+  const dev = await getDoc(ctx, 'devices/' + uid).catch(() => null);
+  const perms = (dev && dev.perms) || [];
+  if (!dev || dev.active !== true || dev.kind !== 'staff' || !(perms.includes('all') || perms.includes('missions.manage'))) return out({ error: 'not allowed' }, 403);
+  const hist = (perUidN.get(uid) || []).filter(t => ctx.now - t < 60000); if (hist.length >= 20) return out({ error: 'too many — wait a minute' }, 429); hist.push(ctx.now); perUidN.set(uid, hist);
+  let body = {}; try { body = await req.json(); } catch (e) { /* empty */ }
+  const id = String(body.id || '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return out({ error: 'trip id' }, 400);
+  const m = await getDoc(ctx, 'missions/' + id).catch(() => null);
+  if (!m || m.status !== 'assigned' || !m.driverId || m.ack) return out({ ok: true, sent: 0 });
+  const devs = await query(ctx, 'devices', ['personId', 'fcm', 'active'], { fieldFilter: { field: { fieldPath: 'personId' }, op: 'EQUAL', value: { stringValue: String(m.driverId) } } }, 10).catch(() => []);
+  const tokens = devs.filter(d => d.active === true && d.fcm).map(d => d.fcm);
+  const today = W.dayKey(ctx.now), when = m.day === today ? 'النهارده' : m.day === W.addDays(today, 1) ? 'بكره' : m.day;
+  const at = /^\d{2}:\d{2}$/.test(m.time || '') ? ' الساعة ' + W.hm12(W.cairoMs(m.day, m.time)) : '';
+  await push(ctx, tokens, { type: 'mission', day: m.day, pid: m.driverId, title: '🚗 مشوار جديد — افتح التطبيق واستلمه', body: `${String(m.title || '').slice(0, 80)} — ${when}${at}`, tag: 'mission-' + id, link: SITE + 'driver/', ttl: 6 * 3600 });
+  return out({ ok: true, sent: ctx.pushed.length });
+}
+
 /* ---------------- one run (every minute) ---------------- */
 export async function run(env, now, f) {
   const raw = f || ((u, o) => fetch(u, o));
@@ -1207,6 +1238,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === '/translate') return translate(req, env);
+    if (url.pathname === '/notify') return notifyMission(req, env);
     if (url.pathname === '/check') {
       try {
         if (!env.GOOGLE_SA) return Response.json({ ok: false, error: 'GOOGLE_SA secret is missing' }, { status: 500 });

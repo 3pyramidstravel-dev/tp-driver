@@ -357,16 +357,19 @@ service cloud.firestore {
       allow update: if can('missions.manage')
         || (can('times.correct') && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt']))
         // the wake-up supervisor hands the trip to a substitute
-        || (can('wake.supervise') && changed().hasOnly(['driverId', 'subFrom', 'updatedAt']))
+        || (can('wake.supervise') && changed().hasOnly(['driverId', 'subFrom', 'updatedAt', 'ack']) && (!('ack' in changed()) || !('ack' in request.resource.data)))
         || (isDriver() && resource.data.driverId == me().personId
             && resource.data.status in ['assigned', 'active', 'done']
-            && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt', 'picked', 'noshow', 'cashGot'])
+            && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt', 'picked', 'noshow', 'cashGot', 'ack'])
             && (('events' in changed()) ? missionStepOk() : (!('lastKey' in changed()) && !('status' in changed())))
             && ridersOk(request.resource.data, resource.data)
             // a private customer paid cash: once, the agreed amount, with the server time
             && (!('cashGot' in changed()) || (!('cashGot' in resource.data) && ('cash' in resource.data)
                 && request.resource.data.cashGot.keys().hasOnly(['at', 'sv', 'amount'])
-                && request.resource.data.cashGot.amount == resource.data.cash.amount && request.resource.data.cashGot.sv == request.time)));
+                && request.resource.data.cashGot.amount == resource.data.cash.amount && request.resource.data.cashGot.sv == request.time))
+            // "استلمت" (the driver saw the new trip): once, with the server time
+            && (!('ack' in changed()) || (!('ack' in resource.data)
+                && request.resource.data.ack.keys().hasOnly(['at', 'sv']) && request.resource.data.ack.sv == request.time)));
     }
     match /missionDriver/{mid} {
       allow read: if can('prices.view')
