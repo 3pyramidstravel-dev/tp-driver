@@ -272,6 +272,8 @@
     start, stop, render, custodyBanner, bindBanner,
     /** Is there anything to show in "عربيتي"? */
     available: () => hasCar() || hasSalary(),
+    /** The car's model, colour and plate, for the guest messages. */
+    carText: () => { const v = st.vehicle || {}; return [v.model, v.color, v.plate].filter(Boolean).join(' '); },
     /** Keeps what is typed in the trip form when the screen is redrawn from outside. */
     keep(root) { if (root && st.sub === 'trips' && root.querySelector('[data-f]')) readForm(root); }
   };

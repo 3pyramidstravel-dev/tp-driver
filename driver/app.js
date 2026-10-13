@@ -364,8 +364,20 @@
       const p = TP.fb.update('missions/' + m.id, patch);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
+      if (!auto) tellCustomers(m, step);
       await p.catch(() => {});
     } finally { st.inflight.delete(flight); }
+  }
+  /** After "اتحركت" / "وصلت": a WhatsApp message to each guest, one tap each (WhatsApp opens with the text ready). */
+  function tellCustomers(m, step) {
+    if (!['start', 'pickup'].includes(step.key)) return;
+    const car = (TP.dvCar && TP.dvCar.carText && TP.dvCar.carText()) || '';
+    const list = (m.customers || []).filter(c => c.phone && TP.phoneIntl(c.phone) && !(st.track[c.h] && st.track[c.h].st === 'noshow'))
+      .map(c => ({ c, text: TP.guest.stepMessage(m, c, step.key, S.person, car) })).filter(x => x.text);
+    if (!list.length) return;
+    TP.openModal(step.key === 'start' ? 'بلّغ العميل إنك اتحركت' : 'بلّغ العميل إنك وصلت', `
+      <p class="modal-text">دوس "واتساب" — الرسالة هتتفتح جاهزة، دوس ابعت.</p>
+      ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">واتساب</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
   }
   function onMissionStep(m, step) {
     const drv = first(S.person.name), air = m.type === 'airport' && m.flight;
@@ -573,7 +585,7 @@
     const t = TP.flight.when(fl);
     return `<div class="flight"><b dir="ltr">✈ ${esc(fl.no)}</b><span>${fl.dir === 'arr' ? 'استقبال' : 'توصيل'}${fl.other ? (fl.dir === 'arr' ? ' — جاية من ' : ' — رايحة ') + esc(fl.other) : ''}</span>
       ${t ? `<span>${fl.dir === 'arr' ? 'الهبوط' : 'الإقلاع'} <b>${esc(TP.fmtTime(t))}</b>${fl.delayMin >= 10 ? ` <span class="badge-s far">متأخرة ${fl.delayMin} د</span>` : ''}</span>` : '<span class="muted">الميعاد لسه جاي</span>'}
-      ${fl.terminal ? `<span>صالة <b>${esc(fl.terminal)}</b></span>` : ''}${fl.status ? `<span class="muted">${esc(TP.flight.statusName(fl.status))}</span>` : ''}${fl.src === 'api' ? '<span class="muted" style="font-size:11px">بيانات الرحلات: AeroDataBox</span>' : ''}</div>`;
+      ${fl.terminal ? `<span>صالة <b>${esc(fl.terminal)}</b></span>` : ''}<a class="btn btn-ghost btn-sm" href="https://airportinfo.live/flight/${encodeURIComponent(String(fl.no).toLowerCase().replace(/[^a-z0-9]/g, ''))}" target="_blank" rel="noopener">✈ متابعة الرحلة ↗</a>${fl.status ? `<span class="muted">${esc(TP.flight.statusName(fl.status))}</span>` : ''}${fl.src === 'api' ? '<span class="muted" style="font-size:11px">بيانات الرحلات: AeroDataBox</span>' : ''}</div>`;
   }
   function renderMissions() {
     const root = TP.$('#tab-missions'), today = TP.dayKey(TP.now());

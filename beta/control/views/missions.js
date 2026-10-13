@@ -344,7 +344,7 @@
           <thead><tr><th>الميعاد</th><th>المشوار</th><th>السواق</th><th>من → إلى</th><th>الحالة</th>${seePrice ? '<th>سعر المصنع</th><th>أجر السواق</th>' : ''}<th></th></tr></thead>
           <tbody>${list.map(m => {
             const p = TP.q.person(m.driverId), f = TP.q.company(m.factoryId), s = O.MISSION_STATUS[m.status] || ['', 'st-off'], ev = m.events || {};
-            const steps = O.missionSteps(m).filter(x => ev[x.key]).map(x => `${x.short} ${O.hm(ev[x.key].at)}${ev[x.key].far ? ' ⚠' : ''}`).join(' · ');
+            const steps = O.missionSteps(m).filter(x => ev[x.key]).map(x => `${x.short} ${O.hm12(O.hm(ev[x.key].at))}${ev[x.key].far ? ' ⚠' : ''}`).join(' · ');
             const cs = m.customers || [];
             return `<tr>
               <td class="small"><bdi dir="ltr">${esc(m.day)}</bdi>${m.time ? `<br>${esc(O.hm12(m.time))}` : (m.type === 'airport' ? '<br><span class="badge-s nogps">مستني الرحلة</span>' : '')}${m.day === today ? ' <span class="tag gold">النهارده</span>' : ''}</td>

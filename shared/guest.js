@@ -75,5 +75,14 @@
     if (!text) return;
     (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => TP.toast('اتنسخ ✓')).catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); TP.toast('اتنسخ ✓'); } catch (e) { /* ignore */ } ta.remove(); });
   }
-  TP.guest = { messages, compose };
+  /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
+  function stepMessage(m, c, key, drv, car) {
+    const L = I().ok(c.lang) ? c.lang : 'ar', t = (k, v) => I().t(L, k, v), fl = m.flight || {};
+    const driver = drv && typeof drv === 'object' ? (L !== 'ar' && drv.nameEn ? drv.nameEn : drv.name || '') : drv || '';
+    car = car ? t('carTag', { c: car }) : '';
+    if (key === 'start') return t('msgOnWay', { n: first(c.name), d: driver, c: car || '' });
+    if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { d: driver, c: car || '' });
+    return '';
+  }
+  TP.guest = { messages, compose, stepMessage };
 })(window.TP = window.TP || {});

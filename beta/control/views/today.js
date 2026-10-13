@@ -80,7 +80,7 @@
       const late = e ? O.lateMin(e) : 0;
       const cls = ['sp', e ? 'on' : '', e && e.far ? 'far' : '', e && e.auto ? 'auto' : '', e && e.by === 'staff' ? 'staff' : '', e && e.noGps ? 'nogps' : '', late >= 10 ? 'late' : ''].join(' ');
       const tip = s.label + (e ? ' — ' + TP.fmtTime(e.at) + (e.far ? ` (بعيد ${O.fmtDist(e.dist)})` : '') + (e.auto ? ' (تلقائي)' : '') + (late >= 10 ? ` (وصلت للسيستم بعد ${late} دقيقة — كان من غير نت)` : '') + (e.by === 'staff' ? ` (سجلها ${e.byName || 'الإدارة'}: ${e.reason || ''})` : '') : '');
-      return `<span class="${cls}" title="${esc(tip)}">${esc(s.short)}<b>${e ? esc(O.hm(e.at)) : '—'}</b></span>`;
+      return `<span class="${cls}" title="${esc(tip)}">${esc(s.short)}<b>${e ? esc(O.hm12(O.hm(e.at))) : '—'}</b></span>`;
     }).join('')}</div>`;
   }
 
