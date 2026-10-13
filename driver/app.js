@@ -239,6 +239,8 @@
         : TP.fb.set('days/' + id, Object.assign({ lineId: line.id, factoryId: line.factoryId, driverId: me(), day, month: O.monthOf(day), events: { [step.key]: ev }, lastKey: step.key, updatedAt: TP.fb.ts() }, Object.keys(picked).length ? { picked } : {}), true);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onLineStep(line, day, step, Object.assign({}, (doc && doc.events) || {}, { [step.key]: ev }));
+      // first press of the day on a line with customer links: they follow the car from now on
+      if (!auto && !doc && O.lineCustomers(line).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
     } finally { st.inflight.delete(flight); }
   }
