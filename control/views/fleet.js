@@ -331,7 +331,7 @@
           + (list.length ? `<button class="btn btn-primary" id="dlTrips" style="margin-top:12px">${TP.icon('file', 18)}تنزيل التقرير</button>` : '');
       } else if (state.tab === 'custody' || state.tab === 'fuel') {
         const rows = ledger(state.tab, state.vid);
-        body = filters() + `<div class="rep-kpis">${(state.vid ? cars().filter(c => c.id === state.vid) : cars()).map(c => tile(vehicleOf(c.id).plate || c.id, esc(money(c[state.tab])), (Number(c[state.tab]) || 0) <= (state.tab === 'custody' ? low() : fuelLow()) ? 'bad' : 'good')).join('')}</div>`
+        body = filters() + `<div class="rep-kpis">${(state.vid ? cars().filter(c => c.id === state.vid) : cars()).map(c => `<div>${tile(vehicleOf(c.id).plate || c.id, esc(money(c[state.tab])), (Number(c[state.tab]) || 0) <= (state.tab === 'custody' ? low() : fuelLow()) ? 'bad' : 'good')}${can ? `<button class="btn btn-primary btn-sm" style="margin-top:6px;width:100%" data-money="${esc(c.id)}|${state.tab}">${TP.icon('plus', 15)}${state.tab === 'custody' ? 'إضافة / تعديل العهدة' : 'شحن / تعديل البنزين'}</button>` : ''}</div>`).join('')}</div>`
           + tableHtml(ledgerCols, rows) + (rows.length ? `<button class="btn btn-primary" id="dlLedger" style="margin-top:12px">${TP.icon('file', 18)}تنزيل التقرير</button>` : '');
       } else if (state.tab === 'salary') {
         const list = salaryDrivers(), M0 = O.monthOf(today()), months = [O.addMonths(M0, -2), O.addMonths(M0, -1), M0];
