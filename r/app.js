@@ -1,6 +1,6 @@
 /* ==========================================================================
    Line sign-up page — r/#TOKEN (one link per line, sent once to the line's people)
-   The passenger writes his name and number, chooses أستاذ / أستاذة and puts his
+   The passenger writes his name and number, and puts his
    home on the map (GPS or by moving the pin). It takes one of the line's free
    seats (the rules never give more than the car has); the Control Tower adds him
    to the line and his own follow-up link opens here by itself.

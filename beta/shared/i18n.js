@@ -126,9 +126,7 @@
     /** how we address a customer: "أستاذ محمد" / "أستاذة هبة", "Mr. John Smith"… (sex: 'm' | 'f' | '') */
     honor(l, name, sex) {
       const full = String(name || '').trim().replace(/\s+/g, ' '), first = full.split(' ')[0] || '';
-      const T = { ar: ['أستاذ ', 'أستاذة '], en: ['Mr. ', 'Ms. '], de: ['Herr ', 'Frau '], fr: ['M. ', 'Mme '] }[I.ok(l) ? l : 'ar'];
-      if (!T || (sex !== 'm' && sex !== 'f')) return first;
-      return T[sex === 'm' ? 0 : 1] + (l === 'ar' || !I.ok(l) ? first : full);
+      return first;   // no أستاذ / أستاذة any more (agreed: "أهلاً يا فندم" for everyone) — also for customers saved with a title before
     },
     info: l => LANGS[idx(l)],
     /** text in a language, with {n}-style values */
