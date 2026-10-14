@@ -48,10 +48,15 @@
   /** The English signature of the staff member who sends (rtl: an Arabic message — every line kept on the right). */
   TP.signature = function (person, rtl) {
     const staff = person && person.type === 'staff';
-    const lines = ['Best Regards,'].concat(staff ? [`*${(person.nameEn || '').trim() || TP.enName(person.name)}*`, TITLES[person.role] || 'Operations Team'] : [], ['VIP & Airport Transport', '*Three Pyramids Travel*']);
-    return lines.map(l => (rtl ? RLM : '') + l).join('\n');
+    // the name only — a note after a dash or a bracket ("أحمد سمير - الموبايل") is not part of it
+    const own = String((person && person.name) || '').split(/\s*[-–—(|]\s*/)[0].trim();
+    const lines = ['Best Regards,'].concat(staff ? [`*${(person.nameEn || '').trim() || TP.enName(own)}*`, TITLES[person.role] || 'Operations Team'] : [], ['VIP & Airport Transport', '*Three Pyramids Travel*']);
+    // in an Arabic message: kept on the right (RLM before) with its own punctuation in place (LRM after — "Best Regards," not ",Best Regards")
+    return lines.map(l => rtl ? RLM + l + LRM : l).join('\n');
   };
   const sender = () => (TP.session && TP.session.person) || null;
+  /** A WhatsApp text shown in the app as WhatsApp shows it: *bold*, _italic_ (escaped first). */
+  TP.waPreview = text => esc(text || '').replace(/(^|[\s\u200E\u200F>(])\*([^*\n]+)\*(?=$|[\s\u200E\u200F.,:;!?)←→])/gm, '$1<b>$2</b>').replace(/(^|[\s\u200E\u200F])_([^_\n]+)_(?=$|[\s\u200E\u200F.,:;!?])/gm, '$1<i>$2</i>');
   // +20 112 709 0242 (Egypt) — other countries: + and the digits
   const intl = ph => { const n = TP.phoneIntl(ph || ''); if (!n) return ph || ''; const e = n.match(/^20(1\d)(\d)(\d{3})(\d{4})$/); return e ? `+20 ${e[1]}${e[2]} ${e[3]} ${e[4]}` : '+' + n; };
   TP.phoneNice = intl;
@@ -123,7 +128,7 @@
       const btns = (text, key) => `${c.phone && wa(text) ? `<a class="btn btn-primary btn-sm" href="${esc(wa(text))}" target="_blank" rel="noopener">📱 للعميل</a>` : ''}<a class="btn btn-ghost btn-sm" href="${esc(waShare(text))}" target="_blank" rel="noopener" title="الواتساب هيفتح قايمة الشاتات والجروبات — اختار">👥 لجروب / حد تاني</a><button type="button" class="btn btn-ghost btn-sm" data-gcopy="${esc(key)}">انسخ</button>`;
       TP.openModal('رسالة لـ ' + c.name, `
         <div class="chips" style="margin-bottom:10px">${I().LANGS.map(l => `<button type="button" class="chip ${l.id === L ? 'active' : ''}" data-gl="${l.id}">${esc(l.name)}</button>`).join('')}</div>
-        ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.label)}</b>${btns(x.text, x.k)}</div><p class="gm-t" dir="${I().info(L).dir}">${esc(x.text)}</p></div>`).join('')}
+        ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.label)}</b>${btns(x.text, x.k)}</div><p class="gm-t" dir="${I().info(L).dir}">${TP.waPreview(x.text)}</p></div>`).join('')}
         <div class="gm"><div class="gm-h"><b>ترجم وابعت</b><small class="muted">اكتب بالعربي، والرسالة تطلع بـ ${esc(I().info(L).name)}</small></div>
           <textarea class="input" id="gIn" rows="3" maxlength="1000" placeholder="مثال: السواق قدام البوابة رقم 2، العربية بيضا"></textarea>
           <div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="gGo" ${L === 'ar' ? 'disabled' : ''}>ترجم</button><span class="muted small" id="gSt"></span></div>

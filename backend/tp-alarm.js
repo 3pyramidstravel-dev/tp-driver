@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-13T23:36Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-14T18:46Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -384,20 +384,23 @@
     msg += '\n--------------------------\nملحوظة: صور العدادات يتم إرسالها كمرفقات في نفس محادثة الجروب بعد اللصق';
     return msg;
   };
-  /** Operations' schedule of a car's trips to its group. */
-  FL.scheduleMessage = function (carName, items) {
-    let msg = '*تعليمات مدير التشغيل - Three Pyramids Travel*\n--------------------------\n';
-    msg += `العربية: ${carName}\n--------------------------\n`;
+  /** Operations' schedule of a car's trips to its group — everything the captain needs to work from WhatsApp alone if the app fails
+      (locations as map links). opts: {captain, sign} — sign is the sender's English signature. Every line kept on the right. */
+  FL.scheduleMessage = function (carName, items, opts) {
+    const o = opts || {}, RLM = '\u200F', LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
+    const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
+    const out = [RLM + '*THREE PYRAMIDS TRAVEL*', '_تعليمات التشغيل_', '', row('العربية', carName), row('الكابتن', o.captain || '')];
     items.forEach((m, i) => {
-      if (i > 0) msg += '\n➖➖➖➖➖➖➖➖➖➖\n\n';
-      msg += `\n*المشوار ${FL.ORD[i] || i + 1}*\n`;
-      const f = [['المشوار', m.when], ['وقت الوصول', `*${m.time ? hm12(m.time) : '-'}*`], ['نوع المشوار', m.type], ['من', m.from || '-'], ['إلى', m.to || '-']];
-      if (m.flight) f.push(['رقم الرحلة', `*${m.flight}*`]);
-      if (m.terminal) f.push(['رقم الصالة', `*${m.terminal}*`]);
-      f.push(['اسم العميل', m.client || '-'], ['رقم العميل', m.phone || '-'], ['اسم المصنع', m.factory || '-'], ['ملاحظات', m.notes ? `*${m.notes}*` : '-']);
-      f.forEach((x, j) => { msg += `*${j + 1}.* ${x[0]}: ${x[1]}\n`; });
+      out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
+        row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
+        row('ميعاد الوصول', m.time ? hm12(m.time) : ''), row('نوع المشوار', m.type),
+        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''),
+        row('متابعة الرحلة', m.flightNo ? 'https://airportinfo.live/flight/' + String(m.flightNo).toLowerCase().replace(/[^a-z0-9]/g, '') : ''),
+        row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
+        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
     });
-    return msg + '\n--------------------------';
+    if (o.sign) out.push('', o.sign);
+    return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };
 
   /** Document expiry: 'expired' | 'soon' (within `warnDays`) | 'ok' | 'none'. */
@@ -1152,7 +1155,6 @@ export async function resolveMap(req, env, f, nowMs) {
   return out({ error: 'no place in this link' }, 422);
 }
 
-/* ---------------- one run (every minute) ---------------- */
 /* ---------------- the free quota of the database (Firestore's day starts at midnight Pacific time = 10 AM Cairo) ---------------- */
 const QUOTA = { reads: 50000, writes: 20000, deletes: 20000 };
 function pacificMidnight(now) {
@@ -1185,6 +1187,7 @@ async function usageJob(ctx) {
     ['day', 'reads', 'writes', 'deletes', 'pct', 'lim', 'dayStart', 'resetAt', 'at', 'hist', 'error']);
 }
 
+/* ---------------- one run (every minute) ---------------- */
 export async function run(env, now, f) {
   const raw = f || ((u, o) => fetch(u, o));
   const ctx = { env, now, reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
@@ -1307,7 +1310,12 @@ export async function run(env, now, f) {
   }
   // 8) the database's use of today's free quota (every 15 minutes) → system/usage for the Control Tower
   if (!ctx.full && ctx.calls <= REQ_LIMIT - 10 && minute % 15 === 11) {
-    try { await usageJob(ctx); ctx.log.push('usage'); } catch (e) { ctx.log.push('usage: ' + ((e && e.message) || e)); }
+    try { await usageJob(ctx); ctx.log.push('usage'); } catch (e) {
+      const msg = String((e && e.message) || e).slice(0, 300);
+      ctx.log.push('usage: ' + msg);
+      // the reason shows on the Control Tower's card (instead of "بيتحسب…" for ever)
+      try { await patch(ctx, 'system/usage', { error: msg, errAt: now }, ['error', 'errAt']); } catch (e2) { /* ignore */ }
+    }
   }
   return { today, reads: ctx.reads, writes: ctx.writes, sent: ctx.sent, calls: ctx.calls, pushed: ctx.pushed, log: ctx.log };
 }

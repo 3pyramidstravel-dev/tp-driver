@@ -194,3 +194,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .loc-row { display: flex; gap: 6px; align-items: center; }
 .loc-row .input { flex: 1; min-width: 0; }
 .loc-prev iframe { width: 100%; height: 150px; border: 0; border-radius: 12px; margin-top: 6px; }
+
+/* "ابعت للعميل": the buttons first, the message folded */
+.send-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.send-btns .btn { flex: 1 1 auto; min-height: 42px; }
+.send-msg summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--maroon-2, #6b1a1d); padding: 4px 0; }
+.send-msg .gm-t { white-space: pre-wrap; }

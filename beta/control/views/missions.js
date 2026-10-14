@@ -201,14 +201,14 @@
           <label class="fld">رقم الرحلة<input class="input" id="fNo" dir="ltr" placeholder="MS 777" value="${esc(fl.no || '')}" maxlength="10"></label>
           <label class="fld">تاريخ الطيارة<input class="input" type="date" id="fDate" value="${esc(fl.date || m.day || '')}"></label>
           <label class="fld">النوع<select class="input" id="fDir"><option value="">يتعرف لوحده من رقم الرحلة</option><option value="arr" ${fl.dir === 'arr' && fl.dirSet ? 'selected' : ''}>استقبال (العميل جاي)</option><option value="dep" ${fl.dir === 'dep' && fl.dirSet ? 'selected' : ''}>توصيل (العميل مسافر)</option></select></label>
-          <label class="fld">ميعاد الطيارة <small>سيبه فاضي — بييجي لوحده</small><input class="input" type="time" id="fTime" value="${esc(manualTime)}"></label>
+          <div class="fld">ميعاد الطيارة <small>سيبه فاضي — بييجي لوحده</small>${U.timeField('fTime', manualTime)}</div>
           <label class="fld">الصالة <small>اختياري</small><input class="input" id="fTerm" value="${esc(fl.terminalSet ? fl.terminal : '')}" maxlength="10" placeholder="${esc(fl.terminal || '')}"></label>
           <label class="fld" id="fDriveBox">مدة الطريق للمطار (دقيقة)<input class="input" id="fDrive" type="number" min="15" max="300" dir="ltr" value="${esc(m.driveMin || D.settings.airportDriveMin || 75)}"></label>
           <div class="full small muted" id="fInfo">${flightLine(m)}</div>
         </div>
         <label class="fld full">وصف المشوار<input class="input" id="mTitle" value="${esc(m.title || '')}" placeholder="مثال: توصيل وفد من الفندق للمصنع — للمطار بيتكتب لوحده" maxlength="120"></label>
         <label class="fld" data-reg>اليوم<input class="input" type="date" id="mDay" value="${esc(m.day || '')}"></label>
-        <label class="fld" data-reg>الميعاد (عند العميل)<input class="input" type="time" id="mTime" value="${esc(m.time || '')}"></label>
+        <div class="fld" data-reg>الميعاد (عند العميل)${U.timeField('mTime', m.time || '')}</div>
         <label class="fld">المصنع (العميل)<select class="input" id="mFactory">${U.opts(D.companies, m.factoryId, c => c.id, c => c.name, 'جهة تانية / عميل فرد')}</select></label>
         <label class="fld">اسم الجهة <small>لو مش مصنع</small><input class="input" id="mClient" value="${esc(m.client || '')}" maxlength="80"></label>
         <label class="fld full">السواق<select class="input" id="mDriver">${U.opts(drivers, m.driverId, p => p.id, p => `${TP.driverLabel(p)} — ${TP.driverKindName(p.driverKind)}`, 'اختار السواق')}</select></label>
@@ -231,7 +231,7 @@
     };
     TP.$$('#tp-modal [data-mt]').forEach(b => b.onclick = () => { type = b.dataset.mt; TP.$$('#tp-modal [data-mt]').forEach(x => x.classList.toggle('active', x === b)); syncType(); });
     TP.$('#fDir').onchange = syncType;
-    syncType(); drawCusts(); bindLoc('from'); bindLoc('to');
+    syncType(); drawCusts(); bindLoc('from'); bindLoc('to'); U.bindTime(TP.$('#tp-modal'));
     const fsel = TP.$('#mFactory'), pfIn = TP.$('#mPF');
     if (fsel && pfIn) fsel.onchange = () => { pfIn.disabled = !fsel.value; if (!fsel.value) pfIn.value = ''; };
     TP.$('#tp-modal').__mtype = () => type;
@@ -275,6 +275,7 @@
     const driverId = U.val('mDriver');
     let title = U.val('mTitle'), day = U.val('mDay'), time = U.val('mTime');
     if (!driverId) { TP.toast('اختار السواق'); return false; }
+    if (U.timeIncomplete('mTime') || U.timeIncomplete('fTime')) { TP.toast('اختار صباحًا ولا مساءً للميعاد'); return false; }
     const from = readPlace('from'), to = readPlace('to');
     if (from.error || to.error) { TP.toast(from.error || to.error); return false; }
     readCusts();
@@ -385,12 +386,16 @@
     if (!rows.length) return toGroup();
     const dirOf = l => TP.i18n.info(TP.i18n.ok(l) ? l : 'ar').dir;
     const waitFl = send.some(x => x.data.type === 'airport' && x.data.flight && x.data.flight.src === 'wait');
-    TP.openModal('ابعت للعميل', `<p class="modal-text">دوس "واتساب" لكل عميل — الرسالة جاهزة بلغته ومعاها لينك متابعة العربية.</p>
+    // the buttons first (on a phone the window opens at its top), the message folded under them
+    TP.openModal('ابعت للعميل', `<p class="modal-text">لكل عميل: <b>📱 للعميل</b> على رقمه، أو <b>👥 لجروب</b> والواتساب يوريك الجروبات. الرسالة جاهزة بلغته ومعاها لينك متابعة العربية.</p>
       ${waitFl ? `<div class="banner warn" style="margin-bottom:8px">${TP.icon('plane')}<span>ميعاد الطيارة لسه جاي (دقيقتين). لو عايز الميعاد يبقى في الرسالة، ابعتها بعدين من زرار ↗ لينكات العملاء في صف المشوار.</span></div>` : ''}
-      ${rows.map((r, i) => `<div class="gm"><div class="gm-h"><b>${esc(r.c.name)}</b>${r.c.lang && r.c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(r.c.lang).name)}</span>` : ''}${all.length > 1 ? ` <small class="muted">${esc(r.title)}</small>` : ''}
-        <a class="btn btn-primary btn-sm" href="${esc(TP.waLink(r.c.phone, r.text))}" target="_blank" rel="noopener" data-wsent="${i}">واتساب</a><button type="button" class="btn btn-ghost btn-sm" data-wcopy="${i}">انسخ</button></div>
-        <p class="gm-t" dir="${dirOf(r.c.lang)}">${esc(r.text)}</p></div>`).join('')}`, null,
+      ${rows.map((r, i) => `<div class="gm send-c"><div class="gm-h"><b>${esc(r.c.name)}</b>${r.c.lang && r.c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(r.c.lang).name)}</span>` : ''}${all.length > 1 ? ` <small class="muted">${esc(r.title)}</small>` : ''}</div>
+        <div class="send-btns"><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(r.c.phone, r.text))}" target="_blank" rel="noopener" data-wsent="${i}">📱 للعميل</a><a class="btn btn-ghost btn-sm" href="${esc('https://wa.me/?text=' + encodeURIComponent(r.text))}" target="_blank" rel="noopener">👥 لجروب</a><button type="button" class="btn btn-ghost btn-sm" data-wcopy="${i}">انسخ</button></div>
+        <details class="send-msg"><summary>شوف الرسالة</summary><p class="gm-t" dir="${dirOf(r.c.lang)}">${TP.waPreview(r.text)}</p></details></div>`).join('')}`, null,
       { noSave: true, wide: true, noFocus: true, cancelLabel: TP.actions.missionToGroup ? 'التالي: جروب العربية' : 'إغلاق', onCancel: toGroup });
+    const ov = TP.$('#tp-modal'); if (ov) ov.scrollTop = 0;
+    const card = TP.$('#tp-modal .tp-modal-card'); if (card) card.scrollTop = 0;
+    const body = TP.$('#tp-modal-body'); if (body) body.scrollTop = 0;
     TP.$$('#tp-modal [data-wsent]').forEach(a => a.addEventListener('click', () => { a.textContent = 'اتبعت ✓'; a.classList.replace('btn-primary', 'btn-ghost'); }));
     TP.$$('#tp-modal [data-wcopy]').forEach(b => b.onclick = () => TP.actions.copy(rows[Number(b.dataset.wcopy)].text));
   }
