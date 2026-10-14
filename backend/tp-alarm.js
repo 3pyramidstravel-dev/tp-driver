@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-14T18:46Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-14T19:29Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -1183,8 +1183,8 @@ async function usageJob(ctx) {
   const pct = Math.round(Math.max(reads / QUOTA.reads, writes / QUOTA.writes, deletes / QUOTA.deletes) * 100);
   const hist = Object.assign({}, old.hist || {}, { [day]: pct });
   Object.keys(hist).sort().slice(0, -8).forEach(k => { delete hist[k]; });
-  await patch(ctx, 'system/usage', { day, reads, writes, deletes, pct, lim: QUOTA, dayStart: start, resetAt: start + 86400000, at: now, hist, error: '' },
-    ['day', 'reads', 'writes', 'deletes', 'pct', 'lim', 'dayStart', 'resetAt', 'at', 'hist', 'error']);
+  await patch(ctx, 'system/usage', { day, reads, writes, deletes, pct, lim: QUOTA, dayStart: start, resetAt: start + 86400000, at: now, hist, error: '', billing: false, retryAt: 0 },
+    ['day', 'reads', 'writes', 'deletes', 'pct', 'lim', 'dayStart', 'resetAt', 'at', 'hist', 'error', 'billing', 'retryAt']);
 }
 
 /* ---------------- one run (every minute) ---------------- */
@@ -1309,12 +1309,17 @@ export async function run(env, now, f) {
     try { const s = (await getDoc(ctx, 'system/settings')) || {}; await purge(ctx, s); } catch (e) { ctx.log.push('purge: ' + e.message); }
   }
   // 8) the database's use of today's free quota (every 15 minutes) → system/usage for the Control Tower
+  //    Google gives these numbers only to a project on the Blaze plan: on the free plan it is tried once a day, not every 15 minutes
   if (!ctx.full && ctx.calls <= REQ_LIMIT - 10 && minute % 15 === 11) {
-    try { await usageJob(ctx); ctx.log.push('usage'); } catch (e) {
-      const msg = String((e && e.message) || e).slice(0, 300);
-      ctx.log.push('usage: ' + msg);
-      // the reason shows on the Control Tower's card (instead of "بيتحسب…" for ever)
-      try { await patch(ctx, 'system/usage', { error: msg, errAt: now }, ['error', 'errAt']); } catch (e2) { /* ignore */ }
+    const u = await getDoc(ctx, 'system/usage').catch(() => null);
+    if (u && u.billing && now < (Number(u.retryAt) || 0)) ctx.log.push('usage: waits for the Blaze plan');
+    else {
+      try { await usageJob(ctx); ctx.log.push('usage'); } catch (e) {
+        const msg = String((e && e.message) || e).slice(0, 300), billing = /requires billing|billing to be enabled|BILLING_DISABLED/i.test(msg);
+        ctx.log.push('usage: ' + msg);
+        // the reason shows on the Control Tower's card (instead of "بيتحسب…" for ever)
+        try { await patch(ctx, 'system/usage', { error: msg, errAt: now, billing, retryAt: billing ? now + 86400000 : 0 }, ['error', 'errAt', 'billing', 'retryAt']); } catch (e2) { /* ignore */ }
+      }
     }
   }
   return { today, reads: ctx.reads, writes: ctx.writes, sent: ctx.sent, calls: ctx.calls, pushed: ctx.pushed, log: ctx.log };

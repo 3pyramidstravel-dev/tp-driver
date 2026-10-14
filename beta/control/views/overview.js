@@ -17,6 +17,8 @@
     if (!S.can('all')) return '';
     const head = '<div class="us-hd"><h3><span class="us-ico">📊</span>قاعدة البيانات النهارده</h3></div>';
     if (!u || (!u.at && !u.error)) return `<section class="us-card">${head}<p class="us-wait">بيتحسب… أول قراءة بتوصل خلال ربع ساعة.</p></section>`;
+    if (u.billing && !(u.at > (u.errAt || 0))) return `<section class="us-card">${head}<p class="us-wait">📌 الأرقام هتظهر هنا لوحدها بعد تفعيل خطة <b>Blaze</b> (الفيزا) — جوجل مش بيديها على الخطة المجانية.</p>
+      <p class="us-note">لحد دلوقتي تقدر تشوف الاستهلاك من <a href="https://console.firebase.google.com/project/three-pyramids-d8ce7/firestore/usage" target="_blank" rel="noopener">صفحة Firebase ↗</a></p></section>`;
     if (!u.at || (u.error && (u.errAt || 0) > (u.at || 0))) return `<section class="us-card">${head}<p class="us-wait">مش قادر يجيب الأرقام من جوجل لسه. السبب (للمراجعة):</p><p class="us-err" dir="ltr">${esc(u.error || '')}</p></section>`;
     const L = u.lim || { reads: 50000, writes: 20000, deletes: 20000 };
     const fresh = TP.now() < (u.resetAt || 0);
