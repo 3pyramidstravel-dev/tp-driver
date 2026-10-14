@@ -420,7 +420,7 @@
     const tok = await TP.cust.tokens(m.customers);
     const list = (m.customers || []).filter(c => tok[c.h]).map(c => Object.assign({}, c, { token: tok[c.h] }));
     TP.openModal('لينكات العملاء — ' + (m.title || ''), list.length ? `<p class="muted small" style="margin-bottom:10px">لينك للمشوار ده بس، بيوري رحلة العميل من غير أسعار.</p><div class="table-wrap"><table class="tbl"><tbody>${list.map(c => {
-      const wa = TP.waLink(c.phone, TP.actions.custMessage(c.name, c.token, m.type === 'airport' ? 'رحلتك للمطار' : 'مشوارك', c.sex));
+      const wa = TP.waLink(c.phone, TP.guest.rideCard(m, c, TP.custUrl(c.token), TP.q.person(m.driverId) || ''));
       const guest = (c.lang && c.lang !== 'ar') || m.type === 'airport';
       return `<tr><td><b>${esc(c.name)}</b>${c.lang && c.lang !== 'ar' ? ` <span class="tag">${esc(TP.i18n.info(c.lang).name)}</span>` : ''}<div class="muted small" dir="ltr">${esc(c.phone || '')}</div></td><td class="acts"><button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(TP.custUrl(c.token))}">${TP.icon('copy', 16)}انسخ</button>${guest ? `<button type="button" class="btn btn-gold btn-sm" data-guest="${esc(c.h)}">${TP.icon('users', 16)}رسايل بلغته</button>` : ''}${wa ? `<a class="btn btn-primary btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">واتساب</a>` : ''}<a class="icon-btn" href="${esc(TP.custUrl(c.token))}" target="_blank" rel="noopener">${TP.icon('external', 16)}</a></td></tr>`;
     }).join('')}</tbody></table></div>` : U.empty('المشوار ده مفيهوش عملاء — ضيفهم من التعديل'), null, { noSave: true, wide: true });

@@ -37,6 +37,7 @@
       <div class="form-grid">
         <label class="fld">الاسم<input class="input" id="fName" value="${esc(p.name || '')}" required></label>
         <label class="fld">الموبايل<input class="input" id="fPhone" inputmode="tel" value="${esc(p.phone || '')}"></label>
+        <label class="fld">الاسم بالإنجليزي <small>للتوقيع — لو فاضي بيتكتب لوحده</small><input class="input" id="fNameEn" dir="ltr" maxlength="60" placeholder="${esc(TP.enName ? TP.enName(p.name || '') : '')}" value="${esc(p.nameEn || '')}"></label>
         <label class="fld">نوع الحساب
           <select class="input" id="fType" ${isGm ? 'disabled' : ''}>
             <option value="staff" ${p.type === 'staff' ? 'selected' : ''}>موظف ثري بيراميدز</option>
@@ -81,7 +82,7 @@
       if (!person.perms.length) { TP.toast('اختار صلاحية واحدة على الأقل'); return false; }
     }
     const id = pid || TP.newId('P');
-    const data = { type: person.type, name: person.name, phone: person.phone || '', role: person.role, perms: person.perms, active: person.active, updatedAt: TP.fb.ts() };
+    const data = { type: person.type, name: person.name, nameEn: U.val('fNameEn').slice(0, 60), phone: person.phone || '', role: person.role, perms: person.perms, active: person.active, updatedAt: TP.fb.ts() };
     if (person.factoryId) data.factoryId = person.factoryId; else if (pid) data.factoryId = TP.fb.del();
     const ops = [];
     const needsPinNow = TP.needsPin(person.perms), neededBefore = pid && TP.needsPin(old.perms || []);

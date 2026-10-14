@@ -102,20 +102,23 @@
     msg += '\n--------------------------\nملحوظة: صور العدادات يتم إرسالها كمرفقات في نفس محادثة الجروب بعد اللصق';
     return msg;
   };
-  /** Operations' schedule of a car's trips to its group. */
-  FL.scheduleMessage = function (carName, items) {
-    let msg = '*تعليمات مدير التشغيل - Three Pyramids Travel*\n--------------------------\n';
-    msg += `العربية: ${carName}\n--------------------------\n`;
+  /** Operations' schedule of a car's trips to its group — everything the captain needs to work from WhatsApp alone if the app fails
+      (locations as map links). opts: {captain, sign} — sign is the sender's English signature. Every line kept on the right. */
+  FL.scheduleMessage = function (carName, items, opts) {
+    const o = opts || {}, RLM = '\u200F', LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
+    const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
+    const out = [RLM + '*THREE PYRAMIDS TRAVEL*', '_تعليمات التشغيل_', '', row('العربية', carName), row('الكابتن', o.captain || '')];
     items.forEach((m, i) => {
-      if (i > 0) msg += '\n➖➖➖➖➖➖➖➖➖➖\n\n';
-      msg += `\n*المشوار ${FL.ORD[i] || i + 1}*\n`;
-      const f = [['المشوار', m.when], ['وقت الوصول', `*${m.time ? hm12(m.time) : '-'}*`], ['نوع المشوار', m.type], ['من', m.from || '-'], ['إلى', m.to || '-']];
-      if (m.flight) f.push(['رقم الرحلة', `*${m.flight}*`]);
-      if (m.terminal) f.push(['رقم الصالة', `*${m.terminal}*`]);
-      f.push(['اسم العميل', m.client || '-'], ['رقم العميل', m.phone || '-'], ['اسم المصنع', m.factory || '-'], ['ملاحظات', m.notes ? `*${m.notes}*` : '-']);
-      f.forEach((x, j) => { msg += `*${j + 1}.* ${x[0]}: ${x[1]}\n`; });
+      out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
+        row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
+        row('ميعاد الوصول', m.time ? hm12(m.time) : ''), row('نوع المشوار', m.type),
+        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''),
+        row('متابعة الرحلة', m.flightNo ? 'https://airportinfo.live/flight/' + String(m.flightNo).toLowerCase().replace(/[^a-z0-9]/g, '') : ''),
+        row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
+        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
     });
-    return msg + '\n--------------------------';
+    if (o.sign) out.push('', o.sign);
+    return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };
 
   /** Document expiry: 'expired' | 'soon' (within `warnDays`) | 'ok' | 'none'. */

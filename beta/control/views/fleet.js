@@ -105,8 +105,9 @@
   /* ---------- the car's schedule to its WhatsApp group (like the old manager screen) ---------- */
   function schedItem(m) {
     const f = TP.q.company(m.factoryId), air = m.type === 'airport' && m.flight, t = today();
-    return { id: m.id, when: m.day === t ? 'النهاردة' : m.day === O.addDays(t, 1) ? 'بكرة' : m.day, time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'سفر' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
-      flight: air && m.flight.dir === 'arr' ? m.flight.no : '', terminal: air ? (m.flight.terminal || '') : '', client: (m.customers || []).map(c => c.name).join('، '), phone: (m.customers || []).map(c => c.phone).filter(Boolean).join(' / '),
+    return { id: m.id, when: m.day === t ? 'النهاردة' : m.day === O.addDays(t, 1) ? 'بكرة' : '', dayFull: TP.fmtDay(m.day + 'T12:00:00'), time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'توصيل مطار' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
+      fromLoc: m.from && m.from.location, toLoc: m.to && m.to.location,
+      flight: air && m.flight.dir === 'arr' ? m.flight.no : '', flightNo: air ? m.flight.no : '', terminal: air ? (m.flight.terminal || '') : '', client: (m.customers || []).map(c => c.name).join('، '), phone: (m.customers || []).map(c => c.phone).filter(Boolean).map(ph => TP.phoneNice ? TP.phoneNice(ph) : ph).join(' / '),
       factory: f ? f.name : (m.client || ''), notes: m.notes || '' };
   }
   /** After the operations manager saves a mission: the same "copy and open the car's group" as the driver has.
@@ -117,7 +118,7 @@
     const p = TP.q.person(m.driverId), vid = p && p.vehicleId, car = vid && (D.fleet || []).find(c => c.id === vid && c.on !== false);
     if (!car) return;                                                                                         // not a car on the trip order
     if (!car.group) { TP.toast('جروب العربية ' + carName(vid) + ' لسه متحطش — حطه من أمر الشغل ← العربيات', 'warn'); return; }
-    const msg = FL().scheduleMessage(carName(vid), list.map(schedItem));
+    const msg = FL().scheduleMessage(carName(vid), list.map(schedItem), { captain: p.name, sign: TP.signature(S.person, true) });
     if (!(await TP.confirm('ابعت التشغيل لجروب العربية', `${carName(vid)} — ${p.name}. دوس "افتح الجروب"، وفي الواتساب دوس لصق وابعت.`, 'افتح الجروب'))) return;
     let copied = false;
     try { await navigator.clipboard.writeText(msg); copied = true; } catch (e) { /* blocked */ }
@@ -140,7 +141,7 @@
     TP.openModal('جدول المشاوير لجروب ' + carName(vid), body, items.length ? async () => {
       const pick = items.filter((_, i) => { const el = TP.$(`#tp-modal [data-si="${i}"]`); return el && el.checked; });
       if (!pick.length) { TP.toast('علّم على مشوار واحد على الأقل'); return false; }
-      const msg = FL().scheduleMessage(carName(vid), pick);
+      const msg = FL().scheduleMessage(carName(vid), pick, { captain: drv.name, sign: TP.signature(S.person, true) });
       try { await navigator.clipboard.writeText(msg); } catch (e) { /* the text is shown below if copying is blocked */ }
       if (car && car.group) window.open(car.group, '_blank');
       TP.toast('الجدول اتنسخ ✓');
