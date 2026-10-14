@@ -12,7 +12,7 @@
     todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '', driverCodes: [],
     wakePlans: {}, wakeAcks: [], wakeWatch: null,
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
-    fleet: [], salaryBase: {}, presence: {}, signups: [],
+    fleet: [], salaryBase: {}, presence: {}, signups: [], usage: null,
     loaded: {}
   };
   let unsubs = [];
@@ -69,6 +69,8 @@
       /* phase 7 — trip orders (أمر الشغل): the cars' custody, fuel, odometer; the tourism drivers' base salary */
       if (can('fleet.manage') || can('salary.manage') || can('tracking.view') || can('reports.finance') || can('month.close')) sub('fleet', 'fleet', null);
       if (can('salary.manage')) sub('salaryBase', 'salaryBase', null, toMap);
+      // the database's use of today's free quota (the cloud alarm writes it every 15 minutes) — the general manager
+      if (can('all')) unsubs.push(TP.fb.onDoc('system/usage', d => { D.usage = d; emit('usage'); }, () => emit('usage')));
       unsubs.push(TP.fb.onDoc('system/settings', s => { D.settings = Object.assign({}, TP.DEFAULT_SETTINGS, s || {}); emit('settings'); }, () => emit('settings')));
       /* phase 2 — the working day */
       const today = D.todayKey = TP.dayKey();

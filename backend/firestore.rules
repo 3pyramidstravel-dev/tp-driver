@@ -65,6 +65,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // the database's use of the free daily quota (written by the cloud alarm) — the general manager's eyes only
+    match /system/usage {
+      allow read: if can('all');
+      allow write: if false;
+    }
     match /system/settings {
       allow read: if isActive();
       allow write: if can('settings.edit');

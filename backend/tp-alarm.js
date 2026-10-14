@@ -623,7 +623,7 @@ async function accessToken(ctx) {
   const sa = JSON.parse(ctx.env.GOOGLE_SA);
   const iat = Math.floor(ctx.now / 1000);
   const head = b64urlStr(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const body = b64urlStr(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging', aud: sa.token_uri || 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
+  const body = b64urlStr(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/monitoring.read', aud: sa.token_uri || 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
   if (!cachedKey || cachedKey.email !== sa.client_email) cachedKey = { email: sa.client_email, key: await crypto.subtle.importKey('pkcs8', pemToDer(sa.private_key), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) };
   const key = cachedKey.key;
   const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(head + '.' + body));
@@ -1153,6 +1153,38 @@ export async function resolveMap(req, env, f, nowMs) {
 }
 
 /* ---------------- one run (every minute) ---------------- */
+/* ---------------- the free quota of the database (Firestore's day starts at midnight Pacific time = 10 AM Cairo) ---------------- */
+const QUOTA = { reads: 50000, writes: 20000, deletes: 20000 };
+function pacificMidnight(now) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(now)).forEach(x => { parts[x.type] = x.value; });
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  const offset = asUtc - Math.floor(now / 1000) * 1000;
+  return { start: Date.UTC(+parts.year, +parts.month - 1, +parts.day) - offset, day: `${parts.year}-${parts.month}-${parts.day}` };
+}
+async function metricSum(ctx, type, start, now) {
+  const secs = Math.max(60, Math.floor((now - start) / 1000));
+  const q = new URLSearchParams({ filter: `metric.type = "${type}"`, 'interval.startTime': new Date(now - secs * 1000).toISOString(), 'interval.endTime': new Date(now).toISOString(),
+    'aggregation.alignmentPeriod': secs + 's', 'aggregation.perSeriesAligner': 'ALIGN_SUM', 'aggregation.crossSeriesReducer': 'REDUCE_SUM' });
+  const r = await api(ctx, `https://monitoring.googleapis.com/v3/projects/${PROJECT}/timeSeries?${q}`);
+  if (!r.ok) throw new Error('monitoring ' + r.status + ' ' + (await r.text()).slice(0, 160));
+  const j = await r.json();
+  if (!j.timeSeries || !j.timeSeries.length) return null;
+  return j.timeSeries.reduce((a, t) => a + (t.points || []).reduce((b, pt) => b + Number(pt.value.int64Value || pt.value.doubleValue || 0), 0), 0);
+}
+async function usageJob(ctx) {
+  const now = ctx.now, { start, day } = pacificMidnight(now);
+  const one = async kind => { const v = await metricSum(ctx, `firestore.googleapis.com/document/${kind}_count`, start, now); return v === null ? 0 : Math.round(v); };
+  const reads = await one('read'), writes = await one('write'), deletes = await one('delete');
+  const old = (await getDoc(ctx, 'system/usage')) || {};
+  const pct = Math.round(Math.max(reads / QUOTA.reads, writes / QUOTA.writes, deletes / QUOTA.deletes) * 100);
+  const hist = Object.assign({}, old.hist || {}, { [day]: pct });
+  Object.keys(hist).sort().slice(0, -8).forEach(k => { delete hist[k]; });
+  await patch(ctx, 'system/usage', { day, reads, writes, deletes, pct, lim: QUOTA, dayStart: start, resetAt: start + 86400000, at: now, hist, error: '' },
+    ['day', 'reads', 'writes', 'deletes', 'pct', 'lim', 'dayStart', 'resetAt', 'at', 'hist', 'error']);
+}
+
 export async function run(env, now, f) {
   const raw = f || ((u, o) => fetch(u, o));
   const ctx = { env, now, reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
@@ -1272,6 +1304,10 @@ export async function run(env, now, f) {
   const hr = cairoHour(now);
   if (!ctx.full && ctx.calls <= REQ_LIMIT - 16 && minute % 10 === 7 && hr >= 1 && hr < 5) {
     try { const s = (await getDoc(ctx, 'system/settings')) || {}; await purge(ctx, s); } catch (e) { ctx.log.push('purge: ' + e.message); }
+  }
+  // 8) the database's use of today's free quota (every 15 minutes) → system/usage for the Control Tower
+  if (!ctx.full && ctx.calls <= REQ_LIMIT - 10 && minute % 15 === 11) {
+    try { await usageJob(ctx); ctx.log.push('usage'); } catch (e) { ctx.log.push('usage: ' + ((e && e.message) || e)); }
   }
   return { today, reads: ctx.reads, writes: ctx.writes, sent: ctx.sent, calls: ctx.calls, pushed: ctx.pushed, log: ctx.log };
 }

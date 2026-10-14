@@ -108,6 +108,8 @@
     if (D.factoryRequests.length) h += `<a class="banner warn alert-link" href="#/requests">${TP.icon('file')}<span class="grow">${D.factoryRequests.length} طلب من المصانع مستني</span><b>راجع</b></a>`;
     const asks = S.can('fleet.manage') ? D.fleet.filter(c => c.req) : [];
     if (asks.length) h += `<a class="banner warn alert-link" href="#/fleet">${TP.icon('money')}<span class="grow">${asks.length > 1 ? asks.length + ' سواقين طالبين عهدة مصروفات' : 'سواق طالب عهدة مصروفات — رصيده ' + esc(TP.money(asks[0].req.bal))}</span><b>سلّم</b></a>`;
+    const u = S.can('all') && D.usage;
+    if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
     el.innerHTML = h;
   }
 
