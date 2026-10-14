@@ -63,13 +63,13 @@
 
   /* ---------- the ride card for a customer (like a formal e-mail): the captain, his number, the car, the date and time, from / to, the live link ---------- */
   const CARD = {
-    ar: { greet: 'أهلاً يا فندم 🌹\nتحية طيبة وبعد،\nيسعدنا إفادة حضرتك ببيانات رحلتك كالتالي:', cap: 'الكابتن', ph: 'رقم الكابتن', car: 'العربية', date: 'التاريخ', time: 'ميعاد الوصول', from: 'من', to: 'إلى', fl: 'رقم الرحلة', term: 'صالة', link: 'لمتابعة عربيتك لحظة بلحظة', close: 'نتمنى لحضرتك رحلة سعيدة، ولأي استفسار يسعدنا تواصلك معنا.', arrow: '←' },
-    en: { greet: 'Dear {n},\nGreetings from Three Pyramids Travel.\nWe are pleased to share your ride details as follows:', cap: 'Captain', ph: 'Contact Number', car: 'Car', date: 'Date', time: 'Arrival Time', from: 'From', to: 'To', fl: 'Flight', term: 'Terminal', link: 'Follow your car live', close: 'We wish you a pleasant journey. Should you need any assistance, please do not hesitate to contact us.', arrow: '→' },
-    de: { greet: 'Sehr geehrte/r {n},\nherzliche Grüße von Three Pyramids Travel.\nGerne teilen wir Ihnen Ihre Fahrtdetails mit:', cap: 'Fahrer', ph: 'Telefon', car: 'Fahrzeug', date: 'Datum', time: 'Ankunftszeit', from: 'Von', to: 'Nach', fl: 'Flug', term: 'Terminal', link: 'Ihr Fahrzeug live verfolgen', close: 'Wir wünschen Ihnen eine angenehme Reise. Für Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.', arrow: '→' },
-    fr: { greet: 'Cher/Chère {n},\nSalutations de Three Pyramids Travel.\nNous avons le plaisir de vous communiquer les détails de votre trajet :', cap: 'Chauffeur', ph: 'Téléphone', car: 'Voiture', date: 'Date', time: "Heure d'arrivée", from: 'De', to: 'À', fl: 'Vol', term: 'Terminal', link: 'Suivez votre voiture en direct', close: 'Nous vous souhaitons un agréable voyage. Pour toute question, n’hésitez pas à nous contacter.', arrow: '→' },
-    ru: { greet: 'Уважаемый(ая) {n},\nприветствуем вас от Three Pyramids Travel.\nСообщаем детали вашей поездки:', cap: 'Водитель', ph: 'Телефон', car: 'Автомобиль', date: 'Дата', time: 'Время подачи', from: 'Откуда', to: 'Куда', fl: 'Рейс', term: 'Терминал', link: 'Следите за машиной онлайн', close: 'Желаем приятной поездки. Если понадобится помощь, обращайтесь к нам.', arrow: '→' },
-    zh: { greet: '尊敬的 {n}：\nThree Pyramids Travel 向您问好。\n您的行程信息如下：', cap: '司机', ph: '联系电话', car: '车辆', date: '日期', time: '到达时间', from: '出发地', to: '目的地', fl: '航班', term: '航站楼', link: '实时查看您的车辆', close: '祝您旅途愉快。如需任何帮助，请随时与我们联系。', arrow: '→' },
-    ko: { greet: '{n}님께,\nThree Pyramids Travel에서 인사드립니다.\n고객님의 이동 정보를 안내해 드립니다:', cap: '기사', ph: '연락처', car: '차량', date: '날짜', time: '도착 시간', from: '출발', to: '도착', fl: '항공편', term: '터미널', link: '실시간으로 차량 확인', close: '즐거운 여행 되시기 바랍니다. 도움이 필요하시면 언제든지 연락 주세요.', arrow: '→' }
+    ar: { greet: 'أهلاً وسهلاً يا فندم 🌹\nإلى سيادتكم بيانات الكابتن ولينك السيارة أون لاين:', cap: 'الكابتن', ph: 'رقم الكابتن', car: 'العربية', date: 'التاريخ', time: 'ميعاد الوصول', from: 'من', to: 'إلى', fl: 'رقم الرحلة', term: 'صالة', link: 'لمتابعة عربيتك لحظة بلحظة', close: 'نتمنى لحضرتك رحلة سعيدة، ولأي استفسار يسعدنا تواصلك معنا.', arrow: '←' },
+    en: { greet: 'Welcome, {n} 🌹\nPlease find below your captain\'s details and the live car link:', cap: 'Captain', ph: 'Contact Number', car: 'Car', date: 'Date', time: 'Arrival Time', from: 'From', to: 'To', fl: 'Flight', term: 'Terminal', link: 'Follow your car live', close: 'We wish you a pleasant journey. Should you need any assistance, please do not hesitate to contact us.', arrow: '→' },
+    de: { greet: 'Herzlich willkommen, {n} 🌹\nNachfolgend die Daten Ihres Fahrers und der Live-Link zu Ihrem Fahrzeug:', cap: 'Fahrer', ph: 'Telefon', car: 'Fahrzeug', date: 'Datum', time: 'Ankunftszeit', from: 'Von', to: 'Nach', fl: 'Flug', term: 'Terminal', link: 'Ihr Fahrzeug live verfolgen', close: 'Wir wünschen Ihnen eine angenehme Reise. Für Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.', arrow: '→' },
+    fr: { greet: 'Bienvenue, {n} 🌹\nVoici les coordonnées de votre chauffeur et le lien de suivi en direct :', cap: 'Chauffeur', ph: 'Téléphone', car: 'Voiture', date: 'Date', time: "Heure d'arrivée", from: 'De', to: 'À', fl: 'Vol', term: 'Terminal', link: 'Suivez votre voiture en direct', close: 'Nous vous souhaitons un agréable voyage. Pour toute question, n’hésitez pas à nous contacter.', arrow: '→' },
+    ru: { greet: 'Добро пожаловать, {n} 🌹\nНиже данные вашего водителя и ссылка на автомобиль онлайн:', cap: 'Водитель', ph: 'Телефон', car: 'Автомобиль', date: 'Дата', time: 'Время подачи', from: 'Откуда', to: 'Куда', fl: 'Рейс', term: 'Терминал', link: 'Следите за машиной онлайн', close: 'Желаем приятной поездки. Если понадобится помощь, обращайтесь к нам.', arrow: '→' },
+    zh: { greet: '欢迎您，{n} 🌹\n以下是您的司机信息及车辆实时链接：', cap: '司机', ph: '联系电话', car: '车辆', date: '日期', time: '到达时间', from: '出发地', to: '目的地', fl: '航班', term: '航站楼', link: '实时查看您的车辆', close: '祝您旅途愉快。如需任何帮助，请随时与我们联系。', arrow: '→' },
+    ko: { greet: '{n}님, 환영합니다 🌹\n아래에서 기사 정보와 실시간 차량 링크를 확인하세요:', cap: '기사', ph: '연락처', car: '차량', date: '날짜', time: '도착 시간', from: '출발', to: '도착', fl: '항공편', term: '터미널', link: '실시간으로 차량 확인', close: '즐거운 여행 되시기 바랍니다. 도움이 필요하시면 언제든지 연락 주세요.', arrow: '→' }
   };
   function rideCard(m, c, link, drv) {
     const L = I().ok(c.lang) ? c.lang : 'ar', T = CARD[L] || CARD.en, ar = L === 'ar', fl = m.flight || {};
@@ -79,12 +79,13 @@
     const carTxt = v && v.model ? (ar ? v.model : TP.enName(v.model)) : '';
     const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
-    const lines = [(ar ? RLM : '') + '*THREE PYRAMIDS TRAVEL*', (ar ? RLM : '') + '_VIP & Airport Transport_', '', T.greet.replace('{n}', first(c.name)), '',
+    const DOTS = '.........................';
+    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', first(c.name)), '',
       row(T.cap, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
       row(T.fl, m.type === 'airport' && fl.no ? fl.no + (fl.terminal ? ` — ${T.term} ${fl.terminal}` : '') : ''),
-      row(T.from, (m.from && m.from.name) || ''), row(T.to, (m.to && m.to.name) || ''), '',
-      link ? row(T.link, link) : null, '', T.close, '', TP.signature(sender(), ar)];
+      row(T.from, (m.from && m.from.name) || ''), row(T.to, (m.to && m.to.name) || ''),
+      DOTS, link ? T.link + ' 👇\n' + link : null, link ? DOTS : null, TP.signature(sender(), ar)];
     return lines.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n');
   }
 
