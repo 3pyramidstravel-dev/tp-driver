@@ -108,6 +108,9 @@
     if (D.factoryRequests.length) h += `<a class="banner warn alert-link" href="#/requests">${TP.icon('file')}<span class="grow">${D.factoryRequests.length} طلب من المصانع مستني</span><b>راجع</b></a>`;
     const asks = S.can('fleet.manage') ? D.fleet.filter(c => c.req) : [];
     if (asks.length) h += `<a class="banner warn alert-link" href="#/fleet">${TP.icon('money')}<span class="grow">${asks.length > 1 ? asks.length + ' سواقين طالبين عهدة مصروفات' : 'سواق طالب عهدة مصروفات — رصيده ' + esc(TP.money(asks[0].req.bal))}</span><b>سلّم</b></a>`;
+    // a device opened with the GM recovery key in the last 3 days (other than this one) — so a misuse is seen at once
+    const rec = S.can('all') ? (D.devices || []).filter(d => d.approvedBy === 'recovery' && d.id !== S.uid && TP.now() - (d.approvedAtMs || 0) < 3 * 86400000) : [];
+    if (rec.length) h += `<a class="banner danger alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">جهاز اتفتح على حساب المدير العام بمفتاح الاسترجاع (${esc(TP.ago(rec[0].approvedAtMs))}) — لو مش إنت، شيله فوراً وغيّر المفتاح</span><b>الأجهزة</b></a>`;
     const u = S.can('all') && D.usage;
     if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
     el.innerHTML = h;
@@ -138,7 +141,7 @@
 
   let cardTimer = null, cardsSeen = false;
   document.addEventListener('tp:data', e => {
-    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet'].includes(e.detail)) { renderAlerts(); renderNav(); }
+    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet', 'devices'].includes(e.detail)) { renderAlerts(); renderNav(); }
     if (e.detail === 'settings' && current && NAV.find(n => n.id === current && n.finance) && !TP.financeOn(TP.D.settings)) { go(); return; }
     // driver cards (what customers see) follow names, codes and cars
     // (the cards' own changes only on their first load — never an echo of our own write)

@@ -36,6 +36,8 @@ service cloud.firestore {
     function devPath(uid) { return /databases/$(database)/documents/devices/$(uid); }
     function personPath(pid) { return /databases/$(database)/documents/people/$(pid); }
     function statePath() { return /databases/$(database)/documents/system/state; }
+    function secretPath() { return /databases/$(database)/documents/secrets/recovery; }
+    function recoverPath(uid) { return /databases/$(database)/documents/recover/$(uid); }
     function me() { return get(devPath(request.auth.uid)).data; }
     function isActive() {
       return signedIn() && exists(devPath(request.auth.uid)) && me().active == true;
@@ -63,6 +65,37 @@ service cloud.firestore {
         && getAfter(devPath(request.auth.uid)).data.perms == ['all']
         && getAfter(devPath(request.auth.uid)).data.active == true;
       allow update, delete: if false;
+    }
+
+    // GM recovery key: only its SHA-256 is kept, readable by nobody; set by the GM for himself
+    match /secrets/{id} {
+      allow read: if false;
+      allow create, update: if id == 'recovery' && can('all')
+        && request.resource.data.keys().hasOnly(['hash', 'personId', 'setAt'])
+        && request.resource.data.hash is string && request.resource.data.hash.size() == 64
+        && request.resource.data.personId == me().personId
+        && request.resource.data.setAt == request.time;
+      allow delete: if can('all');
+    }
+    // which account the recovery opens (no secret here) — the activation screen reads it
+    match /system/recovery {
+      allow read: if signedIn();
+      allow create, update: if can('all')
+        && request.resource.data.keys().hasOnly(['personId', 'name', 'setAt'])
+        && request.resource.data.personId == me().personId
+        && request.resource.data.setAt == request.time;
+      allow delete: if can('all');
+    }
+    // a recovery attempt: accepted only with the right key; the device deletes it right after
+    match /recover/{uid} {
+      allow read, update: if false;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['k', 'at'])
+        && request.resource.data.k is string && request.resource.data.k.size() >= 8 && request.resource.data.k.size() <= 200
+        && request.resource.data.at == request.time
+        && exists(secretPath())
+        && hashing.sha256(request.resource.data.k).toHexString().lower() == get(secretPath()).data.hash;
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
 
     // the database's use of the free daily quota (written by the cloud alarm) — the general manager's eyes only
@@ -141,7 +174,13 @@ service cloud.firestore {
           && request.resource.data.perms == ['all'] && request.resource.data.kind == 'staff'
           && request.resource.data.active == true && matchesPerson())
         || (can('devices.manage') && matchesPerson()
-            && (!isSensitive(request.resource.data) || can('all')));
+            && (!isSensitive(request.resource.data) || can('all')))
+        // GM recovery: this device, with a recovery attempt accepted in the same write
+        || (signedIn() && request.auth.uid == uid && existsAfter(recoverPath(uid))
+          && request.resource.data.personId == get(secretPath()).data.personId
+          && request.resource.data.perms == ['all'] && request.resource.data.kind == 'staff'
+          && request.resource.data.active == true && request.resource.data.approvedBy == 'recovery'
+          && matchesPerson());
 
       allow update: if
         // permission sync after a person is edited

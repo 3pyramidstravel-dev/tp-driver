@@ -122,6 +122,7 @@
     startHeartbeat();
     if (first) setTimeout(() => TP.push.refresh().catch(() => {}), 1500);
     if (first) opts.onReady && opts.onReady(S);
+    if (TP.store.get('tp-recovered', false)) { TP.store.del('tp-recovered'); setTimeout(() => TP.audit('device.recover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — بمفتاح الاسترجاع'), 500); }
     document.dispatchEvent(new CustomEvent('tp:session'));
   }
 
@@ -167,7 +168,9 @@
         <button type="submit" class="btn btn-primary btn-lg btn-block">تفعيل <i data-icon="arrow"></i></button>
       </form>
       <div id="gWait" hidden><div class="spinner"></div><p id="gWaitText">في انتظار موافقة الإدارة…</p></div>
-      <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>`);
+      <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>
+      ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:6px">استرجاع حساب المدير العام</button>' : ''}`);
+    const rb = TP.$('#gRecover', g); if (rb) rb.onclick = showRecovery;
     const boxes = TP.$$('.code-boxes input', g);
     boxes.forEach((b, i) => {
       b.addEventListener('input', () => {
@@ -216,6 +219,49 @@
         form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
       }
     }, () => {});
+  }
+
+  /* ---------- GM recovery: the recovery key the GM set in "حسابي" opens his account on this device ---------- */
+  TP.recoveryKey = k => String(k || '').trim().replace(/\s+/g, ' ');
+  function showRecovery() {
+    if (unsubReq) { unsubReq(); unsubReq = null; }
+    const g = gate(`<span class="caps">RECOVERY</span><h1>استرجاع حساب المدير العام</h1>
+      <p>اكتب مفتاح الاسترجاع اللي حددته في صفحة "حسابي".</p>
+      <form id="rForm" autocomplete="off" style="width:100%">
+        <input class="input" id="rKey" type="password" autocomplete="off" placeholder="مفتاح الاسترجاع" style="text-align:center" aria-label="مفتاح الاسترجاع">
+        <div class="gate-msg" id="rMsg"></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">استرجاع</button>
+      </form>
+      <button type="button" class="btn btn-ghost btn-sm" id="rBack" style="margin-top:6px">رجوع لكود التفعيل</button>`);
+    TP.$('#rBack', g).onclick = showActivation;
+    setTimeout(() => TP.$('#rKey', g).focus(), 80);
+    const fkey = 'tp-rec-fails';
+    TP.$('#rForm', g).addEventListener('submit', async e => {
+      e.preventDefault();
+      const msg = TP.$('#rMsg', g), btn = TP.$('#rForm button', g);
+      const f = TP.store.get(fkey, { n: 0, until: 0 });
+      if (f.until > Date.now()) { msg.textContent = `استنى ${Math.ceil((f.until - Date.now()) / 60000)} دقيقة وحاول تاني`; msg.className = 'gate-msg err'; return; }
+      const k = TP.recoveryKey(TP.$('#rKey', g).value);
+      if (k.length < 8) { msg.textContent = 'المفتاح 8 حروف أو أكتر'; msg.className = 'gate-msg err'; return; }
+      btn.disabled = true; msg.textContent = ''; msg.className = 'gate-msg';
+      try {
+        const rec = await TP.fb.get('system/recovery').catch(() => null);
+        if (!rec || !rec.personId) { msg.textContent = 'مفيش مفتاح استرجاع متحدد لسه.'; msg.className = 'gate-msg err'; return; }
+        await TP.fb.batch([
+          { op: 'set', path: 'recover/' + S.uid, data: { k, at: TP.fb.ts() } },
+          { op: 'set', path: 'devices/' + S.uid, data: { personId: rec.personId, name: rec.name || 'المدير العام', kind: 'staff', perms: ['all'], active: true, approvedAt: TP.fb.ts(), approvedAtMs: Date.now(), approvedBy: 'recovery' } }
+        ]);
+        TP.fb.remove('recover/' + S.uid).catch(() => {});   // the key is not kept
+        TP.store.del(fkey);
+        TP.store.set('tp-recovered', true);                  // written to the audit log once inside
+      } catch (err) {
+        console.warn(err);
+        const n = (f.n || 0) + 1;
+        TP.store.set(fkey, n >= 5 ? { n: 0, until: Date.now() + 10 * 60000 } : { n, until: 0 });
+        msg.textContent = n >= 5 ? 'محاولات كتير غلط — استنى 10 دقايق' : 'المفتاح غلط';
+        msg.className = 'gate-msg err';
+      } finally { btn.disabled = false; }
+    });
   }
 
   /* ---------- PIN ---------- */
