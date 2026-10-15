@@ -381,7 +381,7 @@
   /** After "اتحركت" / "وصلت": a WhatsApp message to each guest, one tap each (WhatsApp opens with the text ready). */
   function tellCustomers(m, step) {
     if (!['start', 'pickup'].includes(step.key)) return;
-    const car = (TP.dvCar && TP.dvCar.carText && TP.dvCar.carText()) || '';
+    const car = (TP.dvCar && TP.dvCar.vehicle && TP.dvCar.vehicle()) || '';
     const list = (m.customers || []).filter(c => c.phone && TP.phoneIntl(c.phone) && !(st.track[c.h] && st.track[c.h].st === 'noshow'))
       .map(c => ({ c, text: TP.guest.stepMessage(m, c, step.key, S.person, car) })).filter(x => x.text);
     if (!list.length) return;
@@ -665,7 +665,7 @@
     });
     root.querySelectorAll('[data-guestm]').forEach(b => b.onclick = () => {
       const [, oid, , cid] = b.dataset.guestm.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);
-      if (c) TP.guest.compose(m, c, null, S.person, (TP.dvCar && TP.dvCar.carText && TP.dvCar.carText()) || "");   // the driver has no link to send — the ready messages + "ترجم وابعت"
+      if (c) TP.guest.compose(m, c, null, S.person, (TP.dvCar && TP.dvCar.vehicle && TP.dvCar.vehicle()) || '');   // the driver has no link to send — the ready messages + "ترجم وابعت"
     });
     root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
       const [, oid, , cid] = b.dataset.pick.split('|'), m = allMissions().find(x => x.id === oid), c = m && (m.customers || []).find(x => x.id === cid);

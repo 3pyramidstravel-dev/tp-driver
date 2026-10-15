@@ -9,6 +9,13 @@
   TP.WORKER_URL = TP.WORKER_URL || 'https://tp-alarm.3pyramidstravel.workers.dev';
   const first = n => String(n || '').trim().split(/\s+/)[0] || '';
   const RLM = '\u200F', LRM = '\u200E';
+  /** The language of what the customer receives: his own, but English instead of Arabic (agreed: customers get English even if Arabic was left). */
+  const custL = c => { const l = I().ok(c && c.lang) ? c.lang : 'ar'; return l === 'ar' ? 'en' : l; };
+  /** First names in English letters (an Arabic name is written the usual Egyptian way). */
+  const enFirst = n => TP.enName(first(n));
+  const drvFirst = d => d && typeof d === 'object' ? ((d.nameEn || '').trim() ? first(d.nameEn) : enFirst(d.name)) : enFirst(d || '');
+  /** The car for the customer: model and colour in English, the plate as it is on the car. */
+  const carEn = v => { if (!v) return ''; if (typeof v === 'string') return v; const mc = [TP.enName(v.model || ''), TP.enName(v.color || '')].filter(Boolean).join(', '); return [mc, v.plate || ''].filter(Boolean).join(' – '); };
 
   /* ---------- an Arabic name (or car model) in English letters: the usual Egyptian spelling first, letter by letter otherwise ---------- */
   const WORDS = {
@@ -27,6 +34,7 @@
     'تويوتا': 'Toyota', 'كورولا': 'Corolla', 'كامري': 'Camry', 'فورتشنر': 'Fortuner', 'هيونداي': 'Hyundai', 'هيونداى': 'Hyundai', 'النترا': 'Elantra', 'اكسنت': 'Accent', 'توسان': 'Tucson',
     'كيا': 'Kia', 'سيراتو': 'Cerato', 'سبورتاج': 'Sportage', 'نيسان': 'Nissan', 'صني': 'Sunny', 'سنترا': 'Sentra', 'ميتسوبيشي': 'Mitsubishi', 'لانسر': 'Lancer', 'شيفروليه': 'Chevrolet',
     'اوبترا': 'Optra', 'بيجو': 'Peugeot', 'سكودا': 'Skoda', 'اوكتافيا': 'Octavia', 'رينو': 'Renault', 'لوجان': 'Logan', 'شيري': 'Chery', 'تيجو': 'Tiggo', 'جيلي': 'Geely', 'مرسيدس': 'Mercedes',
+    'ابيض': 'White', 'اسود': 'Black', 'فضي': 'Silver', 'فضى': 'Silver', 'رمادي': 'Grey', 'رمادى': 'Grey', 'احمر': 'Red', 'ازرق': 'Blue', 'كحلي': 'Navy', 'كحلى': 'Navy', 'بيج': 'Beige', 'ذهبي': 'Gold', 'بني': 'Brown', 'اخضر': 'Green', 'لبني': 'Light Blue',
     'ستاريا': 'Staria', 'هوندا': 'Honda', 'سيفيك': 'Civic', 'فولكس': 'Volkswagen', 'باسات': 'Passat', 'كابتن': 'Captain'
   };
   const LET = { 'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd',
@@ -72,7 +80,7 @@
     ko: { greet: '{n}님, 환영합니다 🌹\n아래에서 기사 정보와 실시간 차량 링크를 확인하세요:', cap: '기사', ph: '연락처', car: '차량', date: '날짜', time: '도착 시간', from: '출발', to: '도착', fl: '항공편', term: '터미널', link: '실시간으로 차량 확인', close: '즐거운 여행 되시기 바랍니다. 도움이 필요하시면 언제든지 연락 주세요.', arrow: '→' }
   };
   function rideCard(m, c, link, drv) {
-    const L = I().ok(c.lang) ? c.lang : 'ar', T = CARD[L] || CARD.en, ar = L === 'ar', fl = m.flight || {};
+    const L = custL(c), T = CARD[L] || CARD.en, ar = L === 'ar', fl = m.flight || {};
     const d = drv && typeof drv === 'object' ? drv : null;
     const v = d && d.vehicleId && TP.q && TP.q.vehicle ? TP.q.vehicle(d.vehicleId) : null;
     const capName = d ? (ar ? d.name : ((d.nameEn || '').trim() || TP.enName(d.name))) : (drv || '');
@@ -80,7 +88,7 @@
     const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
     const DOTS = '.........................';
-    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', first(c.name)), '',
+    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', enFirst(c.name)), '',
       row(T.cap, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
       row(T.fl, m.type === 'airport' && fl.no ? fl.no + (fl.terminal ? ` — ${T.term} ${fl.terminal}` : '') : ''),
@@ -104,13 +112,13 @@
    * link = his page (staff only — the driver does not hold the link), drv = the driver (his English name goes to foreign guests) or a name.
    */
   function messages(m, c, link, drv) {
-    const L = I().ok(c.lang) ? c.lang : 'ar',
-      driver = drv && typeof drv === 'object' ? (L !== 'ar' && drv.nameEn ? drv.nameEn : drv.name || '') : drv || '', t = (k, v) => I().t(L, k, v), fl = m.flight || {};
+    const L = custL(c), n = enFirst(c.name),
+      driver = drvFirst(drv), t = (k, v) => I().t(L, k, v), fl = m.flight || {};
     const arr = m.type === 'airport' && fl.dir === 'arr', term = fl.terminal ? t('termTag', { t: fl.terminal }) : '';
     const out = [];
     if (link) out.push({ k: 'card', label: arr ? 'رسالة الترحيب وبيانات الرحلة' : 'بيانات الرحلة', text: rideCard(m, c, link, drv) });
-    if (arr) out.push({ k: 'waiting', label: 'السواق مستنيك', text: t('msgWaiting', { d: driver || '', t: term }) });
-    if (m.type === 'airport' && Number(fl.delayMin) >= 15) out.push({ k: 'delay', label: 'الطيارة متأخرة', text: t('msgDelay', { f: fl.no || '', d: driver || '' }) });
+    if (arr) out.push({ k: 'waiting', label: 'السواق مستنيك', text: t('msgWaiting', { n, d: driver || '', t: term }) });
+    if (m.type === 'airport' && Number(fl.delayMin) >= 15) out.push({ k: 'delay', label: 'الطيارة متأخرة', text: t('msgDelay', { n, f: fl.no || '', d: driver || '' }) });
     return out;
   }
 
@@ -118,7 +126,7 @@
   const waShare = text => 'https://wa.me/?text=' + encodeURIComponent(text || '');
   /** One window: the ready messages + "ترجم وابعت" — to the guest's own number, to a group / anyone (WhatsApp's list), or copied. */
   function compose(m, c, link, driver, car) {
-    const L0 = I().ok(c.lang) ? c.lang : 'ar';
+    const L0 = custL(c);
     let L = L0;
     const draw = () => {
       const cc = Object.assign({}, c, { lang: L });
@@ -128,7 +136,7 @@
       const wa = text => TP.waLink(c.phone, text);
       const btns = (text, key) => `${c.phone && wa(text) ? `<a class="btn btn-primary btn-sm" href="${esc(wa(text))}" target="_blank" rel="noopener">📱 للعميل</a>` : ''}<a class="btn btn-ghost btn-sm" href="${esc(waShare(text))}" target="_blank" rel="noopener" title="الواتساب هيفتح قايمة الشاتات والجروبات — اختار">👥 لجروب / حد تاني</a><button type="button" class="btn btn-ghost btn-sm" data-gcopy="${esc(key)}">انسخ</button>`;
       TP.openModal('رسالة لـ ' + c.name, `
-        <div class="chips" style="margin-bottom:10px">${I().LANGS.map(l => `<button type="button" class="chip ${l.id === L ? 'active' : ''}" data-gl="${l.id}">${esc(l.name)}</button>`).join('')}</div>
+        <div class="chips" style="margin-bottom:10px">${I().LANGS.filter(l => l.id !== 'ar').map(l => `<button type="button" class="chip ${l.id === L ? 'active' : ''}" data-gl="${l.id}">${esc(l.name)}</button>`).join('')}</div>
         ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.label)}</b>${btns(x.text, x.k)}</div><p class="gm-t" dir="${I().info(L).dir}">${TP.waPreview(x.text)}</p></div>`).join('')}
         <div class="gm"><div class="gm-h"><b>ترجم وابعت</b><small class="muted">اكتب بالعربي، والرسالة تطلع بـ ${esc(I().info(L).name)}</small></div>
           <textarea class="input" id="gIn" rows="3" maxlength="1000" placeholder="مثال: السواق قدام البوابة رقم 2، العربية بيضا"></textarea>
@@ -159,11 +167,11 @@
   }
   /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
   function stepMessage(m, c, key, drv, car) {
-    const L = I().ok(c.lang) ? c.lang : 'ar', t = (k, v) => I().t(L, k, v), fl = m.flight || {};
-    const driver = drv && typeof drv === 'object' ? (L !== 'ar' && drv.nameEn ? drv.nameEn : drv.name || '') : drv || '';
-    car = car ? t('carTag', { c: car }) : '';
-    if (key === 'start') return t('msgOnWay', { n: I().honor(L, c.name, c.sex), d: driver, c: car || '' });
-    if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { d: driver, c: car || '' });
+    const L = custL(c), t = (k, v) => I().t(L, k, v), fl = m.flight || {}, n = enFirst(c.name);
+    const driver = drvFirst(drv);
+    car = carEn(car); car = car ? t('carTag', { c: car }) : '';
+    if (key === 'start') return t('msgOnWay', { n, d: driver, c: car || '' });
+    if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { n, d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { n, d: driver, c: car || '' });
     return '';
   }
   TP.guest = { messages, compose, stepMessage, rideCard };
