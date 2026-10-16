@@ -36,6 +36,8 @@
     const prefill = { type: r.type === 'airport' ? 'airport' : '', factoryId: r.factoryId, day: r.day || TP.dayKey(), time: r.time || '', notes: r.notes || '',
       from: r.from || { name: '' }, to: r.to || { name: '' }, customers: r.pax && r.pax.name ? [{ name: r.pax.name, phone: r.pax.phone || '' }] : [] };
     if (r.type === 'airport') prefill.flight = { no: r.flightNo || '', date: r.day || '', dir: r.dir || '', dirSet: !!r.dir };
+    // توصيل مطار سفر has no flight number on the trip: the factory's one is kept in the notes for the dispatcher
+    if (r.type === 'airport' && r.dir === 'dep' && r.flightNo) prefill.notes = ('رحلة ' + r.flightNo + (prefill.notes ? ' — ' + prefill.notes : '')).slice(0, 500);
     TP.actions.openMission(prefill, id => decide(r, 'done', { missionId: id }).then(() => TP.toast('الطلب اتقفل ✓')).catch(e => TP.toast(TP.errorText(e), 'warn')));
   }
   /** Applies a customer change to its line. */

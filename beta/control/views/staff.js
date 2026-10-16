@@ -62,7 +62,7 @@
       if (!r || r.id === 'custom') return;
       TP.$$('[data-perm]').forEach(c => { if (!c.disabled) c.checked = r.perms.includes('all') || r.perms.includes(c.dataset.perm); c.closest('.check').classList.toggle('on', c.checked); });
     };
-    TP.$$('[data-perm]').forEach(c => c.onchange = () => { c.closest('.check').classList.toggle('on', c.checked); TP.$('#fRole').value = 'custom'; });
+    TP.$$('[data-perm]').forEach(c => c.onchange = () => { c.closest('.check').classList.toggle('on', c.checked); });   // the job title stays: extra permissions do not make it "مخصص" (agreed)
   }
 
   async function save(pid, old) {

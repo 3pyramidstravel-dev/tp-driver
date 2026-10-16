@@ -58,7 +58,8 @@
     const staff = person && person.type === 'staff';
     // the name only — a note after a dash or a bracket ("أحمد سمير - الموبايل") is not part of it
     const own = String((person && person.name) || '').split(/\s*[-–—(|]\s*/)[0].trim();
-    const lines = ['Best Regards,'].concat(staff ? [`*${(person.nameEn || '').trim() || TP.enName(own)}*`, TITLES[person.role] || 'Operations Team'] : [], ['VIP & Airport Transport', '*Three Pyramids Travel*']);
+    // two short lines (agreed): "*Name* | Title" and the company
+    const lines = (staff ? [`*${(person.nameEn || '').trim() || TP.enName(own)}* | ${TITLES[person.role] || 'Operations Team'}`] : []).concat(['_Three Pyramids Travel_']);
     // in an Arabic message: kept on the right (RLM before) with its own punctuation in place (LRM after — "Best Regards," not ",Best Regards")
     return lines.map(l => rtl ? RLM + l + LRM : l).join('\n');
   };
@@ -71,13 +72,13 @@
 
   /* ---------- the ride card for a customer (like a formal e-mail): the captain, his number, the car, the date and time, from / to, the live link ---------- */
   const CARD = {
-    ar: { greet: 'أهلاً وسهلاً يا فندم 🌹\nإلى سيادتكم بيانات الكابتن ولينك السيارة أون لاين:', cap: 'الكابتن', ph: 'رقم الكابتن', car: 'العربية', date: 'التاريخ', time: 'ميعاد الوصول', from: 'من', to: 'إلى', fl: 'رقم الرحلة', term: 'صالة', link: 'لمتابعة عربيتك لحظة بلحظة', close: 'نتمنى لحضرتك رحلة سعيدة، ولأي استفسار يسعدنا تواصلك معنا.', arrow: '←' },
-    en: { greet: 'Welcome, {n} 🌹\nPlease find below your captain\'s details and the live car link:', cap: 'Captain', ph: 'Contact Number', car: 'Car', date: 'Date', time: 'Arrival Time', from: 'From', to: 'To', fl: 'Flight', term: 'Terminal', link: 'Follow your car live', close: 'We wish you a pleasant journey. Should you need any assistance, please do not hesitate to contact us.', arrow: '→' },
-    de: { greet: 'Herzlich willkommen, {n} 🌹\nNachfolgend die Daten Ihres Fahrers und der Live-Link zu Ihrem Fahrzeug:', cap: 'Fahrer', ph: 'Telefon', car: 'Fahrzeug', date: 'Datum', time: 'Ankunftszeit', from: 'Von', to: 'Nach', fl: 'Flug', term: 'Terminal', link: 'Ihr Fahrzeug live verfolgen', close: 'Wir wünschen Ihnen eine angenehme Reise. Für Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.', arrow: '→' },
-    fr: { greet: 'Bienvenue, {n} 🌹\nVoici les coordonnées de votre chauffeur et le lien de suivi en direct :', cap: 'Chauffeur', ph: 'Téléphone', car: 'Voiture', date: 'Date', time: "Heure d'arrivée", from: 'De', to: 'À', fl: 'Vol', term: 'Terminal', link: 'Suivez votre voiture en direct', close: 'Nous vous souhaitons un agréable voyage. Pour toute question, n’hésitez pas à nous contacter.', arrow: '→' },
-    ru: { greet: 'Добро пожаловать, {n} 🌹\nНиже данные вашего водителя и ссылка на автомобиль онлайн:', cap: 'Водитель', ph: 'Телефон', car: 'Автомобиль', date: 'Дата', time: 'Время подачи', from: 'Откуда', to: 'Куда', fl: 'Рейс', term: 'Терминал', link: 'Следите за машиной онлайн', close: 'Желаем приятной поездки. Если понадобится помощь, обращайтесь к нам.', arrow: '→' },
-    zh: { greet: '欢迎您，{n} 🌹\n以下是您的司机信息及车辆实时链接：', cap: '司机', ph: '联系电话', car: '车辆', date: '日期', time: '到达时间', from: '出发地', to: '目的地', fl: '航班', term: '航站楼', link: '实时查看您的车辆', close: '祝您旅途愉快。如需任何帮助，请随时与我们联系。', arrow: '→' },
-    ko: { greet: '{n}님, 환영합니다 🌹\n아래에서 기사 정보와 실시간 차량 링크를 확인하세요:', cap: '기사', ph: '연락처', car: '차량', date: '날짜', time: '도착 시간', from: '출발', to: '도착', fl: '항공편', term: '터미널', link: '실시간으로 차량 확인', close: '즐거운 여행 되시기 바랍니다. 도움이 필요하시면 언제든지 연락 주세요.', arrow: '→' }
+    ar: { greet: 'أهلاً وسهلاً يا فندم 🌹\nإلى سيادتكم بيانات الكابتن بيانات الكابتن:', cap: 'الكابتن', ph: 'رقم الكابتن', car: 'العربية', date: 'التاريخ', time: 'ميعاد الوصول', from: 'من', to: 'إلى', fl: 'رقم الرحلة', term: 'صالة', link: 'لمتابعة عربيتك لحظة بلحظة', close: 'نتمنى لحضرتك رحلة سعيدة، ولأي استفسار يسعدنا تواصلك معنا.', arrow: '←' },
+    en: { greet: 'Welcome, {n} 🌹\nPlease find below your captain\'s details:', cap: 'Captain', ph: 'Contact Number', car: 'Car', date: 'Date', time: 'Arrival Time', from: 'From', to: 'To', fl: 'Flight', term: 'Terminal', link: 'Follow your car live', close: 'We wish you a pleasant journey. Should you need any assistance, please do not hesitate to contact us.', arrow: '→' },
+    de: { greet: 'Herzlich willkommen, {n} 🌹\nNachfolgend die Daten Ihres Fahrers:', cap: 'Fahrer', ph: 'Telefon', car: 'Fahrzeug', date: 'Datum', time: 'Ankunftszeit', from: 'Von', to: 'Nach', fl: 'Flug', term: 'Terminal', link: 'Ihr Fahrzeug live verfolgen', close: 'Wir wünschen Ihnen eine angenehme Reise. Für Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.', arrow: '→' },
+    fr: { greet: 'Bienvenue, {n} 🌹\nVoici les coordonnées de votre chauffeur :', cap: 'Chauffeur', ph: 'Téléphone', car: 'Voiture', date: 'Date', time: "Heure d'arrivée", from: 'De', to: 'À', fl: 'Vol', term: 'Terminal', link: 'Suivez votre voiture en direct', close: 'Nous vous souhaitons un agréable voyage. Pour toute question, n’hésitez pas à nous contacter.', arrow: '→' },
+    ru: { greet: 'Добро пожаловать, {n} 🌹\nНиже данные вашего водителя:', cap: 'Водитель', ph: 'Телефон', car: 'Автомобиль', date: 'Дата', time: 'Время подачи', from: 'Откуда', to: 'Куда', fl: 'Рейс', term: 'Терминал', link: 'Следите за машиной онлайн', close: 'Желаем приятной поездки. Если понадобится помощь, обращайтесь к нам.', arrow: '→' },
+    zh: { greet: '欢迎您，{n} 🌹\n以下是您的司机信息：', cap: '司机', ph: '联系电话', car: '车辆', date: '日期', time: '到达时间', from: '出发地', to: '目的地', fl: '航班', term: '航站楼', link: '实时查看您的车辆', close: '祝您旅途愉快。如需任何帮助，请随时与我们联系。', arrow: '→' },
+    ko: { greet: '{n}님, 환영합니다 🌹\n아래에서 기사 정보를 확인하세요:', cap: '기사', ph: '연락처', car: '차량', date: '날짜', time: '도착 시간', from: '출발', to: '도착', fl: '항공편', term: '터미널', link: '실시간으로 차량 확인', close: '즐거운 여행 되시기 바랍니다. 도움이 필요하시면 언제든지 연락 주세요.', arrow: '→' }
   };
   function rideCard(m, c, link, drv) {
     const L = custL(c), T = CARD[L] || CARD.en, ar = L === 'ar', fl = m.flight || {};

@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-14T19:29Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-16T12:26Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -46,10 +46,14 @@
   const S = s => Object.assign({}, W.DEFAULTS, s || {});
 
   /** Minutes before the job: the driver's own choice (line drivers, with their PIN) or the default for his kind. */
-  W.leadMin = function (person, settings) {
+  W.leadMin = function (person, settings, job) {
     const s = S(settings);
+    // the trip's own wake-up minutes (set by the dispatcher on the trip) come first
+    const wm = job && job.wakeMin;
+    if (wm !== undefined && wm !== null && wm !== '' && isFinite(Number(wm)) && Number(wm) >= 0) return Math.round(Number(wm));
+    // only a line driver picks his own wake-up (tourism / trips: the management decides — agreed)
     const own = Number(person && person.wakeLeadMin);
-    if (own >= 30 && own <= 360) return Math.round(own);
+    if (person && person.driverKind === 'line' && own >= 30 && own <= 360) return Math.round(own);
     return Math.round(((person && person.driverKind === 'line') ? s.wakeLeadHoursLine : s.wakeLeadHoursTourism) * 60);
   };
 
@@ -65,7 +69,9 @@
     });
     (data.missions || []).forEach(m => {
       if (m.day !== day || m.status !== 'assigned' || !m.time || !/^\d{2}:\d{2}$/.test(m.time)) return;
-      add(m.driverId, { type: 'mission', id: m.id, label: m.title || 'مشوار', at: W.cairoMs(day, m.time) });
+      const job = { type: 'mission', id: m.id, label: m.title || 'مشوار', at: W.cairoMs(day, m.time) };
+      if (m.wakeMin !== undefined && m.wakeMin !== null && isFinite(Number(m.wakeMin))) job.wakeMin = Number(m.wakeMin);
+      add(m.driverId, job);
     });
     Object.keys(out).forEach(k => out[k].sort((a, b) => a.at - b.at));
     return out;
@@ -90,7 +96,7 @@
     Object.keys(jobs).forEach(pid => {
       const p = people[pid];
       if (!p || p.type !== 'driver' || p.active === false) return;
-      const job = jobs[pid][0], lead = W.leadMin(p, s);
+      const job = jobs[pid][0], lead = W.leadMin(p, s, job);
       const e = { name: p.name || '', code: p.code || null, kind: p.driverKind || '', phone: p.phone || '', job, leadMin: lead, wakeAt: job.at - lead * 60000,
         watch: (late[pid] || []).filter(x => x >= since && x < day).length >= s.watchLateCount, tokens: tokensOf(pid) };
       const old = prev && prev.d && prev.d[pid];
@@ -243,7 +249,8 @@
   F.jobAt = function (fl, settings, driveMin) {
     const s = settings || {};
     if (!fl || !fl.sched) return null;
-    const lead = (Number(s.airportDepartLeadMin) || 180) * 60000, early = (Number(s.airportArriveEarlyMin) || 30) * 60000;
+    const n = (v, d) => (v === undefined || v === null || v === '' || !isFinite(Number(v))) ? d : Number(v);   // 0 is a real choice
+    const lead = n(s.airportDepartLeadMin, 180) * 60000, early = s.airportArriveEarlyOn === false ? 0 : n(s.airportArriveEarlyMin, 30) * 60000;
     if (fl.dir === 'dep') {
       const t = fl.est && (fl.est < fl.sched || fl.est - fl.sched >= H) ? fl.est : fl.sched;
       return t - lead - (Number(driveMin) || Number(s.airportDriveMin) || 75) * 60000;
@@ -387,9 +394,10 @@
   /** Operations' schedule of a car's trips to its group — everything the captain needs to work from WhatsApp alone if the app fails
       (locations as map links). opts: {captain, sign} — sign is the sender's English signature. Every line kept on the right. */
   FL.scheduleMessage = function (carName, items, opts) {
-    const o = opts || {}, RLM = '\u200F', LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
+    const LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
     const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
-    const out = [RLM + '*THREE PYRAMIDS TRAVEL*', '_تعليمات التشغيل_', '', row('العربية', carName), row('الكابتن', o.captain || '')];
+    // short: the car's own group already knows the car and its captain — no header, no signature (agreed)
+    const out = [];
     items.forEach((m, i) => {
       out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
         row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
@@ -399,7 +407,6 @@
         row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
         row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
     });
-    if (o.sign) out.push('', o.sign);
     return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };
 
@@ -507,11 +514,11 @@
       'Здравствуйте, {n} 👋\nЭто Three Pyramids Travel. Ваш водитель {d} заберёт вас {w}.\nСледите за машиной здесь: {link}',
       '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
-    msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', 'Your driver {d} is waiting for you in front of the arrivals hall{t}, holding a sign with your name.', 'Ihr Fahrer {d} wartet vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.', "Votre chauffeur {d} vous attend devant le hall des arrivées{t} avec une pancarte à votre nom.", 'Водитель {d} ждёт вас у зала прилёта{t} с табличкой с вашим именем.', '您的司机 {d} 正在到达大厅前{t}等候，手持写有您名字的接机牌。', '기사 {d}님이 도착 홀 앞{t}에서 고객님 성함이 적힌 피켓을 들고 기다리고 있습니다.'],
-    msgOnWay: ['أهلاً يا فندم 🌹 الكابتن {d} اتحرك وفي الطريق لحضرتك دلوقتي{c}.', 'Dear {n}, your chauffeur {d} is now on the way to you{c}.', 'Hallo {n} 👋 Ihr Fahrer {d} ist jetzt auf dem Weg zu Ihnen{c}.', 'Bonjour {n} 👋 Votre chauffeur {d} est en route vers vous{c}.', 'Здравствуйте, {n} 👋 Ваш водитель {d} уже едет к вам{c}.', '{n}，您好 👋 您的司机 {d} 正在前往接您{c}。', '{n}님, 안녕하세요 👋 기사 {d}님이 지금 출발했습니다{c}.'],
-    msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', 'Your driver {d} has arrived and is waiting for you 🚗{c}.', 'Ihr Fahrer {d} ist angekommen und wartet auf Sie 🚗{c}.', 'Votre chauffeur {d} est arrivé et vous attend 🚗{c}.', 'Ваш водитель {d} приехал и ждёт вас 🚗{c}.', '您的司机 {d} 已到达，正在等您 🚗{c}。', '기사 {d}님이 도착해서 기다리고 있습니다 🚗{c}.'],
-    carTag: [' — العربية {c}', ' — car: {c}', ' — Auto: {c}', ' — voiture : {c}', ' — машина: {c}', '，车辆：{c}', ' — 차량: {c}'],
-    msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', 'Your flight {f} is delayed — your driver {d} knows and will wait for you. No need to do anything.', 'Ihr Flug {f} ist verspätet — Ihr Fahrer {d} weiß Bescheid und wartet. Sie müssen nichts tun.', "Votre vol {f} est retardé — votre chauffeur {d} est informé et vous attendra. Rien à faire de votre côté.", 'Ваш рейс {f} задерживается — водитель {d} знает и подождёт. Ничего делать не нужно.', '您的航班 {f} 延误 — 司机 {d} 已知悉并会等候您，您无需做任何事。', '항공편 {f}이(가) 지연되었습니다 — 기사 {d}님이 알고 기다릴 예정이니 따로 하실 일은 없습니다.'],
+    msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', "Hello {n},\nWelcome to Egypt!\nYour captain *{d}* is waiting for you at the arrivals hall{t}, holding a sign with your name.", "Hallo {n},\nWillkommen in Ägypten!\nIhr Fahrer *{d}* erwartet Sie vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.", "Bonjour {n},\nBienvenue en Égypte !\nVotre chauffeur *{d}* vous attend devant le hall des arrivées{t}, avec une pancarte à votre nom.", "Здравствуйте, {n}!\nДобро пожаловать в Египет!\nВаш водитель *{d}* ждёт вас у зала прилёта{t} с табличкой с вашим именем.", "{n}，您好！\n欢迎来到埃及！\n您的司机 *{d}* 正在到达大厅{t}外举着写有您名字的牌子等候您。", "{n}님, 안녕하세요.\n이집트에 오신 것을 환영합니다!\n기사 {d}님이 도착 홀{t} 앞에서 고객님 성함이 적힌 팻말을 들고 기다리고 있습니다."],
+    msgOnWay: ['أهلاً يا فندم 🌹 الكابتن {d} اتحرك وفي الطريق لحضرتك دلوقتي{c}.', "Hello {n},\nYour captain *{d}* is on his way to you now.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist jetzt auf dem Weg zu Ihnen.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est en route vers vous.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* уже едет к вам.{c}", "{n}，您好！\n您的司机 *{d}* 正在前往接您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 지금 고객님께 가고 있습니다.{c}"],
+    msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', "Hello {n},\nYour captain *{d}* has arrived and is waiting for you.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist angekommen und wartet auf Sie.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est arrivé et vous attend.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* приехал и ждёт вас.{c}", "{n}，您好！\n您的司机 *{d}* 已到达，正在等您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 도착하여 기다리고 있습니다.{c}"],
+    carTag: [' — العربية {c}', "\nCar: {c}", "\nFahrzeug: {c}", "\nVoiture : {c}", "\nАвтомобиль: {c}", "\n车辆：{c}", "\n차량: {c}"],
+    msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', "Hello {n},\nYour flight {f} is delayed. Your captain *{d}* is aware and will be waiting for you on arrival.", "Hallo {n},\nIhr Flug {f} hat Verspätung. Ihr Fahrer *{d}* ist informiert und erwartet Sie bei der Ankunft.", "Bonjour {n},\nVotre vol {f} est retardé. Votre chauffeur *{d}* est informé et vous attendra à l’arrivée.", "Здравствуйте, {n}!\nВаш рейс {f} задерживается. Водитель *{d}* в курсе и встретит вас по прилёте.", "{n}，您好！\n您的航班 {f} 延误。司机 *{d}* 已知悉，将在您抵达时等候。", "{n}님, 안녕하세요.\n고객님의 항공편 {f}이(가) 지연되었습니다. 기사 {d}님이 알고 있으며 도착하실 때 기다리겠습니다."],
     termTag: [' (صالة {t})', ' (Terminal {t})', ' (Terminal {t})', ' (Terminal {t})', ' (терминал {t})', '（{t} 号航站楼）', ' ({t} 터미널)']
   };
   const STATUS = {
@@ -552,7 +559,7 @@
     },
     flightStatus: (l, s) => { const k = STATUS[s]; return k ? ST[k][idx(l)] : (s || ''); },
     /** time / day in the guest's language, in Cairo time */
-    fmtTime(l, v) { const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : new Intl.DateTimeFormat(I.info(l).loc, { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: l !== 'de' && l !== 'fr' && l !== 'ru' }).format(d); },
+    fmtTime(l, v) { const d = v instanceof Date ? v : new Date(v); if (isNaN(d)) return ''; const h12 = l !== 'de' && l !== 'fr' && l !== 'ru', s = new Intl.DateTimeFormat(I.info(l).loc, { timeZone: 'Africa/Cairo', hour: h12 ? 'numeric' : '2-digit', minute: '2-digit', hour12: h12 }).format(d); return l === 'en' ? s.replace(/\b(am|pm)\b/, x => x.toUpperCase()) : s; },
     fmtDay(l, v) { const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : new Intl.DateTimeFormat(I.info(l).loc, { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long' }).format(d); },
     /** the browser's own language, if it is one of ours */
     guess() { try { const n = String((navigator.languages && navigator.languages[0]) || navigator.language || '').slice(0, 2).toLowerCase(); return I.ok(n) ? n : 'ar'; } catch (e) { return 'ar'; } }
@@ -876,7 +883,7 @@ async function loadData(ctx, days) {
     query(ctx, 'lines', ['name', 'factoryId', 'driverId', 'subDriverId', 'subDay', 'morningTime', 'active']),
     query(ctx, 'people', ['name', 'code', 'type', 'driverKind', 'role', 'perms', 'active', 'phone', 'wakeLeadMin']),
     query(ctx, 'devices', ['personId', 'fcm', 'active']),
-    query(ctx, 'missions', ['driverId', 'day', 'time', 'status', 'title'], inDays(days)),
+    query(ctx, 'missions', ['driverId', 'day', 'time', 'status', 'title', 'wakeMin'], inDays(days)),
     query(ctx, 'dayOff', ['day', 'factoryId'], inDays(days))
   ]);
   return { settings: Object.assign({}, W.DEFAULTS, settings || {}), watch, lines, people, devices, missions, dayOff };
@@ -1113,6 +1120,31 @@ export async function notifyMission(req, env, f, nowMs) {
   return out({ ok: true, sent: ctx.pushed.length });
 }
 
+/* ---------------- a new trip not taken yet: ring the driver again every minute (like a call), then tell the dispatcher + GM ---------------- */
+const RING_MAX = 9;   // the first push comes from /notify at once, then 9 more one minute apart → after ~10 minutes the managers are told
+export async function ringJob(ctx) {
+  const rows = await query(ctx, 'missions', ['driverId', 'day', 'time', 'title', 'status', 'ack', 'ringN', 'ringBy', 'ringNext'], num('ringNext', 'LESS_THAN_OR_EQUAL', ctx.now), 10);
+  for (const m of rows) {
+    if (ctx.full) break;
+    const stop = fields => patch(ctx, 'missions/' + m.id, Object.assign({ ringNext: F.NEVER }, fields || {}), ['ringNext'].concat(Object.keys(fields || {})), true);
+    if (m.status !== 'assigned' || m.ack || !m.driverId) { await stop(); continue; }
+    const n = Number(m.ringN) || 0;
+    const today = W.dayKey(ctx.now), when = m.day === today ? 'النهارده' : m.day === W.addDays(today, 1) ? 'بكره' : m.day;
+    const at = /^\d{2}:\d{2}$/.test(m.time || '') ? ' الساعة ' + W.hm12(W.cairoMs(m.day, m.time)) : '';
+    if (n >= RING_MAX) {
+      const R = await recipients(ctx), drv = R.people.find(p => p.id === m.driverId) || {};
+      const ok = await tell(ctx, [m.ringBy].concat(R.gm), 'control/#/missions', { type: 'noack', tag: 'noack-' + m.id,
+        title: `⚠️ ${drv.code ? drv.code + ' ' : ''}${drv.name || 'السواق'} مستلمش المشوار`, body: `${String(m.title || '').slice(0, 80)} — ${when}${at} · اتبعتله ${n + 1} مرات — كلمه` });
+      if (ok) await stop({ ringAlert: ctx.now });
+      continue;
+    }
+    const devs = await query(ctx, 'devices', ['personId', 'fcm', 'active'], { fieldFilter: { field: { fieldPath: 'personId' }, op: 'EQUAL', value: { stringValue: String(m.driverId) } } }, 10).catch(() => []);
+    const tokens = devs.filter(d => d.active === true && d.fcm).map(d => d.fcm);
+    if (!(await push(ctx, tokens, { type: 'mission', day: m.day, pid: m.driverId, title: '🔔 مشوار جديد — دوس "استلمت"', body: `${String(m.title || '').slice(0, 80)} — ${when}${at}`, tag: 'mission-' + m.id, link: SITE + 'driver/', ttl: 600 }))) break;
+    await patch(ctx, 'missions/' + m.id, { ringN: n + 1, ringNext: ctx.now + 60000 }, ['ringN', 'ringNext'], true);
+  }
+}
+
 /* ---------------- a short map link (maps.app.goo.gl …) → its place ---------------- */
 const MAP_HOSTS = /^(maps\.app\.goo\.gl|goo\.gl|g\.co|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+|consent\.google\.[a-z.]+)$/i;
 const perUidR = new Map();
@@ -1254,6 +1286,8 @@ export async function run(env, now, f) {
 
   // 2b) customers: "العربية في الطريق" / "العربية وصلت" (after the wake-ups, with what is left of the budget)
   if (!ctx.full) { try { await customerAnswers(ctx); await customerPushes(ctx); } catch (e) { ctx.log.push('customers: ' + e.message); } }
+  // 2c) a new trip the driver did not take yet: ring again (every minute, up to 10 minutes), then tell the managers
+  if (!ctx.full && ctx.calls <= REQ_LIMIT - 8) { try { await ringJob(ctx); } catch (e) { ctx.log.push('ring: ' + e.message); } }
 
   // 3) late record (for "تحت المتابعة")
   if (lateMarks.length && ctx.calls <= REQ_LIMIT - 2) {

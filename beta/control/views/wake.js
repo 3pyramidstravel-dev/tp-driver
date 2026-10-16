@@ -19,7 +19,7 @@
 
   const set = (row, key, val) => TP.fb.update('wake/' + row.day, { ['d.' + row.pid + '.' + key]: val, lastEdit: row.pid });
   async function claim(row) {
-    await set(row, 'claim', { by: S.person.name, byId: S.person.id, at: TP.now() });
+    await set(row, 'claim', { by: S.person.name, byId: S.person.id, role: S.person.role || '', at: TP.now() });
     TP.audit('wake.claim', TP.driverLabel({ code: row.e.code, name: row.e.name }), row.e.job.label);
   }
   async function woke(row) {
@@ -49,15 +49,21 @@
     }, { saveLabel: 'تعيين البديل' });
   }
 
+  /** "المشرف" / "المدير العام" / "مدير المطارات"… — who holds the case, by his job (agreed wording). */
+  function claimRole(c) {
+    const role = c.role || ((TP.q.person(c.byId) || {}).role) || '';
+    if (!role || role === 'supervisor' || role === 'custom') return 'المشرف';
+    return (TP.ROLES.find(x => x.id === role) || {}).name || 'المشرف';
+  }
   function card(r, urgent) {
     const e = r.e, st = TP.wakeCore.STATUS[r.status] || ['', 'st-off'], late = Math.max(0, Math.round((TP.now() - e.wakeAt) / 60000));
     const canAct = S.can('wake.supervise') || S.can('times.correct');
     const noPush = e.noToken || !(e.tokens || []).length;
     return `<div class="request-card ${urgent ? 'sos' : ''}" style="${urgent ? '' : 'border-color:var(--line);box-shadow:none'}">
-      <span class="st ${st[1]}">${esc(st[0])}</span>
+      <span class="st ${st[1]}">${esc(r.status === 'claimed' && e.claim ? 'المخالفة مع ' + claimRole(e.claim) + ' الآن' : st[0])}</span>
       <div class="grow"><b>${esc(TP.driverLabel({ code: e.code, name: e.name }))}</b> ${e.watch ? '<span class="badge-s far">تحت المتابعة</span>' : ''} ${noPush ? '<span class="badge-s nogps">التنبيهات مش متفعلة عنده</span>' : ''}
         <div class="small muted">${esc(e.job.label)} الساعة ${esc(W().hm12(e.job.at))} · ميعاد صحيانه ${esc(W().hm12(e.wakeAt))}${r.status === 'late' || r.status === 'escalated' || r.status === 'claimed' ? ` · متأخر ${late} دقيقة` : ''}</div>
-        ${e.claim ? `<div class="small" style="color:var(--warn)">ماسكه: ${esc(e.claim.by)} (${esc(TP.ago(e.claim.at))})</div>` : ''}
+        ${e.claim ? `<div class="small" style="color:var(--warn)">تم المتابعة واستلام المخالفة من خلال: ${esc(String(e.claim.by || '').split(/\s*[-–—(|]\s*/)[0])} (${esc(TP.ago(e.claim.at))})</div>` : ''}
         ${e.mgmtAt ? '<div class="small" style="color:var(--danger)">وصل للإدارة</div>' : ''}</div>
       ${e.phone ? `<a class="btn btn-ghost btn-sm" href="tel:${esc(e.phone)}">${TP.icon('phone', 16)}اتصل</a>` : ''}
       ${canAct && !e.claim ? `<button class="btn btn-primary btn-sm" data-claim="${esc(r.day + '|' + r.pid)}">استلمت</button>` : ''}

@@ -84,7 +84,8 @@
   F.jobAt = function (fl, settings, driveMin) {
     const s = settings || {};
     if (!fl || !fl.sched) return null;
-    const lead = (Number(s.airportDepartLeadMin) || 180) * 60000, early = (Number(s.airportArriveEarlyMin) || 30) * 60000;
+    const n = (v, d) => (v === undefined || v === null || v === '' || !isFinite(Number(v))) ? d : Number(v);   // 0 is a real choice
+    const lead = n(s.airportDepartLeadMin, 180) * 60000, early = s.airportArriveEarlyOn === false ? 0 : n(s.airportArriveEarlyMin, 30) * 60000;
     if (fl.dir === 'dep') {
       const t = fl.est && (fl.est < fl.sched || fl.est - fl.sched >= H) ? fl.est : fl.sched;
       return t - lead - (Number(driveMin) || Number(s.airportDriveMin) || 75) * 60000;

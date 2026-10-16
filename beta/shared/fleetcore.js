@@ -105,9 +105,10 @@
   /** Operations' schedule of a car's trips to its group — everything the captain needs to work from WhatsApp alone if the app fails
       (locations as map links). opts: {captain, sign} — sign is the sender's English signature. Every line kept on the right. */
   FL.scheduleMessage = function (carName, items, opts) {
-    const o = opts || {}, RLM = '\u200F', LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
+    const LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
     const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
-    const out = [RLM + '*THREE PYRAMIDS TRAVEL*', '_تعليمات التشغيل_', '', row('العربية', carName), row('الكابتن', o.captain || '')];
+    // short: the car's own group already knows the car and its captain — no header, no signature (agreed)
+    const out = [];
     items.forEach((m, i) => {
       out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
         row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
@@ -117,7 +118,6 @@
         row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
         row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
     });
-    if (o.sign) out.push('', o.sign);
     return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };
 

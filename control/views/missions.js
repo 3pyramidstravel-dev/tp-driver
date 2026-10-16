@@ -108,9 +108,17 @@
   let custs = [];
   // the customers this office used before (this month's trips + this browser's list) — typing a name or number fills the rest
   const BOOK = 'tp-custbook';
+  /* the shared customer book (clients/{key}): every manager sees the same customers, with the place of their last pickup */
+  const clients = { list: null, loading: null };
+  function loadClients() {
+    if (!clients.loading) clients.loading = TP.fb.list('clients').then(l => { clients.list = l.sort((a, b) => (b.atMs || 0) - (a.atMs || 0)); }).catch(() => { clients.list = []; });
+    return clients.loading;
+  }
+  const clientKey = c => { const n = TP.phoneIntl(c.phone || ''); return n ? 'p' + n : 'n' + U.norm(c.name).replace(/[\s\/.#$\[\]]+/g, '_').slice(0, 60); };
   function custBook() {
     const out = new Map();
-    const add = c => { if (!c || !c.name) return; const k = (TP.phoneIntl(c.phone || '') || '') + '|' + c.name; if (!out.has(k)) out.set(k, { name: c.name, phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '' }); };
+    const add = c => { if (!c || !c.name) return; const k = (TP.phoneIntl(c.phone || '') || '') + '|' + c.name; if (!out.has(k)) out.set(k, { name: c.name, phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '', fromName: c.fromName || '', fromLoc: c.fromLoc || null, factoryId: c.factoryId || '', client: c.client || '' }); };
+    (clients.list || []).forEach(add);
     live.list.slice().reverse().forEach(m => (m.customers || []).forEach(add));
     (TP.store.get(BOOK, []) || []).forEach(add);
     return [...out.values()];
@@ -135,7 +143,16 @@
       (custs.length < maxTripCust() ? '<button type="button" class="link" id="mAddC">+ عميل</button>' : '');
     box.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { readCusts(); custs.splice(Number(b.dataset.rmc), 1); drawCusts(); });
     const rowOf = el => el.closest('.cust-row'), get = (r, k) => r.querySelector(`[data-c=${k}]`);
-    const fillFrom = (r, hit) => { if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; if (hit.sex) get(r, 'sex').value = hit.sex; };
+    const fillFrom = (r, hit) => {
+      if (!hit) return; if (!get(r, 'name').value.trim()) get(r, 'name').value = hit.name; if (!get(r, 'phone').value.trim()) get(r, 'phone').value = hit.phone; get(r, 'lang').value = hit.lang || 'ar'; if (hit.sex) get(r, 'sex').value = hit.sex;
+      // his last pickup place and his company come back too — only into empty fields (what is typed stays)
+      const fn = TP.$('#fromName'), fl = TP.$('#fromLoc');
+      if (hit.fromName && fn && !fn.value.trim()) fn.value = hit.fromName;
+      if (hit.fromLoc && isFinite(hit.fromLoc.lat) && fl && !fl.value.trim()) { fl.value = `${hit.fromLoc.lat}, ${hit.fromLoc.lng}`; fixLoc('from'); }
+      const fs = TP.$('#mFactory'), mc = TP.$('#mClient');
+      if (fs && !fs.value && hit.factoryId && (D.companies || []).some(c => c.id === hit.factoryId)) { fs.value = hit.factoryId; fs.dispatchEvent(new Event('change')); }
+      else if (mc && !mc.value.trim() && hit.client && fs && !fs.value) mc.value = hit.client;
+    };
     box.querySelectorAll('[data-c=name]').forEach(inp => inp.addEventListener('change', () => { const r = rowOf(inp), v = inp.value.trim(); fillFrom(r, book.find(c => c.name === v)); }));
     box.querySelectorAll('[data-c=phone]').forEach(inp => inp.addEventListener('change', () => {
       const r = rowOf(inp); inp.value = cleanPhone(inp.value);
@@ -184,6 +201,7 @@
     const m = mid ? find(mid) : Object.assign(base, prefill || {});
     if (!m) return;
     onSavedHook = onSaved || null;
+    if (!clients.list) loadClients().then(() => { if (TP.$('#tp-modal.show #mCusts')) { readCusts(); drawCusts(); } });
     const canPrice = S.can('prices.edit') && money();
     const drivers = TP.q.drivers().filter(p => p.active !== false || p.id === m.driverId);
     const fl = m.flight || {};
@@ -198,13 +216,13 @@
       <div class="chips" style="margin-bottom:12px"><button type="button" class="chip ${m.type !== 'airport' ? 'active' : ''}" data-mt="">${TP.icon('file', 16)}مشوار عادي</button><button type="button" class="chip ${m.type === 'airport' ? 'active' : ''}" data-mt="airport">${TP.icon('plane', 16)}مطار</button></div>
       <div class="form-grid">
         <div class="full form-grid" id="mAir" style="padding:12px;border:1px dashed var(--line-strong);border-radius:14px;background:#fffaf1">
-          <label class="fld">رقم الرحلة<input class="input" id="fNo" dir="ltr" placeholder="MS 777" value="${esc(fl.no || '')}" maxlength="10"></label>
-          <label class="fld">تاريخ الطيارة<input class="input" type="date" id="fDate" value="${esc(fl.date || m.day || '')}"></label>
-          <label class="fld">النوع<select class="input" id="fDir"><option value="">يتعرف لوحده من رقم الرحلة</option><option value="arr" ${fl.dir === 'arr' && fl.dirSet ? 'selected' : ''}>استقبال (العميل جاي)</option><option value="dep" ${fl.dir === 'dep' && fl.dirSet ? 'selected' : ''}>توصيل (العميل مسافر)</option></select></label>
-          <div class="fld">ميعاد الطيارة <small>سيبه فاضي — بييجي لوحده</small>${U.timeField('fTime', manualTime)}</div>
-          <label class="fld">الصالة <small>اختياري</small><input class="input" id="fTerm" value="${esc(fl.terminalSet ? fl.terminal : '')}" maxlength="10" placeholder="${esc(fl.terminal || '')}"></label>
-          <label class="fld" id="fDriveBox">مدة الطريق للمطار (دقيقة)<input class="input" id="fDrive" type="number" min="15" max="300" dir="ltr" value="${esc(m.driveMin || D.settings.airportDriveMin || 75)}"></label>
-          <div class="full small muted" id="fInfo">${flightLine(m)}</div>
+          <label class="fld">النوع<select class="input" id="fDir"><option value="arr" ${fl.dir !== 'dep' ? 'selected' : ''}>استقبال مطار (العميل جاي)</option><option value="dep" ${fl.dir === 'dep' ? 'selected' : ''}>توصيل مطار سفر (العميل مسافر)</option></select></label>
+          <label class="fld" data-arr>رقم الرحلة<input class="input" id="fNo" dir="ltr" placeholder="MS 777" value="${esc(fl.no || '')}" maxlength="10"></label>
+          <label class="fld" data-arr>تاريخ الطيارة<input class="input" type="date" id="fDate" value="${esc(fl.date || m.day || '')}"></label>
+          <div class="fld" data-arr>ميعاد الطيارة <small>سيبه فاضي — بييجي لوحده</small>${U.timeField('fTime', manualTime)}</div>
+          <label class="fld" data-arr>الصالة <small>اختياري</small><input class="input" id="fTerm" value="${esc(fl.terminalSet ? fl.terminal : '')}" maxlength="10" placeholder="${esc(fl.terminal || '')}"></label>
+          <div class="full small muted" id="fInfo" data-arr>${flightLine(m)}</div>
+          <p class="full small muted" data-dep>توصيل مطار سفر: اكتب تحت ميعاد خروج العميل من مكانه — بيروح للكابتن زي ما هو.</p>
         </div>
         <label class="fld full">وصف المشوار<input class="input" id="mTitle" value="${esc(m.title || '')}" placeholder="مثال: توصيل وفد من الفندق للمصنع — للمطار بيتكتب لوحده" maxlength="120"></label>
         <label class="fld" data-reg>اليوم<input class="input" type="date" id="mDay" value="${esc(m.day || '')}"></label>
@@ -216,6 +234,7 @@
         <div class="full"><div class="muted small" style="font-weight:800;margin-bottom:6px">العملاء <small>كل عميل بياخد لينك للمشوار ده بس</small></div><div id="mCusts"></div></div>
         <label class="fld">كاش مع السواق <small>عميل فرد بيدفع للسواق</small><input class="input" id="mCash" inputmode="decimal" dir="ltr" value="${m.cash ? esc(m.cash.amount) : ''}" placeholder="0"></label>
         <label class="fld">ملاحظة الكاش<input class="input" id="mCashNote" value="${m.cash ? esc(m.cash.note || '') : ''}" maxlength="120"></label>
+        <label class="fld">الصحيان قبل المشوار بكام دقيقة <small>اختياري — فاضي = الافتراضي من الإعدادات</small><input class="input" id="mWake" type="number" min="0" inputmode="numeric" dir="ltr" placeholder="مثال 90" value="${esc(m.wakeMin ?? '')}"></label>
         <label class="fld full">ملاحظات للسواق<textarea class="input" id="mNotes" rows="2" maxlength="500">${esc(m.notes || '')}</textarea></label>
         ${canPrice ? priceFields(m, live.pd[mid], live.pf[mid]) : (money() ? '<p class="muted small full">السعر بيحطه المدير المالي أو المدير العام من نفس الصفحة.</p>' : '')}
       </div>`, () => save(mid, m), { wide: true, saveLabel: saveLbl(), onCancel: () => { if (!mid && bk.saved.length) setTimeout(() => afterSave(bk.saved), 300); } });
@@ -223,9 +242,11 @@
     let type = m.type || '';
     const syncType = () => {
       TP.$('#mAir').hidden = type !== 'airport';
-      TP.$$('#tp-modal [data-reg]').forEach(el => { el.hidden = type === 'airport'; });
-      const dir = U.val('fDir') || fl.dir || '';
-      TP.$('#fDriveBox').hidden = dir === 'arr';
+      const dir = U.val('fDir') || 'arr';
+      // a departure is a normal trip: its own day and time; an arrival follows the flight
+      TP.$$('#tp-modal [data-reg]').forEach(el => { el.hidden = type === 'airport' && dir === 'arr'; });
+      TP.$$('#tp-modal [data-arr]').forEach(el => { el.hidden = dir !== 'arr'; });
+      TP.$$('#tp-modal [data-dep]').forEach(el => { el.hidden = dir !== 'dep'; });
       TP.$('#fromName').closest('.fld').firstChild.textContent = type === 'airport' ? (dir === 'arr' ? 'من (المطار/الصالة)' : 'من (مكان العميل)') : 'من (المكان)';
       TP.$('#toName').closest('.fld').firstChild.textContent = type === 'airport' ? (dir === 'dep' ? 'إلى (المطار)' : 'إلى (وجهة العميل)') : 'إلى (المكان)';
     };
@@ -288,16 +309,22 @@
       customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar', sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') });
     }
     if (customers.length > maxTripCust()) { TP.toast(`العربية فيها ${maxTripCust()} ركاب بس — سياسة الأمان`); return false; }
+    const wakeRaw = TP.latinDigits(U.val('mWake') || '').trim(), wakeMin = wakeRaw === '' ? null : Math.round(Number(wakeRaw));
+    if (wakeRaw !== '' && !(wakeMin >= 0 && wakeMin <= 1440)) { TP.toast('الصحيان: اكتب عدد الدقايق (مثال 90)'); return false; }
     const cashAmt = U.money('mCash');
     if (Number.isNaN(cashAmt)) { TP.toast('مبلغ الكاش لازم يكون رقم'); return false; }
-    let flight = null, flightCheckAt = null, driveMin = null;
-    if (type === 'airport') {
-      const no = FL().norm(U.val('fNo')), fdate = U.val('fDate'), dirSel = U.val('fDir'), ftime = U.val('fTime'), term = U.val('fTerm');
+    let flight = null, flightCheckAt = null;
+    const depTrip = type === 'airport' && U.val('fDir') === 'dep';
+    if (depTrip) {
+      // توصيل مطار سفر: no flight number, no calculation — the time typed is the pickup time, sent as it is
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { TP.toast('اختار اليوم'); return false; }
+      if (!time) { TP.toast('اكتب ميعاد خروج العميل'); return false; }
+      flight = { dir: 'dep', dirSet: true };
+      if (!title || (old && old.type === 'airport' && old.title === autoTitle(old.flight))) title = autoTitle(flight);
+    } else if (type === 'airport') {
+      const no = FL().norm(U.val('fNo')), fdate = U.val('fDate'), dirSel = 'arr', ftime = U.val('fTime'), term = U.val('fTerm');
       if (!FL().valid(no)) { TP.toast('اكتب رقم الرحلة صح (مثال MS777)'); return false; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fdate)) { TP.toast('اختار تاريخ الطيارة'); return false; }
-      if (!dirSel && ftime) { TP.toast('لو كتبت الميعاد بإيدك اختار استقبال ولا توصيل'); return false; }
-      driveMin = Math.round(TP.num(U.val('fDrive')) || Number(D.settings.airportDriveMin) || 75);
-      if (!(driveMin >= 15 && driveMin <= 300)) { TP.toast('مدة الطريق من 15 لـ 300 دقيقة'); return false; }
       const prev = old && old.flight || {};
       const same = prev.no === no && prev.date === fdate;
       flight = same ? Object.assign({}, prev) : { no, date: fdate };
@@ -312,7 +339,7 @@
         if (!flight.terminalSet) flight.terminal = '';
         flight.src = 'wait'; flight.done = []; flight.nextK = 0; flightCheckAt = 1;                                        // the cloud alarm looks it up within a minute
       } else flightCheckAt = old.flightCheckAt || FL().schedule(flight, TP.now());
-      const job = FL().jobAt(flight, D.settings, driveMin);
+      const job = FL().jobAt(flight, D.settings);
       if (job) { day = TP.dayKey(job); time = O.hm(job); }
       else { day = fdate; time = ''; }
       if (!title || (old && old.type === 'airport' && old.title === autoTitle(old.flight))) title = autoTitle(flight);
@@ -320,18 +347,23 @@
       if (!title) { TP.toast('اكتب وصف المشوار'); return false; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { TP.toast('اختار اليوم'); return false; }
     }
-    const chk = type === 'airport' ? U.val('fDate') : day;                                            // catch a swapped day/month (12-10 vs 10-12)
+    const chk = type === 'airport' && !depTrip ? U.val('fDate') : day;                                            // catch a swapped day/month (12-10 vs 10-12)
     const ahead = Math.round((Date.parse(chk + 'T12:00:00Z') - Date.parse(TP.dayKey(TP.now()) + 'T12:00:00Z')) / 864e5);
     if ((!old || (old.flight && old.flight.date || old.day) !== chk) && ahead > 7
       && !(await TP.confirm('اتأكد من التاريخ', `المشوار ده هيتسجل يوم ${chk}، يعني بعد ${ahead} يوم من النهارده. السواق مش هيشوفه غير في اليوم ده. التاريخ مظبوط؟`, 'أيوه مظبوط'))) return false;
     const id = mid || TP.newId('M');
     const data = { title, day, month: O.monthOf(day), time, factoryId: U.val('mFactory'), client: U.val('mFactory') ? '' : U.val('mClient'), driverId, from, to,
       customers, notes: U.val('mNotes'), type, updatedAt: TP.fb.ts() };
+    if (wakeMin !== null) data.wakeMin = wakeMin;
+    else if (mid && old.wakeMin != null) data.wakeMin = TP.fb.del();
     if (cashAmt) data.cash = { amount: cashAmt, note: U.val('mCashNote') };
     else if (mid && old.cash) data.cash = TP.fb.del();
-    if (type === 'airport') Object.assign(data, { flight, flightCheckAt, driveMin });
+    if (type === 'airport') Object.assign(data, { flight, flightCheckAt: depTrip ? TP.fb.del() : flightCheckAt });
     else if (mid && old.flight) Object.assign(data, { flight: TP.fb.del(), flightCheckAt: TP.fb.del() });
+    if (mid && old.driveMin != null) data.driveMin = TP.fb.del();
     const renotify = !mid || old.driverId !== driverId || old.day !== day || (old.time || '') !== (time || '');
+    // rings again every minute until the driver takes it (the cloud alarm), then the dispatcher and the GM are told
+    if (renotify && (!mid || old.status === 'assigned')) Object.assign(data, { ringN: 0, ringNext: TP.now() + 60000, ringBy: S.person.id });
     if (mid && renotify && old.ack) data.ack = TP.fb.del();                                   // the driver must take the changed trip again
     if (mid && ['done', 'active'].includes(old.status)) Object.assign(data, TP.lockFix(old.day < day ? old.day : day, 'تعديل المشوار بعد التصدير'));
     const ops = [];
@@ -350,10 +382,14 @@
       ops.push({ op: 'delete', path: 'missionDriver/' + id }, { op: 'delete', path: 'missionFactory/' + id });
       if (money()) note = ' — السعر محتاج يتحط تاني';
     }
+    // the shared customer book: each customer with this trip's pickup place and company
+    const loc = data.from && data.from.location && isFinite(data.from.location.lat) ? { lat: data.from.location.lat, lng: data.from.location.lng } : null;
+    customers.forEach(c => ops.push({ op: 'set', path: 'clients/' + clientKey(c), data: { name: c.name, phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '', fromName: (data.from && data.from.name) || '', fromLoc: loc, factoryId: data.factoryId || '', client: data.client || '', atMs: TP.now(), at: TP.fb.ts() } }));
     await TP.fb.batch(ops);
     rememberCusts(customers);
+    if (clients.list) customers.forEach(c => { const k = clientKey(c); clients.list = [{ id: k, name: c.name, phone: c.phone || '', lang: c.lang, sex: c.sex, fromName: (data.from && data.from.name) || '', fromLoc: loc, factoryId: data.factoryId || '', client: data.client || '', atMs: TP.now() }].concat(clients.list.filter(x => x.id !== k)); });
     TP.wakeTouch && TP.wakeTouch([day, old && old.day]);
-    TP.audit(mid ? 'mission.update' : 'mission.create', title, `${day} — ${(TP.q.person(driverId) || {}).name || ''}${type === 'airport' ? ' — ✈ ' + flight.no : ''}`);
+    TP.audit(mid ? 'mission.update' : 'mission.create', title, `${day} — ${(TP.q.person(driverId) || {}).name || ''}${type === 'airport' && flight.no ? ' — ✈ ' + flight.no : ''}`);
     const probs = problems(Object.assign({ status: mid ? old.status : 'assigned' }, data));
     TP.toast('تم الحفظ ✓' + note + (probs.length ? ' — ⚠ ' + probs[0] : (type === 'airport' && flight.src === 'wait' ? ' — بيانات الرحلة جاية خلال دقيقتين' : '')));
     if (state.month && O.monthOf(day) !== state.month) { state.month = O.monthOf(day); TP.rerender && TP.rerender(); }   // keep the saved mission in sight
@@ -406,7 +442,7 @@
       await fetch((TP.WORKER_URL || 'https://tp-alarm.3pyramidstravel.workers.dev') + '/notify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ id }) });
     } catch (e) { console.warn('notify', e); }
   }
-  const autoTitle = fl => fl ? `${fl.dir === 'dep' ? 'توصيل للمطار' : fl.dir === 'arr' ? 'استقبال من المطار' : 'مطار'} — ${fl.no}` : '';
+  const autoTitle = fl => !fl ? '' : fl.dir === 'dep' ? 'توصيل مطار سفر' : `${fl.dir === 'arr' ? 'استقبال من المطار' : 'مطار'} — ${fl.no}`;
 
   function openPrice(mid) {
     const m = find(mid); if (!m) return;

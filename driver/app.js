@@ -557,6 +557,8 @@
     if (st.myIncidents.length) html += `<div class="banner danger">${TP.icon('bell')}<span>بلاغك وصل للإدارة (${esc(O.incidentName(st.myIncidents[0].kind))}) — هيكلموك حالاً.</span></div>`;
     if (TP.dvCar) html += TP.dvCar.custodyBanner();
     html += wakeCard();
+    // tourism / trips drivers: make the new-trip notification ring like a call (one-time phone setting)
+    if (kind() !== 'line' && !TP.store.get('tp-soundset', false)) html += `<section class="glass card"><div class="wake-row">${TP.icon('bell', 26)}<div style="flex:1"><b>خلّي تنبيه المشوار يرن زي المكالمة</b><div class="small muted">مرة واحدة بس — علشان متفوتكش أي رحلة</div></div><button type="button" class="btn btn-primary btn-sm" id="soundHow">إزاي؟</button></div></section>`;
     html += `<div class="banner info" style="justify-content:space-between"><b>${esc(TP.fmtDay(TP.now()))}</b><span class="muted small">خلي التطبيق مفتوح وإنت شغال</span></div>`;
     if (!entries.length) {
       html += `<section class="glass card"><div class="empty">مفيش خط عليك النهارده.<br><span class="small">لو عندك مشاوير هتلاقيها في "المشاوير".</span></div></section>`;
@@ -574,6 +576,7 @@
     root.querySelectorAll('[data-ot]').forEach(b => b.onclick = () => askOvertime(b.dataset.ot));
     const wr = root.querySelector('#wReady'); if (wr) wr.onclick = () => markReady();
     const wc = root.querySelector('#wChange'); if (wc) wc.onclick = () => changeWake();
+    const sh = root.querySelector('#soundHow'); if (sh) sh.onclick = soundGuide;
     const wp = root.querySelector('#wPush'); if (wp) wp.onclick = () => TP.push.enable().then(ok => { TP.toast(ok ? 'التنبيهات اتفعلت ✓' : TP.i18n.t('ar', 'pushFail'), ok ? '' : 'warn', ok ? 0 : 15000); render(); });
   }
 
@@ -849,10 +852,24 @@
     for (const day of [today, O.addDays(today, 1)]) {
       const job = WK().firstJob(day, me(), { lines, missions: allMissions(), dayOff: st.dayOff });
       if (!job || now > job.at + 2 * 3600000) continue;
-      const lead = WK().leadMin(S.person, s);
+      const lead = WK().leadMin(S.person, s, job);
       return { day, job, lead, wakeAt: job.at - lead * 60000, ack: st.acks[day] || null, today };
     }
     return null;
+  }
+  /** The one-time phone setting: Chrome's notification sound = a ringtone at full volume (a web app cannot pick its own sound). */
+  function soundGuide() {
+    TP.openModal('صوت تنبيه المشاوير', `<p class="modal-text">خلّي صوت تنبيه المشوار عالي زي المكالمة — بتتعمل مرة واحدة على الموبايل:</p>
+      <ol class="modal-text" style="padding-inline-start:20px;line-height:2">
+        <li>افتح <b>الإعدادات</b> في الموبايل</li>
+        <li>ادخل <b>التطبيقات</b> ← <b>Chrome</b></li>
+        <li>اختار <b>الإشعارات</b></li>
+        <li>دوس على <b>إشعارات المواقع</b> (أو اسم موقعنا)</li>
+        <li><b>الصوت</b> ← اختار <b>رنة مكالمة</b> عالية</li>
+        <li>شغّل <b>"تجاوز وضع عدم الإزعاج"</b> لو موجودة</li>
+        <li>علّي <b>صوت الرنين</b> في الموبايل للآخر</li>
+      </ol>
+      <p class="muted small">التنبيه بيتكرر كل دقيقة لحد ما تدوس "استلمت" — ولو مستلمتش في 10 دقايق الإدارة بتتبلّغ.</p>`, () => { TP.store.set('tp-soundset', true); render(); }, { saveLabel: 'عملتها ✓', cancelLabel: 'بعدين' });
   }
   function wakeCard() {
     const w = myWake(), push = TP.push.state();

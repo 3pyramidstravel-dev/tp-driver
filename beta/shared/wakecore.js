@@ -45,10 +45,14 @@
   const S = s => Object.assign({}, W.DEFAULTS, s || {});
 
   /** Minutes before the job: the driver's own choice (line drivers, with their PIN) or the default for his kind. */
-  W.leadMin = function (person, settings) {
+  W.leadMin = function (person, settings, job) {
     const s = S(settings);
+    // the trip's own wake-up minutes (set by the dispatcher on the trip) come first
+    const wm = job && job.wakeMin;
+    if (wm !== undefined && wm !== null && wm !== '' && isFinite(Number(wm)) && Number(wm) >= 0) return Math.round(Number(wm));
+    // only a line driver picks his own wake-up (tourism / trips: the management decides — agreed)
     const own = Number(person && person.wakeLeadMin);
-    if (own >= 30 && own <= 360) return Math.round(own);
+    if (person && person.driverKind === 'line' && own >= 30 && own <= 360) return Math.round(own);
     return Math.round(((person && person.driverKind === 'line') ? s.wakeLeadHoursLine : s.wakeLeadHoursTourism) * 60);
   };
 
@@ -64,7 +68,9 @@
     });
     (data.missions || []).forEach(m => {
       if (m.day !== day || m.status !== 'assigned' || !m.time || !/^\d{2}:\d{2}$/.test(m.time)) return;
-      add(m.driverId, { type: 'mission', id: m.id, label: m.title || 'مشوار', at: W.cairoMs(day, m.time) });
+      const job = { type: 'mission', id: m.id, label: m.title || 'مشوار', at: W.cairoMs(day, m.time) };
+      if (m.wakeMin !== undefined && m.wakeMin !== null && isFinite(Number(m.wakeMin))) job.wakeMin = Number(m.wakeMin);
+      add(m.driverId, job);
     });
     Object.keys(out).forEach(k => out[k].sort((a, b) => a.at - b.at));
     return out;
@@ -89,7 +95,7 @@
     Object.keys(jobs).forEach(pid => {
       const p = people[pid];
       if (!p || p.type !== 'driver' || p.active === false) return;
-      const job = jobs[pid][0], lead = W.leadMin(p, s);
+      const job = jobs[pid][0], lead = W.leadMin(p, s, job);
       const e = { name: p.name || '', code: p.code || null, kind: p.driverKind || '', phone: p.phone || '', job, leadMin: lead, wakeAt: job.at - lead * 60000,
         watch: (late[pid] || []).filter(x => x >= since && x < day).length >= s.watchLateCount, tokens: tokensOf(pid) };
       const old = prev && prev.d && prev.d[pid];

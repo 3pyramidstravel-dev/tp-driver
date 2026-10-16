@@ -424,6 +424,7 @@
     dayRolloverHour: 5,            // an unfinished day stays "today" until 5 AM
     airportFreeWaitMin: 60,        // airport price includes the first hour of waiting (prices only)
     airportDepartLeadMin: 180,     // a traveller reaches the airport 3 hours before any flight
+    airportArriveEarlyOn: true,     // arrivals: the captain is there before landing (off = at landing time)
     airportArriveEarlyMin: 30,     // the driver is at the airport 30 min before landing
     airportDriveMin: 75,           // default drive from the pickup to the airport (editable per trip)
     homeAirports: 'CAI,SPX',       // "our" airports: leaving from them = توصيل, landing in them = استقبال
