@@ -12,10 +12,16 @@
   /** The language of what the customer receives: his own, but English instead of Arabic (agreed: customers get English even if Arabic was left). */
   const custL = c => { const l = I().ok(c && c.lang) ? c.lang : 'ar'; return l === 'ar' ? 'en' : l; };
   /** First names in English letters (an Arabic name is written the usual Egyptian way). */
-  const enFirst = n => TP.enName(first(n));
+  // "مستر علاء" → Alaa: the honorific is not the name
+  const TITLE_WORDS = /^(مستر|مسيو|مدام|مس|استاذ|أستاذ|استاذه|أستاذة|استاذة|دكتور|دكتوره|د|د\.|م|م\.|م\/|مهندس|باشمهندس|بشمهندس|حاج|حاجه|الحاج|الاستاذ|السيد|السيده|كابتن|mr\.?|mrs\.?|ms\.?|miss|dr\.?|eng\.?)$/i;
+  const firstName = n => { const w = String(n || '').trim().split(/\s+/).filter(Boolean); const k = w.findIndex(x => !TITLE_WORDS.test(x.replace(/[\/.]$/, '')) && !TITLE_WORDS.test(x)); return w[k >= 0 ? k : 0] || ''; };
+  const enFirst = n => TP.enName(firstName(n));
   const drvFirst = d => d && typeof d === 'object' ? ((d.nameEn || '').trim() ? first(d.nameEn) : enFirst(d.name)) : enFirst(d || '');
   /** The car for the customer: model and colour in English, the plate as it is on the car. */
-  const carEn = v => { if (!v) return ''; if (typeof v === 'string') return v; const mc = [TP.enName(v.model || ''), TP.enName(v.color || '')].filter(Boolean).join(', '); return [mc, v.plate || ''].filter(Boolean).join(' – '); };
+  const carEn = v => { if (!v) return ''; if (typeof v === 'string') return v; return [(v.modelEn || '').trim() || TP.enName(v.model || ''), TP.enName(v.color || '')].filter(Boolean).join(', '); };
+  // the plate as written on the car: right-to-left isolated, so WhatsApp does not mix its letters and digits
+  const PLATE = { en: 'Plate', de: 'Kennzeichen', fr: 'Plaque', ru: 'Номер', zh: '车牌', ko: '번호판', ar: 'اللوحة' };
+  const plateLine = (v, L) => v && typeof v === 'object' && v.plate ? `\n${PLATE[L] || PLATE.en}: \u2067${String(v.plate).trim()}\u2069` : '';
 
   /* ---------- an Arabic name (or car model) in English letters: the usual Egyptian spelling first, letter by letter otherwise ---------- */
   const WORDS = {
@@ -31,6 +37,9 @@
     'فهمي': 'Fahmy', 'لطفي': 'Lotfy', 'مسعد': 'Mosaad', 'نجيب': 'Naguib', 'هاشم': 'Hashem', 'وائل': 'Wael', 'يحيي': 'Yehia', 'يحيى': 'Yehia', 'اسلام': 'Eslam', 'سلامه': 'Salama', 'بكر': 'Bakr',
     'سارة': 'Sara', 'ساره': 'Sara', 'منى': 'Mona', 'مني': 'Mona', 'هبه': 'Heba', 'نهى': 'Noha', 'نهي': 'Noha', 'مريم': 'Mariam', 'فاطمه': 'Fatma', 'دينا': 'Dina', 'ريهام': 'Reham', 'شيماء': 'Shaimaa',
     'رانيا': 'Rania', 'ياسمين': 'Yasmin', 'نورا': 'Nora', 'اميره': 'Amira', 'ايمان': 'Eman', 'هند': 'Hend', 'سلمى': 'Salma', 'سلمي': 'Salma', 'نيره': 'Nayera', 'مروه': 'Marwa',
+    'علاء': 'Alaa', 'هاله': 'Hala', 'رحاب': 'Rehab', 'سمر': 'Samar', 'نسمه': 'Nesma', 'اسراء': 'Esraa', 'ايه': 'Aya', 'نرمين': 'Nermeen', 'مها': 'Maha', 'غاده': 'Ghada', 'لبنى': 'Lobna', 'جيهان': 'Gihan',
+    'معتز': 'Moataz', 'مازن': 'Mazen', 'باسم': 'Bassem', 'بسام': 'Bassam', 'ابوبكر': 'Abobakr', 'عبدالرحيم': 'Abdelrahim', 
+    'هينداي': 'Hyundai', 'هينداى': 'Hyundai', 'هيوندا': 'Hyundai', 'النتره': 'Elantra', 'افانتي': 'Avante', 'فيرنا': 'Verna', 'كريتا': 'Creta',
     'تويوتا': 'Toyota', 'كورولا': 'Corolla', 'كامري': 'Camry', 'فورتشنر': 'Fortuner', 'هيونداي': 'Hyundai', 'هيونداى': 'Hyundai', 'النترا': 'Elantra', 'اكسنت': 'Accent', 'توسان': 'Tucson',
     'كيا': 'Kia', 'سيراتو': 'Cerato', 'سبورتاج': 'Sportage', 'نيسان': 'Nissan', 'صني': 'Sunny', 'سنترا': 'Sentra', 'ميتسوبيشي': 'Mitsubishi', 'لانسر': 'Lancer', 'شيفروليه': 'Chevrolet',
     'اوبترا': 'Optra', 'بيجو': 'Peugeot', 'سكودا': 'Skoda', 'اوكتافيا': 'Octavia', 'رينو': 'Renault', 'لوجان': 'Logan', 'شيري': 'Chery', 'تيجو': 'Tiggo', 'جيلي': 'Geely', 'مرسيدس': 'Mercedes',
@@ -125,7 +134,7 @@
     const d = drv && typeof drv === 'object' ? drv : null;
     const v = d && d.vehicleId && TP.q && TP.q.vehicle ? TP.q.vehicle(d.vehicleId) : null;
     const capName = d ? (ar ? d.name : ((d.nameEn || '').trim() || TP.enName(d.name))) : (drv || '');
-    const carTxt = v && v.model ? (ar ? v.model : TP.enName(v.model)) : '';
+    const carTxt = v && v.model ? (ar ? v.model : ((v.modelEn || '').trim() || TP.enName(v.model))) : '';
     const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
     const DOTS = '.........................';
@@ -210,7 +219,8 @@
   function stepMessage(m, c, key, drv, car) {
     const L = custL(c), t = (k, v) => I().t(L, k, v), fl = m.flight || {}, n = enFirst(c.name);
     const driver = drvFirst(drv);
-    car = carEn(car); car = car ? t('carTag', { c: car }) : '';
+    const plate = plateLine(car, L);
+    car = carEn(car); car = car ? t('carTag', { c: car }) + plate : '';
     if (key === 'start') return t('msgOnWay', { n, d: driver, c: car || '' });
     if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { n, d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { n, d: driver, c: car || '' });
     return '';

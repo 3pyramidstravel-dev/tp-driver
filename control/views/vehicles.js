@@ -13,6 +13,7 @@
       <div class="form-grid">
         <label class="fld">رقم اللوحة<input class="input" id="vPlate" value="${esc(v.plate || '')}" placeholder="أ ب ج 1234"></label>
         <label class="fld">الماركة والموديل<input class="input" id="vModel" value="${esc(v.model || '')}" placeholder="هيونداي إلنترا 2025"></label>
+        <label class="fld">اسم العربية بالإنجليزي <small>للعملاء الأجانب — مثال Hyundai Elantra 2025</small><input class="input" id="vModelEn" dir="ltr" maxlength="60" value="${esc(v.modelEn || '')}" placeholder="Hyundai Elantra 2025"></label>
         <label class="fld">اللون<input class="input" id="vColor" value="${esc(v.color || '')}"></label>
         <label class="fld">الملكية<select class="input" id="vOwner"><option value="company" ${v.owner !== 'driver' ? 'selected' : ''}>عربية الشركة</option><option value="driver" ${v.owner === 'driver' ? 'selected' : ''}>عربية السواق</option></select></label>
         <label class="fld">انتهاء رخصة العربية<input class="input" id="vLic" type="date" value="${esc(v.licenseExpiry || '')}"></label>
@@ -26,7 +27,7 @@
     if (!plate) { TP.toast('اكتب رقم اللوحة'); return false; }
     for (const [id, n] of [['vLic', 'انتهاء الرخصة'], ['vIns', 'انتهاء التأمين']]) if (!TP.okDate(U.val(id))) { TP.toast(`تاريخ ${n} مش مظبوط — السنة لازم تتكتب كاملة (مثلاً 2027)`); return false; }
     if (D.vehicles.some(x => x.id !== vid && U.norm(x.plate).replace(/\s/g, '') === U.norm(plate).replace(/\s/g, ''))) { TP.toast('اللوحة دي متسجلة قبل كده'); return false; }
-    const data = { plate, model: U.val('vModel'), color: U.val('vColor'), owner: U.val('vOwner'), licenseExpiry: U.val('vLic'), insuranceExpiry: U.val('vIns'), active: U.checked('vActive'), updatedAt: TP.fb.ts() };
+    const data = { plate, model: U.val('vModel'), modelEn: U.val('vModelEn').slice(0, 60), color: U.val('vColor'), owner: U.val('vOwner'), licenseExpiry: U.val('vLic'), insuranceExpiry: U.val('vIns'), active: U.checked('vActive'), updatedAt: TP.fb.ts() };
     if (!vid) data.createdAt = TP.fb.ts();
     await TP.fb.set('vehicles/' + (vid || TP.newId('V')), data, true);
     TP.audit(vid ? 'vehicle.update' : 'vehicle.create', plate);
