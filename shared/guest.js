@@ -51,6 +51,46 @@
       return t.charAt(0).toUpperCase() + t.slice(1);
     }).join(' ');
   };
+  /* ---------- a place in English: known places first (longest phrase wins), the rest letter by letter ---------- */
+  const pn = s => String(s || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim();
+  const PLACES = [
+    ['مطار القاهره الدولي', 'Cairo International Airport'], ['مطار القاهره', 'Cairo International Airport'], ['مطار سفنكس الدولي', 'Sphinx International Airport'], ['مطار سفنكس', 'Sphinx International Airport'],
+    ['مطار برج العرب', 'Borg El Arab Airport'], ['مطار الغردقه', 'Hurghada Airport'], ['مطار شرم الشيخ', 'Sharm El Sheikh Airport'], ['مطار الاقصر', 'Luxor Airport'], ['مطار اسوان', 'Aswan Airport'],
+    ['العاشر من رمضان', '10th of Ramadan City'], ['مدينه العاشر', '10th of Ramadan City'], ['العاشر', '10th of Ramadan City'], ['الزقازيق', 'Zagazig'], ['بلبيس', 'Belbeis'], ['منيا القمح', 'Minya El Qamh'],
+    ['القاهره الجديده', 'New Cairo'], ['التجمع الخامس', 'Fifth Settlement'], ['التجمع', 'Fifth Settlement'], ['مدينه نصر', 'Nasr City'], ['مصر الجديده', 'Heliopolis'], ['المعادي', 'Maadi'], ['الزمالك', 'Zamalek'],
+    ['وسط البلد', 'Downtown Cairo'], ['الشيخ زايد', 'Sheikh Zayed'], ['6 اكتوبر', '6th of October City'], ['السادس من اكتوبر', '6th of October City'], ['اكتوبر', '6th of October City'], ['العبور', 'El Obour City'],
+    ['الشروق', 'El Shorouk'], ['بدر', 'Badr City'], ['مدينتي', 'Madinaty'], ['الرحاب', 'El Rehab'], ['العاصمه الاداريه', 'New Administrative Capital'], ['القاهره', 'Cairo'], ['الجيزه', 'Giza'], ['الهرم', 'Giza Pyramids'],
+    ['الاسكندريه', 'Alexandria'], ['العين السخنه', 'Ain Sokhna'], ['السخنه', 'Ain Sokhna'], ['الاسماعيليه', 'Ismailia'], ['السويس', 'Suez'], ['بورسعيد', 'Port Said'], ['بنها', 'Benha'], ['طنطا', 'Tanta'], ['المنصوره', 'Mansoura'],
+    ['الغردقه', 'Hurghada'], ['شرم الشيخ', 'Sharm El Sheikh'], ['الاقصر', 'Luxor'], ['اسوان', 'Aswan'], ['الساحل الشمالي', 'North Coast'], ['العلمين', 'El Alamein'],
+    ['المطار', 'the Airport'], ['مطار', 'Airport'], ['صاله', 'Terminal'], ['فندق', 'Hotel'], ['مصنع', 'Factory'], ['المصنع', 'the Factory'], ['شركه', 'Company'], ['الشركه', 'the Company'], ['مكتب', 'Office'], ['بوابه', 'Gate'], ['محطه', 'Station']
+  ].map(([a, e]) => [pn(a), e]).sort((x, y) => y[0].length - x[0].length);
+  /** Only what is known for sure — a place with any unknown Arabic word comes back empty (agreed: better left out than written wrong). */
+  TP.placeEn = function (name) {
+    let s = pn(String(name || '').replace(/[،,\-–—/]+/g, ' , '));
+    if (!s) return '';
+    if (!/[\u0600-\u06FF]/.test(s)) return String(name || '').trim();
+    PLACES.forEach(([a, e]) => { s = s.replace(new RegExp('(^|\\s)' + a + '(?=\\s|$)', 'g'), '$1\u0001' + e + '\u0002'); });
+    const parts = s.split(/(\u0001[^\u0002]*\u0002)/);
+    if (parts.some(p => p.charAt(0) !== '\u0001' && /[\u0600-\u06FF]/.test(p))) return '';
+    const out = parts.map(p => p.charAt(0) === '\u0001' ? p.slice(1, -1) : p).join(' ').replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').replace(/^[, ]+|[, ]+$/g, '').trim();
+    return /^the /.test(out) ? out : out.charAt(0).toUpperCase() + out.slice(1);
+  };
+
+  /* ---------- the driver's own WhatsApp to a trip / airport guest — always English, VIP (agreed with the GM, design 2; no link: the company sends it) ---------- */
+  const cairoHour = () => { try { return Number(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', hourCycle: 'h23' })); } catch (e) { return new Date().getHours(); } };
+  const hm12en = hm => { const x = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!x) return ''; const h = Number(x[1]); return `${h % 12 || 12}:${x[2]} ${h < 12 ? 'AM' : 'PM'}`; };
+  TP.vipDriverMsg = function (m, drv, arrived) {
+    const d = drv || {}, name = (d.nameEn || '').trim() || TP.enName(d.name || ''), id = d.code ? ` (ID ${d.code})` : '';
+    const from = TP.placeEn(m.from && m.from.name), to = TP.placeEn(m.to && m.to.name), time = hm12en(m.time);
+    const h = cairoHour(), hi = h >= 5 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
+    const head = ['✦ *THREE PYRAMIDS TRAVEL* ✦', '_Private Chauffeur Service_', ''];
+    const body = arrived
+      ? [hi, `Your private chauffeur, *${name}*${id}, has arrived and is waiting for you${from ? ' at ' + from : ''} 🚗`]
+      : [hi, `Your private chauffeur, *${name}*${id}, is on his way to you 🚗`, '',
+        from && to ? `📍 ${from} → ${to}` : to ? `📍 To ${to}` : from ? `📍 From ${from}` : null, time ? `🕕 Arriving at ${time} (Cairo time)` : null];
+    return head.concat(body.filter(x => x !== null), ['', 'We wish you a pleasant journey.']).join('\n').replace(/\n{3,}/g, '\n\n');
+  };
+
   /** The job title in English, from the role in "الموظفين". */
   const TITLES = { gm: 'General Manager', finance: 'Finance Manager', airports: 'Airports Manager', operations: 'Operations Manager', supervisor: 'Operation Supervisor' };
   /** The English signature of the staff member who sends (rtl: an Arabic message — every line kept on the right). */
@@ -93,7 +133,7 @@
       row(T.cap, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
       row(T.fl, m.type === 'airport' && fl.no ? fl.no + (fl.terminal ? ` — ${T.term} ${fl.terminal}` : '') : ''),
-      row(T.from, (m.from && m.from.name) || ''), row(T.to, (m.to && m.to.name) || ''),
+      row(T.from, ar ? (m.from && m.from.name) || '' : TP.placeEn(m.from && m.from.name)), row(T.to, ar ? (m.to && m.to.name) || '' : TP.placeEn(m.to && m.to.name)),
       DOTS, link ? T.link + ' 👇\n' + link : null, link ? DOTS : null, TP.signature(sender(), ar)];
     return lines.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n');
   }
