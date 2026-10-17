@@ -109,11 +109,15 @@
     const asks = S.can('fleet.manage') ? D.fleet.filter(c => c.req) : [];
     if (asks.length) h += `<a class="banner warn alert-link" href="#/fleet">${TP.icon('money')}<span class="grow">${asks.length > 1 ? asks.length + ' سواقين طالبين عهدة مصروفات' : 'سواق طالب عهدة مصروفات — رصيده ' + esc(TP.money(asks[0].req.bal))}</span><b>سلّم</b></a>`;
     // a device opened with the GM recovery key in the last 3 days (other than this one) — so a misuse is seen at once
+    // a device opened with "دخول بجوجل" in the last day — the GM sees it at once (agreed: every such entry is told)
+    const gIn = S.can('all') ? (D.devices || []).filter(d => d.approvedBy === 'google' && d.id !== S.uid && TP.now() - (d.approvedAtMs || 0) < 86400000) : [];
+    if (gIn.length) h += `<a class="banner warn alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">${esc(gIn[0].name)} دخل بحساب جوجل على جهاز جديد (${esc(TP.ago(gIn[0].approvedAtMs))})${gIn.length > 1 ? ' — و' + (gIn.length - 1) + ' تانيين' : ''}</span><b>الأجهزة</b></a>`;
     const rec = S.can('all') ? (D.devices || []).filter(d => d.approvedBy === 'recovery' && d.id !== S.uid && TP.now() - (d.approvedAtMs || 0) < 3 * 86400000) : [];
     if (rec.length) h += `<a class="banner danger alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">جهاز اتفتح على حساب المدير العام بمفتاح الاسترجاع (${esc(TP.ago(rec[0].approvedAtMs))}) — لو مش إنت، شيله فوراً وغيّر المفتاح</span><b>الأجهزة</b></a>`;
     const u = S.can('all') && D.usage;
     if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
-    el.innerHTML = (TP.install ? TP.install.bar() : '') + (TP.loud ? TP.loud.bar() : '') + h;
+    el.innerHTML = (TP.install ? TP.install.bar() : '') + S.googleBar() + (TP.loud ? TP.loud.bar() : '') + h;
+    S.googleBind(el);
     if (TP.install) TP.install.bind(el);
     if (TP.loud) TP.loud.bind(el);
   }

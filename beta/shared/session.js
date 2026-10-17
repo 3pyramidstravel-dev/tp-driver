@@ -51,6 +51,7 @@
           return;
         }
         S.uid = user.uid;
+        { const pend = TP.store.get(WHY, null); if (pend) { TP.store.del(WHY); if (!TP.store.get(WHY + '-' + S.uid, null)) TP.store.set(WHY + '-' + S.uid, pend); } }   // the reason now belongs to this device number
         watchDevice();
       });
     }).catch(e => {
@@ -75,7 +76,7 @@
   }
   function noteRemoved() {
     const m = marks()[S.uid];
-    if (m && !TP.store.get(WHY, null)) TP.store.set(WHY, { reason: 'removed', prev: S.uid, since: m.at, at: Date.now() });
+    if (m && !TP.store.get(WHY + '-' + S.uid, null)) TP.store.set(WHY + '-' + S.uid, { reason: 'removed', prev: S.uid, since: m.at, at: Date.now() });
   }
   const WHY_TEXT = {
     wiped: 'الجهاز ده مفيهوش دخول قديم (جهاز جديد، أو المتصفح مسح بياناته)',
@@ -151,8 +152,9 @@
     if (first) opts.onReady && opts.onReady(S);
     if (TP.store.get('tp-pin-recovered', false)) { TP.store.del('tp-pin-recovered'); setTimeout(() => TP.audit('device.pinRecover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — رجع بالموبايل والرقم السري'), 500); }
     markSeen();
-    { const w = TP.store.get(WHY, null); if (w) { TP.store.del(WHY); setTimeout(() => TP.audit('device.relogin', (S.person && S.person.name) || '', `جهاز ${shortId(S.uid)} — ${whyText(w)}${w.since ? ' — آخر مرة كان داخل ' + TP.fmtDateTime(w.since) : ''}`), 800); } }
+    { const w = TP.store.get(WHY + '-' + S.uid, null); if (w) { TP.store.del(WHY + '-' + S.uid); setTimeout(() => TP.audit('device.relogin', (S.person && S.person.name) || '', `جهاز ${shortId(S.uid)} — ${whyText(w)}${w.since ? ' — آخر مرة كان داخل ' + TP.fmtDateTime(w.since) : ''}`), 800); } }
     if (first) setTimeout(askDeviceLabel, 2500);
+    { const ge = TP.store.get('tp-google-in', null); if (ge) { TP.store.del('tp-google-in'); setTimeout(() => TP.audit('device.google', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — دخول بجوجل (' + ge + ')'), 500); } }
     if (TP.store.get('tp-recovered', false)) { TP.store.del('tp-recovered'); setTimeout(() => TP.audit('device.recover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — بمفتاح الاسترجاع'), 500); }
     document.dispatchEvent(new CustomEvent('tp:session'));
   }
@@ -237,11 +239,13 @@
       </form>
       <div id="gWait" hidden><div class="spinner"></div><p id="gWaitText">في انتظار موافقة الإدارة…</p></div>
       <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>
-      ${(w => w && whyText(w) ? `<p class="small ${w.reason === 'wiped' ? 'muted' : ''}" style="margin:4px 0 0;${w.reason === 'wiped' ? '' : 'color:var(--warn,#a06000)'}">${w.reason === 'wiped' ? '' : 'سبب الخروج: '}${esc(whyText(w))}</p>` : '')(TP.store.get(WHY, null))}
+      ${(w => w && whyText(w) ? `<p class="small ${w.reason === 'wiped' ? 'muted' : ''}" style="margin:4px 0 0;${w.reason === 'wiped' ? '' : 'color:var(--warn,#a06000)'}">${w.reason === 'wiped' ? '' : 'سبب الخروج: '}${esc(whyText(w))}</p>` : '')(TP.store.get(WHY + '-' + S.uid, null))}
+      ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-gold btn-block" id="gGoogle" style="margin-top:10px">دخول بحساب جوجل</button><div class="gate-msg" id="gGMsg"></div>' : ''}
       ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-ghost btn-sm" id="gPinRec" style="margin-top:6px">جهازك خرج؟ استرجاع حسابي</button>' : ''}
       ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:2px">استرجاع حساب المدير العام</button>' : ''}`);
     const rb = TP.$('#gRecover', g); if (rb) rb.onclick = showRecovery;
     const pb = TP.$('#gPinRec', g); if (pb) pb.onclick = showPinRecovery;
+    const gb = TP.$('#gGoogle', g); if (gb) gb.onclick = () => googleIn(gb, TP.$('#gGMsg', g));
     const boxes = TP.$$('.code-boxes input', g);
     boxes.forEach((b, i) => {
       b.addEventListener('input', () => {
@@ -351,6 +355,62 @@
       } finally { btn.disabled = false; }
     });
   }
+
+  /* ---------- "دخول بجوجل" (agreed): the Google account linked to a person opens it again on this device, no code ---------- */
+  async function googleIn(btn, msg) {
+    const err = t => { msg.textContent = t; msg.className = 'gate-msg err'; btn.disabled = false; };
+    btn.disabled = true; msg.textContent = ''; msg.className = 'gate-msg';
+    let gs;
+    try { gs = await TP.fb.google(); } catch (e) { console.warn(e); return err(TP.fb.googleError(e) || 'مقدرناش نفتح جوجل — حاول تاني'); }
+    try {
+      const link = await gs.get('glinks/' + gs.uid).catch(() => null);
+      if (!link || !link.pid) { gs.end(); return err(`حساب جوجل ده (${gs.email}) مش مربوط بأي حساب عندنا. خد كود تفعيل من الإدارة، وبعد ما تدخل اربطه بجوجل.`); }
+      await gs.set('grecover/' + S.uid, { gid: gs.uid, pid: link.pid, at: TP.fb.ts() });
+      const p = await TP.fb.get('people/' + link.pid);
+      if (!p || p.active === false) { TP.fb.remove('grecover/' + S.uid).catch(() => {}); gs.end(); return err('الحساب موقوف — كلّم الإدارة'); }
+      if (p.type !== opts.kind) { TP.fb.remove('grecover/' + S.uid).catch(() => {}); gs.end(); return err(`الحساب ده لـ${KIND_NAMES[p.type] || p.type} — افتح التطبيق الصح`); }
+      const dev = { personId: p.id, name: p.name, kind: p.type, perms: p.perms || [], active: true, approvedAt: TP.fb.ts(), approvedAtMs: Date.now(), approvedBy: 'google', gmail: gs.email };
+      if (p.factoryId) dev.factoryId = p.factoryId;
+      if (p.driverKind) dev.driverKind = p.driverKind;
+      TP.store.set('tp-google-in', gs.email);                 // written to the audit log once inside
+      await TP.fb.set('devices/' + S.uid, dev);
+      TP.fb.remove('grecover/' + S.uid).catch(() => {});
+      gs.end();
+    } catch (e) {
+      console.warn(e); TP.store.del('tp-google-in'); gs.end();
+      err('حساب جوجل ده مش مسموح له يدخل هنا — كلّم الإدارة');
+    }
+  }
+  /** linking: done once from inside (management + tourism drivers) — the Google account then opens this person on any device */
+  S.googleEligible = () => !!(S.ready && S.person && (S.person.type === 'staff' || (S.person.type === 'driver' && S.person.driverKind === 'tourism')));
+  S.googleLink = async function () {
+    let gs;
+    try { gs = await TP.fb.google(); } catch (e) { console.warn(e); TP.toast(TP.fb.googleError(e) || 'مقدرناش نفتح جوجل — حاول تاني', 'warn'); return false; }
+    try {
+      await TP.fb.set('glinkClaim/' + S.uid, { gid: gs.uid, at: TP.fb.ts() });
+      await gs.set('glinks/' + gs.uid, { pid: S.person.id, uid: S.uid, email: gs.email, at: TP.fb.ts() });
+      await TP.fb.update('devices/' + S.uid, { gmail: gs.email });
+      TP.fb.remove('glinkClaim/' + S.uid).catch(() => {});
+      TP.audit('google.link', S.person.name, gs.email);
+      TP.toast('اتربط بجوجل ✓ — لو الجهاز خرج دوس "دخول بحساب جوجل"');
+      return true;
+    } catch (e) {
+      console.warn(e); TP.fb.remove('glinkClaim/' + S.uid).catch(() => {});
+      TP.toast('حساب جوجل ده مربوط بحساب تاني عندنا — اختار حسابك إنت', 'warn');
+      return false;
+    } finally { gs.end(); }
+  };
+  S.googleBar = function (opts2) {
+    const o = opts2 || {};
+    if (!S.googleEligible() || !S.device || S.device.gmail || (o.dismiss !== false && (TP.store.get('tp-glink-later', 0) || 0) > Date.now())) return '';
+    return `<div class="banner warn tp-glink"><span class="grow" style="flex:1">🔐 اربط حسابك بجوجل — لو الجهاز خرج ترجع بدوسة، من غير كود</span><button type="button" class="btn btn-primary btn-sm" data-glink="go">ربط بجوجل</button>${o.dismiss !== false ? '<button type="button" class="btn btn-ghost btn-sm" data-glink="later">بعدين</button>' : ''}</div>`;
+  };
+  S.googleBind = function (root) {
+    (root || document).querySelectorAll('[data-glink]').forEach(b => b.onclick = async () => {
+      if (b.dataset.glink === 'later') { TP.store.set('tp-glink-later', Date.now() + 864e5); document.dispatchEvent(new CustomEvent('tp:install')); return; }
+      b.disabled = true; await S.googleLink(); b.disabled = false; document.dispatchEvent(new CustomEvent('tp:install'));
+    });
+  };
 
   /* ---------- GM recovery: the recovery key the GM set in "حسابي" opens his account on this device ---------- */
   TP.recoveryKey = k => String(k || '').trim().replace(/\s+/g, ' ');

@@ -26,7 +26,7 @@
         fb.noAuth ? null : import(SDK + 'firebase-auth.js'),
         import(SDK + 'firebase-firestore.js')
       ]);
-      A = authMod; F = fsMod;
+      A = authMod; F = fsMod; fb._appMod = appMod;
       const app = fb.app = appMod.initializeApp(window.TP_FIREBASE_CONFIG);
       if (A) {
         auth = A.getAuth(app);
@@ -68,6 +68,38 @@
     const opts = { vapidKey: self.TP_VAPID_KEY };
     if (swReg) opts.serviceWorkerRegistration = swReg;
     return M.getToken(messaging, opts);
+  };
+
+  /* ---------- "دخول بجوجل": the Google account lives in a second, separate app — the device keeps its own sign-in ---------- */
+  let g = null;
+  fb.google = async function () {
+    await fb.load();
+    if (!g) {
+      const app2 = fb._appMod.initializeApp(window.TP_FIREBASE_CONFIG, 'google');
+      const a2 = A.getAuth(app2);
+      try { await A.setPersistence(a2, A.inMemoryPersistence); } catch (e) { /* default */ }
+      g = { a2, d2: F.getFirestore(app2) };
+    }
+    const prov = new A.GoogleAuthProvider();
+    try { prov.setCustomParameters({ prompt: 'select_account' }); } catch (e) { /* */ }
+    const res = await A.signInWithPopup(g.a2, prov);
+    const u = res.user;
+    const ref = p => F.doc(g.d2, p);
+    return {
+      uid: u.uid, email: String(u.email || '').slice(0, 120),
+      get: async p => { const s = await F.getDoc(ref(p)); return s.exists() ? Object.assign({ id: s.id }, s.data()) : null; },
+      set: (p, data) => F.setDoc(ref(p), data),
+      end: () => A.signOut(g.a2).catch(() => {})
+    };
+  };
+  /** a Google error in plain words */
+  fb.googleError = e => {
+    const c = (e && e.code) || '';
+    if (/popup-closed|cancelled-popup|user-cancelled/.test(c)) return 'اتقفلت نافذة جوجل قبل ما تختار حسابك';
+    if (/popup-blocked/.test(c)) return 'المتصفح منع نافذة جوجل — افتح البرنامج من Chrome (مش من جوه الواتساب) وحاول تاني';
+    if (/operation-not-allowed|unauthorized-domain|configuration-not-found/.test(c)) return 'الدخول بجوجل لسه مش متفعل — كلّم الإدارة';
+    if (/network/.test(c)) return 'مفيش نت — حاول تاني';
+    return '';
   };
 
   /* ---------- auth ---------- */

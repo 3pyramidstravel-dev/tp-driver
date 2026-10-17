@@ -562,6 +562,7 @@
     if (TP.dvCar) html += TP.dvCar.custodyBanner();
     // step 1 of the phone setup: install the app (keeps the sign-in and the alarms), then the notifications in the wake card
     if (TP.install) html += TP.install.bar({ dismiss: false, text: 'ثبّت البرنامج على الموبايل — علشان منبه الصحيان يوصلك وميخرجش منك' });
+    html += S.googleBar({ dismiss: false });
     if (TP.loud) html += TP.loud.bar({ dismiss: false, text: 'خلّي منبه الصحيان والمشاوير يرن بصوت عالي زي المنبه — مرة واحدة' });
     html += wakeCard();
     // tourism / trips drivers: make the new-trip notification ring like a call (one-time phone setting)
@@ -586,6 +587,7 @@
     const sh = root.querySelector('#soundHow'); if (sh) sh.onclick = soundGuide;
     if (TP.install) TP.install.bind(root);
     if (TP.loud) TP.loud.bind(root);
+    S.googleBind(root);
     const wp = root.querySelector('#wPush'); if (wp) wp.onclick = () => TP.push.enable().then(ok => { TP.toast(ok ? 'التنبيهات اتفعلت ✓' : TP.i18n.t('ar', 'pushFail'), ok ? '' : 'warn', ok ? 0 : 15000); render(); });
   }
 
