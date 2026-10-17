@@ -11,7 +11,9 @@
       ['wakeLeadHoursLine', 'المنبّه قبل ميعاد سواق الخط بكام ساعة', 'سواق الخط يقدر يغيّر ميعاده بنفسه بالرقم السري', 'num', 0, 24, 0.25],
       ['wakeLeadHoursTourism', 'المنبّه قبل مأمورية السياحة بكام ساعة', 'الافتراضي — ولكل مشوار تقدر تحدد الدقايق من شاشة المشوار', 'num', 0, 24, 0.25],
       ['wakeResponseMin', 'بعد كام دقيقة من المنبّه يرن جرس المشرف', 'لو السواق مداسش "صباح الخير"', 'int', 1, 1440],
-      ['wakeEscalateMin', 'بعد كام دقيقة من المنبّه يطلع التنبيه للإدارة', 'لازم يكون أكبر من وقت جرس المشرف', 'int', 1, 1440],
+      ['wakeAirMin', 'بعد كام دقيقة يوصل لمدير المطارات', 'لو محدش استلم — بعد جرس المشرف', 'int', 1, 1440],
+      ['wakeGmMin', 'بعد كام دقيقة يوصل للمدير العام', '', 'int', 1, 1440],
+      ['wakeCeoMin', 'بعد كام دقيقة يوصل لرئيس مجلس الإدارة (تنبيه عالي)', '', 'int', 1, 1440],
       ['nightCheckTime', 'ميعاد فحص الليل', 'المنبّه والبطارية والصلاحيات عند سواقين بكره', 'time'],
       ['lowBatteryPct', 'تنبيه البطارية الضعيفة عند أقل من', '%', 'int', 5, 60],
       ['wakeSecondMin', 'الرنة التانية للسواق بعد كام دقيقة', '', 'int', 1, 1440],
@@ -72,7 +74,7 @@
       if (!isFinite(n) || n < min || n > max || (type === 'int' && n % 1)) return TP.toast(`"${label}" لازم يكون بين ${min} و ${max}`);
       out[k] = n;
     }
-    if (out.wakeEscalateMin <= out.wakeResponseMin) return TP.toast('تنبيه الإدارة لازم يكون بعد جرس المشرف');
+    if (!(out.wakeResponseMin < out.wakeAirMin && out.wakeAirMin < out.wakeGmMin && out.wakeGmMin < out.wakeCeoMin)) return TP.toast('الترتيب لازم يكون: المشرف ← مدير المطارات ← المدير العام ← رئيس مجلس الإدارة');
     const ends = ['ot_end1', 'ot_end2', 'ot_end3'].map(id => U.val(id));
     if (ends.some(e => !/^\d{2}:\d{2}$/.test(e))) return TP.toast('اكتب نهاية كل شريحة سهرة');
     out.overtimeTierEnds = ends.map(e => e === '00:00' ? '24:00' : e);

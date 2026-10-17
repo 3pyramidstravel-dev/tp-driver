@@ -40,7 +40,9 @@
   W.DEFAULTS = {
     wakeLeadHoursLine: 2, wakeLeadHoursTourism: 2, wakeResponseMin: 5, wakeEscalateMin: 8,
     wakeSecondMin: 2, watchLateCount: 3, watchSupMin: 2, readyReminderTime: '21:00', nightCheckTime: '22:00', wakeGiveUpMin: 180,
-    claimTimeoutMin: 10
+    claimTimeoutMin: 10,
+    // the ladder (agreed): supervisor (wakeResponseMin, 5) → airports manager 7 → general manager 10 → chairman 15 (loud)
+    wakeAirMin: 7, wakeGmMin: 10, wakeCeoMin: 15
   };
   const S = s => Object.assign({}, W.DEFAULTS, s || {});
 
@@ -79,7 +81,7 @@
   /** The driver's first job on `day` (what the alarm is for). */
   W.firstJob = (day, pid, data) => ((W.jobsOf(day, data)[pid]) || [])[0] || null;
 
-  const DYNAMIC = ['p1', 'p2', 'supAt', 'mgmtAt', 'remind', 'awakeAt', 'awakeMethod', 'awakeKept', 'claim', 'outcome'];
+  const DYNAMIC = ['p1', 'p2', 'supAt', 'airAt', 'mgmtAt', 'ceoAt', 'remind', 'awakeAt', 'awakeMethod', 'awakeKept', 'claim', 'outcome'];
   const hasHistory = e => DYNAMIC.some(k => e && e[k] !== undefined && e[k] !== null);
 
   /**
@@ -110,9 +112,16 @@
     if (prev && prev.d) Object.keys(prev.d).forEach(pid => { if (!d[pid] && hasHistory(prev.d[pid])) d[pid] = Object.assign({}, prev.d[pid], { gone: true }); });
     const staff = (data.people || []).filter(p => p.type === 'staff' && p.active !== false);
     const has = (p, k) => Array.isArray(p.perms) && (p.perms.includes('all') || p.perms.includes(k));
-    const sup = staff.filter(p => has(p, 'wake.supervise')).flatMap(p => tokensOf(p.id));
-    const mgmt = staff.filter(p => (p.perms || []).includes('all') || p.role === 'gm' || p.role === 'operations').flatMap(p => tokensOf(p.id));
-    return { day, d, notify: { sup: Array.from(new Set(sup)), mgmt: Array.from(new Set(mgmt)) } };
+    const top = p => (p.perms || []).includes('all');
+    const uniq = list => Array.from(new Set(list.flatMap(p => tokensOf(p.id))));
+    // the supervisors: the wake permission, not the managers further up the ladder
+    const sup = uniq(staff.filter(p => has(p, 'wake.supervise') && !top(p) && p.role !== 'airports'));
+    const air = uniq(staff.filter(p => p.role === 'airports'));
+    // the general manager's step keeps the operations manager with him (as before)
+    const gm = uniq(staff.filter(p => (top(p) || p.role === 'gm' || p.role === 'operations') && p.role !== 'chairman'));
+    const ceo = uniq(staff.filter(p => p.role === 'chairman'));
+    const night = uniq(staff.filter(p => has(p, 'wake.supervise')));     // the night check: as before (wake permission, the GM included)
+    return { day, d, notify: { sup, air, gm, ceo, mgmt: gm, night } };
   };
 
   /** Where a driver's wake-up stands right now (for screens and for the alarm). */
@@ -131,7 +140,7 @@
     const mins = W.lateMin(e, now);
     const supMin = e.watch ? s.watchSupMin : s.wakeResponseMin;
     if (e.claim) return 'claimed';
-    if (mins >= s.wakeEscalateMin) return 'escalated';
+    if (mins >= s.wakeAirMin) return 'escalated';
     if (mins >= supMin) return 'late';
     return 'waiting';
   };
@@ -154,7 +163,9 @@
     const supMin = e.watch ? s.watchSupMin : s.wakeResponseMin;
     if (!e.supAt && !e.claim && mins >= supMin) out.push('sup');
     // management: nobody took the case, or the supervisor has held it too long without an answer
-    if (!e.mgmtAt && ((!e.claim && mins >= s.wakeEscalateMin) || (e.claim && now - e.claim.at >= s.claimTimeoutMin * 60000))) out.push('mgmt');
+    if (!e.airAt && !e.claim && mins >= s.wakeAirMin) out.push('air');
+    if (!e.mgmtAt && ((!e.claim && mins >= s.wakeGmMin) || (e.claim && now - e.claim.at >= s.claimTimeoutMin * 60000))) out.push('mgmt');
+    if (!e.ceoAt && ((!e.claim && mins >= s.wakeCeoMin) || (e.claim && now - e.claim.at >= (s.claimTimeoutMin + 5) * 60000))) out.push('ceo');
     return out;
   };
 

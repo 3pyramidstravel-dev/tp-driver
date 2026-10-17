@@ -88,7 +88,12 @@
     const d = D.devices.find(x => x.id === uid);
     if (!d) return;
     if (uid === S.uid) return TP.toast('مينفعش تشيل الجهاز اللي إنت فاتح منه', 'warn');
-    if (!(await TP.confirm('إزالة الجهاز', `الجهاز ده هيخرج فوراً من النظام (${d.name}). عشان يدخل تاني لازم كود تفعيل جديد وموافقة.`, 'إزالة', true))) return;
+    const seen = TP.q.seen(d), last = TP.toDate(seen.lastSeen), on = TP.q.online(d), today = !!last && TP.dayKey(last.getTime()) === TP.dayKey(TP.now());
+    const what = d.label ? ` (${TP.deviceLabelText(d.label)})` : '';
+    const msg = on || today
+      ? `⚠ الجهاز ده شغال${what} — ${on ? 'متصل دلوقتي' : 'آخر ظهور ' + TP.ago(seen.lastSeen)}. لو ده موبايل أو لابتوب ${d.name} بيشتغل عليه، هيخرج فوراً ولازم كود تفعيل جديد. متأكد إنه مش جهاز شغال؟`
+      : `الجهاز ده هيخرج فوراً من النظام (${d.name}${what}). عشان يدخل تاني لازم كود تفعيل جديد وموافقة.`;
+    if (!(await TP.confirm(on || today ? 'ده جهاز شغال!' : 'إزالة الجهاز', msg, on || today ? 'أيوه، شيله' : 'إزالة', true))) return;
     await TP.fb.remove('devices/' + uid);
     TP.fb.remove('presence/' + uid).catch(() => {});
     TP.audit('device.remove', d.name, 'جهاز ' + shortId(uid));
@@ -172,7 +177,7 @@
               return `<tr>
                 <td>${U.who(d.name, personSub(p), !on)}</td>
                 <td>${esc(KIND[d.kind] || d.kind)}</td>
-                <td class="mono">${shortId(d.id)}${d.id === S.uid ? ' <span class="tag gold">ده جهازك</span>' : ''}</td>
+                <td><span class="mono">${shortId(d.id)}</span>${d.id === S.uid ? ' <span class="tag gold">ده جهازك</span>' : ''}${d.label ? `<div class="small">${esc(TP.deviceLabelText(d.label))}</div>` : ''}</td>
                 <td><span class="dot ${on ? 'on' : ''}"></span>${on ? 'متصل الآن' : TP.ago(d.lastSeen)}</td>
                 <td class="small">${d.installed === undefined ? '—' : d.installed ? '<span class="st st-ok">متثبت</span>' : '<span class="st st-warn">مش متثبت</span>'}<br>${d.notif === 'granted' && d.fcm ? '<span class="st st-ok">التنبيهات شغالة</span>' : d.notif === 'denied' ? '<span class="st st-danger">التنبيهات مقفولة</span>' : d.notif ? '<span class="st st-warn">التنبيهات مش متفعلة</span>' : ''}</td>
                 <td>${d.battery !== undefined ? `<span class="${d.battery < (D.settings.lowBatteryPct || 20) ? 'st st-danger' : ''}">${d.battery}%</span>` : '—'}</td>

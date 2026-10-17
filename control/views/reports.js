@@ -270,7 +270,7 @@
           line && line.driverId !== d.driverId ? 'نعم' : '', O.flags(e).staff];
       }));
     const ms = missions.filter(m => m.status === 'done' || m.status === 'active');
-    const waitOf = m => { const e = m.events || {}, picked = Object.values(m.picked || {}).map(r => r.at).sort()[0]; return e.pickup && picked ? Math.max(0, Math.round((picked - e.pickup.at) / 60000)) : ''; };
+    const waitOf = m => O.missionWait(m);
     const mSheet = [['كود السواق', 'السواق', 'المصنع / الجهة', 'التاريخ', 'النوع', 'الوصف', 'رقم الرحلة', 'اتحرك', 'عند العميل', 'وصل الوجهة', 'خلص', 'انتظار العميل (د)', 'عدد العملاء', 'الحالة']]
       .concat(ms.sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || ''))).map(m => {
         const e = m.events || {};

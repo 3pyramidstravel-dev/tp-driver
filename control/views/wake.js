@@ -94,7 +94,7 @@
         ${open ? `<div class="wb-more">
           ${r.status === 'claimed' && e.claim ? `<div class="small">المخالفة مع ${esc(claimRole(e.claim))} الآن</div>` : ''}
           ${e.claim ? `<div class="small" style="color:var(--warn)">تم المتابعة واستلام المخالفة من خلال: ${esc(String(e.claim.by || '').split(/\s*[-–—(|]\s*/)[0])} (${esc(TP.ago(e.claim.at))})</div>` : ''}
-          ${e.mgmtAt ? '<div class="small" style="color:var(--danger)">وصل للإدارة</div>' : ''}
+          ${e.airAt || e.mgmtAt || e.ceoAt ? `<div class="small" style="color:var(--danger)">وصل ${[e.airAt ? 'لمدير المطارات' : '', e.mgmtAt ? 'للمدير العام' : '', e.ceoAt ? 'لرئيس مجلس الإدارة' : ''].filter(Boolean).join(' ثم ')}</div>` : ''}
           ${e.outcome && e.outcome.by ? `<div class="small muted">${esc(e.outcome.by)}${e.supAt ? ' · اتأخر' : ''}</div>` : ''}
           <div class="small muted">${esc(TP.driverKindName(e.kind))} · ${r.day === D.todayKey ? 'النهارده' : 'بكره'} · قبلها بـ ${Math.round(e.leadMin / 6) / 10} ساعة</div>
           ${canAct && live ? `<div class="wb-acts">

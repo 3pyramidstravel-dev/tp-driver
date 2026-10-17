@@ -32,7 +32,7 @@
     if (!p) return;
     const isGm = (p.perms || []).includes('all');
     if (isGm && !S.can('all')) return TP.toast('مينفعش تعدّل حساب المدير العام', 'warn');
-    const roles = TP.ROLES.filter(r => r.id !== 'gm' || S.can('all'));
+    const roles = isGm ? TP.ROLES.filter(r => TP.TOP_ROLES.includes(r.id)) : TP.ROLES.filter(r => !TP.TOP_ROLES.includes(r.id) || S.can('all'));
     TP.openModal(pid ? 'تعديل بيانات ' + p.name : 'إضافة موظف أو حساب مصنع', `
       <div class="form-grid">
         <label class="fld">الاسم<input class="input" id="fName" value="${esc(p.name || '')}" required></label>
@@ -44,9 +44,9 @@
             <option value="hr" ${p.type === 'hr' ? 'selected' : ''}>HR مصنع (عميل)</option>
           </select></label>
         <label class="fld" id="fFactoryWrap">المصنع<select class="input" id="fFactory">${U.opts(D.companies, p.factoryId, c => c.id, c => c.name, 'اختار المصنع')}</select></label>
-        <label class="fld" id="fRoleWrap">الدور<select class="input" id="fRole" ${isGm ? 'disabled' : ''}>${U.opts(roles, isGm ? 'gm' : p.role, r => r.id, r => r.name)}</select><small>الدور بيعلّم الصلاحيات، وتقدر تعدّل عليها</small></label>
+        <label class="fld" id="fRoleWrap">الدور<select class="input" id="fRole">${U.opts(roles, isGm ? (TP.TOP_ROLES.includes(p.role) ? p.role : 'gm') : p.role, r => r.id, r => r.name)}</select><small>الدور بيعلّم الصلاحيات، وتقدر تعدّل عليها</small></label>
         <label class="check full"><input type="checkbox" id="fActive" ${p.active !== false ? 'checked' : ''} ${isGm && pid === S.person.id ? 'disabled' : ''}><span>الحساب شغال<small>لو شلت العلامة: كل أجهزته هتخرج فوراً</small></span></label>
-        <div class="full" id="fPermsWrap">${isGm ? '<div class="banner info" style="margin:0">المدير العام معاه كل الصلاحيات دايماً.</div>' : permsEditor(p.perms || [])}</div>
+        <div class="full" id="fPermsWrap">${isGm ? '<div class="banner info" style="margin:0">الحساب ده معاه كل الصلاحيات دايماً (رئيس مجلس الإدارة أو المدير العام).</div>' : permsEditor(p.perms || [])}</div>
         ${!pid ? '<p class="muted small full">الرقم السري الافتراضي 1234 (للي معاهم أسعار). وبعد الحفظ هيطلعلك كود تفعيل الجهاز.</p>' : ''}
       </div>`, () => save(pid, p), { wide: true, saveLabel: pid ? 'حفظ التعديلات' : 'إضافة' });
 
@@ -77,8 +77,10 @@
       person.perms = []; person.role = 'hr';
     } else {
       delete person.factoryId;
-      person.role = isGm ? 'gm' : U.val('fRole');
-      person.perms = isGm ? ['all'] : TP.normalizePerms(TP.$$('[data-perm]').filter(c => c.checked).map(c => c.dataset.perm));
+      const rv = U.val('fRole'), top = TP.TOP_ROLES.includes(rv) && S.can('all');
+      person.role = isGm ? (TP.TOP_ROLES.includes(rv) ? rv : 'gm') : rv;
+      // رئيس مجلس الإدارة / المدير العام: every permission (agreed) — given only by someone who has them all
+      person.perms = isGm || top ? ['all'] : TP.normalizePerms(TP.$$('[data-perm]').filter(c => c.checked).map(c => c.dataset.perm));
       if (!person.perms.length) { TP.toast('اختار صلاحية واحدة على الأقل'); return false; }
     }
     const id = pid || TP.newId('P');

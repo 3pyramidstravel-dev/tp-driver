@@ -234,6 +234,7 @@
         <label class="fld">المصنع (العميل)<select class="input" id="mFactory">${U.opts(D.companies, m.factoryId, c => c.id, c => c.name, 'جهة تانية / عميل فرد')}</select></label>
         <label class="fld">اسم الجهة <small>لو مش مصنع</small><input class="input" id="mClient" value="${esc(m.client || '')}" maxlength="80"></label>
         <label class="fld full">السواق<select class="input" id="mDriver">${U.opts(drivers, m.driverId, p => p.id, p => `${TP.driverLabel(p)} — ${TP.driverKindName(p.driverKind)}`, 'اختار السواق')}</select></label>
+        <label class="fld" id="mClsWrap">درجة العربية <small>رسالة العميل بتتكتب على حسبها</small><select class="input" id="mCls"><option value="vip" ${m.cls !== 'c' ? 'selected' : ''}>VIP</option><option value="c" ${m.cls === 'c' ? 'selected' : ''}>Class C</option></select></label>
         ${placeHtml('from', m.from)}${placeHtml('to', m.to)}
         <div class="full"><div class="muted small" style="font-weight:800;margin-bottom:6px">العملاء <small>كل عميل بياخد لينك للمشوار ده بس</small></div><div id="mCusts"></div></div>
         <label class="fld">كاش مع السواق <small>عميل فرد بيدفع للسواق</small><input class="input" id="mCash" inputmode="decimal" dir="ltr" value="${m.cash ? esc(m.cash.amount) : ''}" placeholder="0"></label>
@@ -256,6 +257,9 @@
     };
     TP.$$('#tp-modal [data-mt]').forEach(b => b.onclick = () => { type = b.dataset.mt; TP.$$('#tp-modal [data-mt]').forEach(x => x.classList.toggle('active', x === b)); syncType(); });
     TP.$('#fDir').onchange = syncType;
+    // VIP / Class C: asked only when the driver is not a tourism driver (tourism = VIP always)
+    const syncCls = () => { const p = TP.q.person(U.val('mDriver')); TP.$('#mClsWrap').hidden = !p || p.driverKind === 'tourism'; };
+    TP.$('#mDriver').addEventListener('change', syncCls); syncCls();
     syncType(); drawCusts(); bindLoc('from'); bindLoc('to'); U.bindTime(TP.$('#tp-modal'));
     const fsel = TP.$('#mFactory'), pfIn = TP.$('#mPF');
     if (fsel && pfIn) fsel.onchange = () => { pfIn.disabled = !fsel.value; if (!fsel.value) pfIn.value = ''; };
@@ -362,6 +366,8 @@
     const id = mid || TP.newId('M');
     const data = { title, day, month: O.monthOf(day), time, factoryId: U.val('mFactory'), client: U.val('mFactory') ? '' : U.val('mClient'), driverId, from, to,
       customers, notes: U.val('mNotes'), type, updatedAt: TP.fb.ts() };
+    const drvP = TP.q.person(driverId), clsC = !!drvP && drvP.driverKind !== 'tourism' && U.val('mCls') === 'c';
+    if (clsC) data.cls = 'c'; else if (mid && old.cls) data.cls = TP.fb.del();
     if (wakeMin !== null) data.wakeMin = wakeMin;
     else if (mid && old.wakeMin != null) data.wakeMin = TP.fb.del();
     if (cashAmt) data.cash = { amount: cashAmt, note: U.val('mCashNote') };
@@ -566,7 +572,7 @@
               <td><b>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</b><div class="muted small">${esc(f ? f.name : m.client || '')}${cs.length ? ' · ' + cs.length + ' عميل' : ''}${m.cash ? ` · <span class="tag gold">كاش ${esc(TP.money(m.cash.amount))}${m.cashGot ? ' ✓' : ''}</span>` : ''}</div>${m.flight ? `<div class="small">${flightLine(m)}</div>` : ''}${problems(m).map(t => `<div><span class="badge-s far">⚠ ${esc(t)}</span></div>`).join('')}</td>
               <td>${esc(TP.driverLabel(p))}${p && p.driverKind === 'tourism' ? '<div class="muted small">سياحة</div>' : ''}${m.subFrom ? `<div><span class="badge-s far">بديل عن ${esc(TP.q.dname(m.subFrom))}${seePrice ? ' — راجع السعر' : ''}</span></div>` : ''}</td>
               <td class="small">${esc((m.from && m.from.name) || '—')} ← ${esc((m.to && m.to.name) || '—')}</td>
-              <td><span class="st ${s[1]}">${s[0]}</span>${m.status === 'assigned' ? (m.ack ? `<div class="small" style="color:var(--ok,#1d7a46)">✓ السواق استلم ${esc(O.hm12(O.hm(m.ack.at)))}</div>` : '<div><span class="badge-s nogps">⏳ السواق لسه ما استلمش</span></div>') : ''}${steps ? `<div class="muted small">${esc(steps)}</div>` : ''}</td>
+              <td><span class="st ${s[1]}">${s[0]}</span>${m.status === 'assigned' ? (m.ack ? `<div class="small" style="color:var(--ok,#1d7a46)">✓ السواق استلم ${esc(O.hm12(O.hm(m.ack.at)))}</div>` : '<div><span class="badge-s nogps">⏳ السواق لسه ما استلمش</span></div>') : ''}${steps ? `<div class="muted small">${esc(steps)}</div>` : ''}${(w => w !== '' && (m.status === 'done' || ev.depart) ? `<div class="small"><span class="tag ${w >= 15 ? 'gold' : ''}">⏱ انتظار ${w} دقيقة</span></div>` : '')(O.missionWait(m))}</td>
               ${seePrice ? `<td class="num">${m.factoryId ? (live.pf[m.id] ? esc(TP.money(live.pf[m.id].amount)) : '<span class="st st-warn">لسه</span>') : '—'}</td><td class="num">${live.pd[m.id] ? esc(TP.money(live.pd[m.id].amount)) : '<span class="st st-warn">لسه</span>'}</td>` : ''}
               <td class="acts">${cs.length ? `<button class="icon-btn" title="لينكات العملاء" data-links="${esc(m.id)}">${TP.icon('external', 16)}</button>` : ''}
                 ${canEdit ? `<button class="icon-btn" title="تعديل" data-edit="${esc(m.id)}">${TP.icon('edit', 16)}</button>` : ''}

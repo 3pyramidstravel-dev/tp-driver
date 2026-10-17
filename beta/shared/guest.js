@@ -137,6 +137,8 @@
   TP.vipDriverMsg = function (m, drv, arrived) {
     const d = drv || {}, name = (d.nameEn || '').trim() || TP.enName(d.name || ''), id = d.code ? ` (ID ${d.code})` : '';
     const from = TP.placeOut(m.from), to = TP.placeOut(m.to), time = hm12en(m.time);
+    if (m.cls === 'c') return ['*Driver Information*', '', `Your driver *${name}*${id} ${arrived ? 'has arrived and is waiting for you' + (from ? ' at ' + from : '') : 'is on his way to you'}.`,
+      !arrived && from ? `*From* → ${from}` : null, !arrived && to ? `*To* → ${to}` : null, !arrived && time ? `*Pickup Time* → ${time}` : null].filter(x => x !== null).join('\n');
     const h = cairoHour(), hi = h >= 5 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
     const head = ['✦ *THREE PYRAMIDS TRAVEL* ✦', '_Private Chauffeur Service_', ''];
     const body = arrived
@@ -147,7 +149,7 @@
   };
 
   /** The job title in English, from the role in "الموظفين". */
-  const TITLES = { gm: 'General Manager', finance: 'Finance Manager', airports: 'Airports Manager', operations: 'Operations Manager', supervisor: 'Operation Supervisor' };
+  const TITLES = { chairman: 'Founder & CEO', gm: 'General Manager', finance: 'Finance Director', airports: 'Airport Pickup Manager', operations: 'Operations Manager', supervisor: 'Supervisor' };
   /** The English signature of the staff member who sends (rtl: an Arabic message — every line kept on the right). */
   TP.signature = function (person, rtl) {
     const staff = person && person.type === 'staff';
@@ -184,13 +186,15 @@
     const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
     const DOTS = '.........................';
-    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', guestFirst(c)), '',
-      row(T.cap, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt),
+    const clsC = m.cls === 'c', capL = clsC && T.cap === 'Captain' ? 'Driver' : T.cap;
+    const head = clsC ? [(ar ? RLM : '') + '*Driver Information*', ''] : [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', guestFirst(c)), ''];
+    const lines = head.concat([
+      row(capL, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt ? carTxt + (clsC ? ' — Class C' : '') : (clsC ? 'Class C' : '')),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
       row(T.fl, m.type === 'airport' && fl.no ? fl.no + (fl.terminal ? ` — ${T.term} ${fl.terminal}` : '') : ''),
       row(T.term, m.type === 'airport' && !fl.no && fl.terminal ? fl.terminal : ''),
       row(T.from, ar ? (m.from && m.from.name) || '' : TP.placeOut(m.from)), row(T.to, ar ? (m.to && m.to.name) || '' : TP.placeOut(m.to)),
-      DOTS, link ? T.link + ' 👇\n' + link : null, link ? DOTS : null, TP.signature(sender(), ar)];
+      DOTS, link ? T.link + ' 👇\n' + link : null, link ? DOTS : null, TP.signature(sender(), ar)]);
     return lines.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n');
   }
 
@@ -264,11 +268,15 @@
   }
   /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
   function stepMessage(m, c, key, drv, car) {
-    const L = custL(c), t = (k, v) => I().t(L, k, v), fl = m.flight || {}, n = guestFirst(c);
+    const L = custL(c), fl = m.flight || {}, n = guestFirst(c);
+    let t = (k, v) => I().t(L, k, v);
     const driver = drvFirst(drv);
     const plate = plateLine(car, L);
     car = carEn(car); car = car ? t('carTag', { c: car }) + plate : '';
+    if (m.cls === 'c') { const t0 = t; t = (k, v) => t0(k, v).replace(/\bcaptain\b/g, 'driver').replace(/\bCaptain\b/g, 'Driver'); }
     if (key === 'start') return t('msgOnWay', { n, d: driver, c: car || '' });
+    if (key === 'depart') return t('msgDepart', { n });
+    if (key === 'done') return t('msgDone', { n });
     if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { n, d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { n, d: driver, c: car || '' });
     return '';
   }

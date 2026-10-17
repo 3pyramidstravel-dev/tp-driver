@@ -191,7 +191,9 @@
     // trips: reaching the customer and the destination are recorded by themselves too
     allMissions().filter(m => m.status === 'active').forEach(m => {
       const steps = O.missionSteps(m), next = steps[O.nextIndex(steps, m.events || {})];
-      if (next && (next.key === 'pickup' || next.key === 'arrive') && next.loc && isFinite(next.loc.lat) && O.dist(fix, next.loc) <= rad) recordMission(m, next, true);
+      // "اتحركت بالعميل" forgotten: reaching the destination still records "وصلت الوجهة" by itself
+      const tgt = next && next.key === 'depart' ? steps.find(x => x.key === 'arrive') : next;
+      if (tgt && (tgt.key === 'pickup' || tgt.key === 'arrive') && tgt.loc && isFinite(tgt.loc.lat) && O.dist(fix, tgt.loc) <= rad) recordMission(m, tgt, true);
     });
   }
   function updateDistances() {
@@ -361,14 +363,15 @@
     if ((m.events && m.events[step.key]) || st.inflight.has(flight)) return;
     st.inflight.add(flight);
     try {
-      const ev = pressData(auto ? st.fix : await freshFix(), step.key === 'done' || step.key === 'start' ? null : step.loc, auto, step.key === 'start' ? 'dep' : 'arr');
+      const ev = pressData(auto ? st.fix : await freshFix(), step.key === 'done' || step.key === 'start' || step.key === 'depart' ? null : step.loc, auto, step.key === 'start' || step.key === 'depart' ? 'dep' : 'arr');
       const patch = { ['events.' + step.key]: ev, lastKey: step.key, status: step.key === 'done' ? 'done' : 'active', updatedAt: TP.fb.ts() };
       // arriving at the destination / ending the trip: whoever was not marked rode
-      if (step.key === 'arrive' || step.key === 'done') (m.customers || []).forEach(c => { if (c.id && !O.riderOf(m, c.id)) patch['picked.' + c.id] = { at: TP.now(), n: nm(c) }; });
+      if (step.key === 'depart' || step.key === 'arrive' || step.key === 'done') (m.customers || []).forEach(c => { if (c.id && !O.riderOf(m, c.id)) patch['picked.' + c.id] = { at: TP.now(), n: nm(c) }; });
       const p = TP.fb.update('missions/' + m.id, patch);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
       if (!auto && ['start', 'pickup'].includes(step.key)) { if (moving()) offerOut({ kind: 'trip', missionId: m.id, stepKey: step.key }, true); else tellCustomers(m, step); }
+      if (!auto && ['depart', 'done'].includes(step.key)) tellCustomers(m, step);      // "we are on our way" / "mission completed" (agreed)
       if (step.key === 'start' && (m.customers || []).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
     } finally { st.inflight.delete(flight); }
@@ -380,12 +383,12 @@
   }
   /** After "اتحركت" / "وصلت": a WhatsApp message to each guest, one tap each (WhatsApp opens with the text ready). */
   function tellCustomers(m, step) {
-    if (!['start', 'pickup'].includes(step.key)) return;
+    if (!['start', 'pickup', 'depart', 'done'].includes(step.key)) return;
     const car = (TP.dvCar && TP.dvCar.vehicle && TP.dvCar.vehicle()) || '';
     const list = (m.customers || []).filter(c => c.phone && TP.phoneIntl(c.phone) && !(st.track[c.h] && st.track[c.h].st === 'noshow'))
       .map(c => ({ c, text: TP.guest.stepMessage(m, c, step.key, S.person, car) })).filter(x => x.text);
     if (!list.length) return;
-    TP.openModal(step.key === 'start' ? 'بلّغ العميل إنك اتحركت' : 'بلّغ العميل إنك وصلت', `
+    TP.openModal(({ start: 'بلّغ العميل إنك اتحركت', pickup: 'بلّغ العميل إنك وصلت', depart: 'بلّغ العميل إنكم اتحركتوا', done: 'ابعت للعميل رسالة نهاية المهمة' })[step.key], `
       <p class="modal-text">دوس "للعميل" يروح على رقمه، أو "لجروب" والواتساب يوريك الجروبات تختار — الرسالة جاهزة، دوس ابعت.</p>
       ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">📱 للعميل</a><a class="btn btn-ghost btn-sm" href="${esc('https://wa.me/?text=' + encodeURIComponent(x.text))}" target="_blank" rel="noopener">👥 لجروب</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
   }
@@ -397,6 +400,7 @@
       if (step.key === 'pickup' && !gone) custStatus(c.h, 'arrived', m.day, air && air.dir === 'arr'
         ? { t: 'السواق وصل المطار ومستنيك 🚗', b: `${air.terminal ? 'صالة ' + air.terminal + ' — ' : ''}معاه لافتة باسمك` }
         : { t: 'العربية وصلت وجاهزة 🚗', b: `السواق ${drv} مستنيك` });
+      if (step.key === 'depart' && !gone) custStatus(c.h, 'picked', m.day);
       if (step.key === 'arrive' && !gone) custStatus(c.h, 'dropped', m.day);
       if (step.key === 'done' && !gone) custStatus(c.h, 'done', m.day);
     });
@@ -719,7 +723,7 @@
         }
       }
       // customers: after "وصلت مكان العميل" each one is "ركب" or "مجاش"
-      const atPickup = !!ev.pickup && !ev.arrive, waited = ev.pickup ? (TP.now() - ev.pickup.at) / 60000 : 0;
+      const atPickup = !!ev.pickup && !ev.depart && !ev.arrive, waited = ev.pickup ? (TP.now() - ev.pickup.at) / 60000 : 0;
       const custs = (m.customers || []).length && active ? `<div class="custs">${(m.customers || []).map(c => custRow(c, m.day, {
         rider: O.riderOf(m, c.id), key: `m|${m.id}|${m.day}|${c.id}`, arrived: !!ev.pickup, where: (m.from && m.from.name) || '', m,
         pickOk: atPickup && !O.riderOf(m, c.id), noshowOk: atPickup && waited >= (Number(st.settings.noShowWaitMin) || 5) && !O.riderOf(m, c.id)

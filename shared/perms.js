@@ -48,6 +48,7 @@
   TP.MONEY_PERMS = TP.PERMS.flatMap(g => g.items).filter(i => i.money).map(i => i.key);
 
   TP.ROLES = [
+    { id: 'chairman', name: 'رئيس مجلس الإدارة', perms: ['all'] },
     { id: 'gm', name: 'المدير العام', perms: ['all'] },
     { id: 'finance', name: 'المدير المالي', perms: ['prices.view', 'prices.edit', 'overtime.approve', 'advances.manage', 'month.close', 'reports.finance', 'reports.attendance', 'audit.view', 'tracking.view', 'salary.manage'] },
     { id: 'airports', name: 'مدير المطارات', perms: ['airport.manage', 'airport.prices', 'missions.manage', 'tracking.view', 'drivers.manage', 'fleet.manage'] },
@@ -61,6 +62,8 @@
     { id: 'tourism', name: 'سواق سياحة', note: 'مرتب ثابت — يشوف مرتبه وعهدة عربيته بس، من غير أسعار المشاوير' },
     { id: 'external', name: 'سواق مشاوير', note: 'مشاوير واحتياطي للخطوط — يشوف سعره بس' }
   ];
+  /** the jobs that hold every permission (only someone with every permission can give them) */
+  TP.TOP_ROLES = ['chairman', 'gm'];
   TP.driverKindName = id => (TP.DRIVER_KINDS.find(k => k.id === id) || {}).name || '—';
   /** "101 · محمد علي" — every driver has a fixed code that never changes or repeats. */
   TP.driverLabel = p => !p ? '—' : (p.code ? p.code + ' · ' : '') + (p.name || '');

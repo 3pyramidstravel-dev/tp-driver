@@ -155,6 +155,7 @@
   ops.MISSION_STEPS = [
     { key: 'start', label: 'اتحركت للمشوار', short: 'اتحرك' },
     { key: 'pickup', label: 'وصلت مكان العميل', short: 'عند العميل' },
+    { key: 'depart', label: 'اتحركت بالعميل', short: 'اتحرك بالعميل' },
     { key: 'arrive', label: 'وصلت الوجهة', short: 'وصل' },
     { key: 'done', label: 'خلصت المشوار', short: 'خلص' }
   ];
@@ -169,6 +170,13 @@
       o.loc = x.key === 'pickup' ? (m && m.from && m.from.location) : x.key === 'arrive' ? (m && m.to && m.to.location) : null;
       return o;
     });
+  };
+  /** Waiting at the customer (agreed): "وصلت مكان العميل" → "اتحركت بالعميل" (older trips: → the first "ركب"). '' = unknown. */
+  ops.missionWait = function (m) {
+    const e = (m && m.events) || {};
+    if (!e.pickup) return '';
+    const end = e.depart ? e.depart.at : Object.values((m && m.picked) || {}).map(r => r.at).sort()[0];
+    return end ? Math.max(0, Math.round((end - e.pickup.at) / 60000)) : '';
   };
   ops.MISSION_STATUS = { assigned: ['متعيّن', 'st-info'], active: ['شغال', 'st-warn'], done: ['خلص', 'st-ok'], cancelled: ['ملغي', 'st-off'] };
 

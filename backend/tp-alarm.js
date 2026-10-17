@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-17T15:31Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-17T21:29Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -41,7 +41,9 @@
   W.DEFAULTS = {
     wakeLeadHoursLine: 2, wakeLeadHoursTourism: 2, wakeResponseMin: 5, wakeEscalateMin: 8,
     wakeSecondMin: 2, watchLateCount: 3, watchSupMin: 2, readyReminderTime: '21:00', nightCheckTime: '22:00', wakeGiveUpMin: 180,
-    claimTimeoutMin: 10
+    claimTimeoutMin: 10,
+    // the ladder (agreed): supervisor (wakeResponseMin, 5) → airports manager 7 → general manager 10 → chairman 15 (loud)
+    wakeAirMin: 7, wakeGmMin: 10, wakeCeoMin: 15
   };
   const S = s => Object.assign({}, W.DEFAULTS, s || {});
 
@@ -80,7 +82,7 @@
   /** The driver's first job on `day` (what the alarm is for). */
   W.firstJob = (day, pid, data) => ((W.jobsOf(day, data)[pid]) || [])[0] || null;
 
-  const DYNAMIC = ['p1', 'p2', 'supAt', 'mgmtAt', 'remind', 'awakeAt', 'awakeMethod', 'awakeKept', 'claim', 'outcome'];
+  const DYNAMIC = ['p1', 'p2', 'supAt', 'airAt', 'mgmtAt', 'ceoAt', 'remind', 'awakeAt', 'awakeMethod', 'awakeKept', 'claim', 'outcome'];
   const hasHistory = e => DYNAMIC.some(k => e && e[k] !== undefined && e[k] !== null);
 
   /**
@@ -111,9 +113,16 @@
     if (prev && prev.d) Object.keys(prev.d).forEach(pid => { if (!d[pid] && hasHistory(prev.d[pid])) d[pid] = Object.assign({}, prev.d[pid], { gone: true }); });
     const staff = (data.people || []).filter(p => p.type === 'staff' && p.active !== false);
     const has = (p, k) => Array.isArray(p.perms) && (p.perms.includes('all') || p.perms.includes(k));
-    const sup = staff.filter(p => has(p, 'wake.supervise')).flatMap(p => tokensOf(p.id));
-    const mgmt = staff.filter(p => (p.perms || []).includes('all') || p.role === 'gm' || p.role === 'operations').flatMap(p => tokensOf(p.id));
-    return { day, d, notify: { sup: Array.from(new Set(sup)), mgmt: Array.from(new Set(mgmt)) } };
+    const top = p => (p.perms || []).includes('all');
+    const uniq = list => Array.from(new Set(list.flatMap(p => tokensOf(p.id))));
+    // the supervisors: the wake permission, not the managers further up the ladder
+    const sup = uniq(staff.filter(p => has(p, 'wake.supervise') && !top(p) && p.role !== 'airports'));
+    const air = uniq(staff.filter(p => p.role === 'airports'));
+    // the general manager's step keeps the operations manager with him (as before)
+    const gm = uniq(staff.filter(p => (top(p) || p.role === 'gm' || p.role === 'operations') && p.role !== 'chairman'));
+    const ceo = uniq(staff.filter(p => p.role === 'chairman'));
+    const night = uniq(staff.filter(p => has(p, 'wake.supervise')));     // the night check: as before (wake permission, the GM included)
+    return { day, d, notify: { sup, air, gm, ceo, mgmt: gm, night } };
   };
 
   /** Where a driver's wake-up stands right now (for screens and for the alarm). */
@@ -132,7 +141,7 @@
     const mins = W.lateMin(e, now);
     const supMin = e.watch ? s.watchSupMin : s.wakeResponseMin;
     if (e.claim) return 'claimed';
-    if (mins >= s.wakeEscalateMin) return 'escalated';
+    if (mins >= s.wakeAirMin) return 'escalated';
     if (mins >= supMin) return 'late';
     return 'waiting';
   };
@@ -155,7 +164,9 @@
     const supMin = e.watch ? s.watchSupMin : s.wakeResponseMin;
     if (!e.supAt && !e.claim && mins >= supMin) out.push('sup');
     // management: nobody took the case, or the supervisor has held it too long without an answer
-    if (!e.mgmtAt && ((!e.claim && mins >= s.wakeEscalateMin) || (e.claim && now - e.claim.at >= s.claimTimeoutMin * 60000))) out.push('mgmt');
+    if (!e.airAt && !e.claim && mins >= s.wakeAirMin) out.push('air');
+    if (!e.mgmtAt && ((!e.claim && mins >= s.wakeGmMin) || (e.claim && now - e.claim.at >= s.claimTimeoutMin * 60000))) out.push('mgmt');
+    if (!e.ceoAt && ((!e.claim && mins >= s.wakeCeoMin) || (e.claim && now - e.claim.at >= (s.claimTimeoutMin + 5) * 60000))) out.push('ceo');
     return out;
   };
 
@@ -521,6 +532,8 @@
       '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
     msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', "Hello {n},\nWelcome to Egypt!\nYour captain *{d}* is waiting for you at the arrivals hall{t}, holding a sign with your name.", "Hallo {n},\nWillkommen in Ägypten!\nIhr Fahrer *{d}* erwartet Sie vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.", "Bonjour {n},\nBienvenue en Égypte !\nVotre chauffeur *{d}* vous attend devant le hall des arrivées{t}, avec une pancarte à votre nom.", "Здравствуйте, {n}!\nДобро пожаловать в Египет!\nВаш водитель *{d}* ждёт вас у зала прилёта{t} с табличкой с вашим именем.", "{n}，您好！\n欢迎来到埃及！\n您的司机 *{d}* 正在到达大厅{t}外举着写有您名字的牌子等候您。", "{n}님, 안녕하세요.\n이집트에 오신 것을 환영합니다!\n기사 {d}님이 도착 홀{t} 앞에서 고객님 성함이 적힌 팻말을 들고 기다리고 있습니다."],
+    msgDepart: ['{n}، اتحركنا. رحلة سعيدة 🌹', '{n}, we are on our way. Have a great trip 🌹', '{n}, wir sind unterwegs. Gute Fahrt 🌹', '{n}, nous sommes en route. Bon voyage 🌹', '{n}, мы выехали. Приятной поездки 🌹', '{n}，我们出发了。祝您旅途愉快 🌹', '{n}님, 출발했습니다. 즐거운 여행 되세요 🌹'],
+    msgDone: ['شكراً لثقتك يا {n}. المهمة خلصت 🌹', 'Thank you for your trust, {n}. Mission completed 🌹', 'Vielen Dank für Ihr Vertrauen, {n}. Fahrt abgeschlossen 🌹', 'Merci de votre confiance, {n}. Mission accomplie 🌹', 'Спасибо за доверие, {n}. Поездка завершена 🌹', '{n}，感谢您的信任。行程已完成 🌹', '{n}님, 믿어 주셔서 감사합니다. 운행이 완료되었습니다 🌹'],
     msgOnWay: ['أهلاً يا فندم 🌹 الكابتن {d} اتحرك وفي الطريق لحضرتك دلوقتي{c}.', "Hello {n},\nYour captain *{d}* is on his way to you now.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist jetzt auf dem Weg zu Ihnen.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est en route vers vous.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* уже едет к вам.{c}", "{n}，您好！\n您的司机 *{d}* 正在前往接您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 지금 고객님께 가고 있습니다.{c}"],
     msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', "Hello {n},\nYour captain *{d}* has arrived and is waiting for you.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist angekommen und wartet auf Sie.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est arrivé et vous attend.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* приехал и ждёт вас.{c}", "{n}，您好！\n您的司机 *{d}* 已到达，正在等您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 도착하여 기다리고 있습니다.{c}"],
     carTag: [' — العربية {c}', "\nCar: {c}", "\nFahrzeug: {c}", "\nVoiture : {c}", "\nАвтомобиль: {c}", "\n车辆：{c}", "\n차량: {c}"],
@@ -708,6 +721,37 @@ async function batchGet(ctx, paths) {
 
 /* ---------------- push ---------------- */
 /** Sends to every token; false (nothing recorded) when the per-run request budget would run out — retried next minute. */
+/* ---------------- ntfy: the loud ring (agreed for every device) ----------------
+   Each person who installed the ntfy app has a secret topic (ntfy/{personId}). An urgent push to one of his
+   phones also goes to his topic at the highest priority — the ntfy app rings like an alarm, even on silent. */
+const NTFY_URL = 'https://ntfy.sh/';
+const LOUD = new Set(['wake', 'sup', 'mgmt', 'mission', 'noack', 'night']);
+let ntfyCache = null;
+async function ntfyMap(ctx) {
+  if (ctx.ntfy) return ctx.ntfy;
+  if (ntfyCache && ctx.now - ntfyCache.at < 10 * 60000) return (ctx.ntfy = ntfyCache.map);
+  const map = {};
+  try {
+    const subs = await query(ctx, 'ntfy', ['topic']);
+    const topicOf = {}; subs.forEach(s => { if (typeof s.topic === 'string' && /^tp-[A-Za-z0-9]{20,40}$/.test(s.topic)) topicOf[s.id] = s.topic; });
+    if (Object.keys(topicOf).length) (await query(ctx, 'devices', ['personId', 'fcm', 'active'])).forEach(d => { if (d.fcm && d.active === true && topicOf[d.personId]) map[d.fcm] = topicOf[d.personId]; });
+  } catch (e) { ctx.log.push('ntfy list: ' + e.message); }
+  ntfyCache = { at: ctx.now, map };
+  return (ctx.ntfy = map);
+}
+async function ntfySend(ctx, tokens, m) {
+  if (!LOUD.has(m.type) || !(tokens || []).length) return;
+  const map = await ntfyMap(ctx), topics = Array.from(new Set(tokens.map(t => map[t]).filter(Boolean)));
+  for (const topic of topics) {
+    if (ctx.calls + 1 > REQ_LIMIT - RESERVE) { ctx.log.push('ntfy: request budget reached'); return; }
+    try {
+      // its own fetch — never the Google token (api() adds it)
+      const r = await ctx.f(NTFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topic, title: m.title, message: m.body, priority: m.type === 'night' ? 4 : 5, tags: [m.loud ? 'rotating_light' : 'bell'], click: m.link }) });
+      if (!r.ok) ctx.log.push('ntfy ' + r.status); else ctx.pushed.push({ type: m.type + '/ntfy', pid: m.pid });
+    } catch (e) { ctx.log.push('ntfy error ' + e.message); }
+  }
+}
 async function push(ctx, tokens, m) {
   const list = tokens || [];
   if (ctx.calls + list.length > REQ_LIMIT - RESERVE) { ctx.log.push('request budget reached — rest next minute'); ctx.full = true; return false; }
@@ -723,6 +767,7 @@ async function push(ctx, tokens, m) {
       else ctx.pushed.push({ type: m.type, pid: m.pid, to: String(token).slice(0, 8) + '…' });   // never the whole token in the logs
     } catch (e) { ctx.log.push('fcm error ' + e.message); }
   }
+  await ntfySend(ctx, list, m);
   return true;
 }
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
@@ -1310,11 +1355,20 @@ export async function run(env, now, f) {
           if (!(await push(ctx, plan.notify && plan.notify.sup, { type: 'sup', day, pid, tag: 'sup-' + pid, link: SITE + 'control/#/wake',
             title: `⚠️ ${who(e)} مصحيش`, body: `${e.job.label} الساعة ${at} — كان المفروض يصحى ${W.hm12(e.wakeAt)}${e.watch ? ' (تحت المتابعة)' : ''}` }))) break;
           set(pid, 'supAt', now); lateMarks.push([pid, day]);
+        } else if (step === 'air') {
+          // the ladder (agreed): supervisor 5 → airports manager 7 → general manager 10 → chairman 15
+          if (!(await push(ctx, plan.notify && plan.notify.air, { type: 'mgmt', day, pid, tag: 'air-' + pid, link: SITE + 'control/#/wake',
+            title: `⚠️ ${who(e)} مصحيش ومحدش استلم`, body: `${e.job.label} الساعة ${at} — اتأخر ${Math.round((now - e.wakeAt) / 60000)} دقيقة` }))) break;
+          set(pid, 'airAt', now);
         } else if (step === 'mgmt') {
           const held = e.claim ? ` — ${e.claim.by} ماسكه من ${Math.round((now - e.claim.at) / 60000)} دقيقة ومفيش رد` : ' ومحدش استلم';
-          if (!(await push(ctx, plan.notify && plan.notify.mgmt, { type: 'mgmt', day, pid, tag: 'mgmt-' + pid, link: SITE + 'control/#/wake',
+          if (!(await push(ctx, (plan.notify && (plan.notify.gm || plan.notify.mgmt)), { type: 'mgmt', day, pid, tag: 'mgmt-' + pid, link: SITE + 'control/#/wake',
             title: `🚨 ${who(e)} مصحيش${held}`, body: `${e.job.label} الساعة ${at} — اتأخر ${Math.round((now - e.wakeAt) / 60000)} دقيقة` }))) break;
           set(pid, 'mgmtAt', now);
+        } else if (step === 'ceo') {
+          if (!(await push(ctx, plan.notify && plan.notify.ceo, { type: 'mgmt', day, pid, tag: 'ceo-' + pid, link: SITE + 'control/#/wake', loud: true,
+            title: `🚨🚨 ${who(e)} مصحيش لحد دلوقتي`, body: `${e.job.label} الساعة ${at} — اتأخر ${Math.round((now - e.wakeAt) / 60000)} دقيقة ومحدش حل` }))) break;
+          set(pid, 'ceoAt', now);
         }
       }
     }
@@ -1357,7 +1411,9 @@ export async function run(env, now, f) {
     if (now >= W.cairoMs(today, s.nightCheckTime) && !tp.nightSent && !ctx.full) {
       const acks = await batchGet(ctx, live.map(pid => `wakeAcks/${tomorrow}_${pid}`));
       const notReady = live.filter(pid => !(acks[`wakeAcks/${tomorrow}_${pid}`] || {}).readyAt && tp.d[pid].wakeAt - now > 3600000);
-      const sentOk = !notReady.length || await push(ctx, tp.notify && tp.notify.sup, { type: 'night', day: tomorrow, tag: 'night-' + tomorrow, link: SITE + 'control/#/wake',
+      // the night check keeps going to the supervisors and the general manager (as before the ladder)
+      const nightTo = tp.notify ? (tp.notify.night || tp.notify.sup) : [];
+      const sentOk = !notReady.length || await push(ctx, nightTo, { type: 'night', day: tomorrow, tag: 'night-' + tomorrow, link: SITE + 'control/#/wake',
         title: `فحص الليل: ${notReady.length} سواق مأكدوش "جاهز لبكره"`, body: notReady.slice(0, 6).map(pid => who(tp.d[pid])).join('، ') + (notReady.length > 6 ? '…' : '') });
       if (sentOk) await patch(ctx, 'wake/' + tomorrow, { nightSent: now, notReady }, ['nightSent', 'notReady']);
     }

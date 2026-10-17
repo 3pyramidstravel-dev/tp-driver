@@ -257,7 +257,12 @@ service cloud.firestore {
         // the device itself reports presence & health only
         || (signedIn() && request.auth.uid == uid && resource.data.active == true
             && changed().hasOnly(['lastSeen', 'battery', 'appVersion', 'platform',
-                                  'alarmOk', 'permsOk', 'screen', 'fcm', 'fcmAt']));
+                                  'alarmOk', 'permsOk', 'screen', 'fcm', 'fcmAt', 'label'])
+            && (!('label' in changed()) || (request.resource.data.label is map
+                && request.resource.data.label.keys().hasOnly(['type', 'brand', 'name'])
+                && request.resource.data.label.type in ['mobile', 'laptop', 'desktop', 'tablet']
+                && request.resource.data.label.brand is string && request.resource.data.label.brand.size() <= 40
+                && request.resource.data.label.name is string && request.resource.data.label.name.size() <= 40)));
 
       allow delete: if can('devices.manage')
         || (can('drivers.manage') && resource.data.kind == 'driver');
@@ -454,7 +459,7 @@ service cloud.firestore {
     match /missions/{mid} {
       function missionStepOk() {
         return resource.data.status in ['assigned', 'active']
-          && request.resource.data.lastKey in ['start', 'pickup', 'arrive', 'done']
+          && request.resource.data.lastKey in ['start', 'pickup', 'depart', 'arrive', 'done']
           && addsOnlyLastKey(request.resource.data, resource.data.events)
           && inDay(request.resource.data.events[request.resource.data.lastKey].at, resource.data.day, 43200000, 129600000)
           && ((request.resource.data.lastKey == 'done' && request.resource.data.status == 'done')

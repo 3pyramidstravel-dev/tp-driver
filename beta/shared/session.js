@@ -152,8 +152,44 @@
     if (TP.store.get('tp-pin-recovered', false)) { TP.store.del('tp-pin-recovered'); setTimeout(() => TP.audit('device.pinRecover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — رجع بالموبايل والرقم السري'), 500); }
     markSeen();
     { const w = TP.store.get(WHY, null); if (w) { TP.store.del(WHY); setTimeout(() => TP.audit('device.relogin', (S.person && S.person.name) || '', `جهاز ${shortId(S.uid)} — ${whyText(w)}${w.since ? ' — آخر مرة كان داخل ' + TP.fmtDateTime(w.since) : ''}`), 800); } }
+    if (first) setTimeout(askDeviceLabel, 2500);
     if (TP.store.get('tp-recovered', false)) { TP.store.del('tp-recovered'); setTimeout(() => TP.audit('device.recover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — بمفتاح الاسترجاع'), 500); }
     document.dispatchEvent(new CustomEvent('tp:session'));
+  }
+
+  /* ---------- "عرّفنا الجهاز ده": type, brand and a name — asked once per device (agreed), shown on the devices page ---------- */
+  const DEV_TYPES = [['mobile', '📱 موبايل'], ['laptop', '💻 لابتوب'], ['desktop', '🖥 كمبيوتر مكتب'], ['tablet', '📲 تابلت']];
+  const BRANDS = {
+    mobile: ['Samsung سامسونج', 'Xiaomi / Redmi شاومي', 'Realme ريلمي', 'OPPO أوبو', 'vivo فيفو', 'Huawei هواوي', 'Honor أونر', 'Infinix إنفينكس', 'Tecno تكنو', 'iPhone آيفون', 'Nokia نوكيا'],
+    laptop: ['Dell', 'HP', 'Lenovo', 'Asus', 'Acer', 'Apple MacBook', 'Microsoft Surface', 'MSI', 'Toshiba'],
+    desktop: ['Dell', 'HP', 'Lenovo', 'Asus', 'Acer', 'Apple iMac', 'تجميع'],
+    tablet: ['Samsung سامسونج', 'iPad آيباد', 'Lenovo', 'Huawei هواوي', 'Xiaomi شاومي']
+  };
+  TP.DEV_TYPES = DEV_TYPES;
+  TP.deviceLabelText = l => !l ? '' : [((DEV_TYPES.find(x => x[0] === l.type) || [])[1] || '').split(' ')[0], l.brand, l.name ? '— ' + l.name : ''].filter(Boolean).join(' ');
+  S.askDeviceLabel = () => askDeviceLabel();
+  function askDeviceLabel() {
+    if (!S.ready || !S.device || S.device.label || window.TP_NO_LABEL_ASK || TP.store.get('tp-label-asked-' + S.uid, false, true) || !TP.openModal) return;
+    TP.store.set('tp-label-asked-' + S.uid, true, true);                    // once per opening at most when skipped
+    const pf = String((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
+    let type = /android|iphone|ipad|ios/i.test(pf + ' ' + navigator.userAgent) ? (/ipad|tablet/i.test(navigator.userAgent) ? 'tablet' : 'mobile') : 'laptop';
+    const brandOpts = t => (BRANDS[t] || []).map(b => `<option>${esc(b)}</option>`).join('') + '<option value="other">تانية…</option>';
+    TP.openModal('عرّفنا الجهاز ده — مرة واحدة', `
+      <p class="modal-text">ده بيساعد الإدارة تفرق بين أجهزتك (الموبايل واللابتوب مثلاً)، فمحدش يشيل جهاز شغال بالغلط.</p>
+      <div class="form-grid">
+        <label class="fld">نوع الجهاز<select class="input" id="dlType">${DEV_TYPES.map(([k, l]) => `<option value="${k}" ${k === type ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="fld">الماركة<select class="input" id="dlBrand">${brandOpts(type)}</select></label>
+        <label class="fld" id="dlOtherW" hidden>اكتب الماركة<input class="input" id="dlOther" maxlength="30" dir="auto"></label>
+        <label class="fld full">اسم الجهاز <small>اسم يفرّقه عن أجهزتك التانية</small><input class="input" id="dlName" maxlength="40" placeholder="مثال: موبايل الشغل — لابتوب المكتب"></label>
+      </div>`, async () => {
+      const t = TP.$('#dlType').value, bSel = TP.$('#dlBrand').value, brand = (bSel === 'other' ? TP.$('#dlOther').value : bSel).trim().slice(0, 40), name = TP.$('#dlName').value.trim().slice(0, 40);
+      if (!brand) { TP.toast('اختار الماركة'); return false; }
+      await TP.fb.update('devices/' + S.uid, { label: { type: t, brand, name } });
+      TP.toast('اتحفظ ✓');
+    }, { saveLabel: 'حفظ', cancelLabel: 'بعدين' });
+    const ty = TP.$('#dlType'), br = TP.$('#dlBrand'), ow = TP.$('#dlOtherW');
+    ty.onchange = () => { br.innerHTML = brandOpts(ty.value); ow.hidden = true; };
+    br.onchange = () => { ow.hidden = br.value !== 'other'; };
   }
 
   function stopSession() {
@@ -505,7 +541,8 @@
     wakeLeadHoursLine: 2,          // alarm = departure − 2h (line drivers may change their own)
     wakeLeadHoursTourism: 2,
     wakeResponseMin: 5,            // no "صباح الخير" after 5 min → supervisor bell
-    wakeEscalateMin: 8,            // still unhandled 8 min after the alarm → management
+    wakeEscalateMin: 8,            // (old — replaced by the ladder below)
+    wakeAirMin: 7, wakeGmMin: 10, wakeCeoMin: 15,   // nobody took the case: airports manager → general manager → chairman (loud)
     nightCheckTime: '22:00',
     readyReminderTime: '21:00',    // "جاهز لبكره" reminder push
     wakeSecondMin: 2,              // second ring
