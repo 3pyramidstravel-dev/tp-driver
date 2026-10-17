@@ -226,7 +226,9 @@ service cloud.firestore {
       allow read: if can('devices.manage') || can('tracking.view') || can('staff.manage') || can('drivers.manage')
         || (signedIn() && request.auth.uid == uid);
       allow create, update: if isActive() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['lastSeen', 'appVersion', 'screen', 'platform', 'battery', 'personId'])
+        && request.resource.data.keys().hasOnly(['lastSeen', 'appVersion', 'screen', 'platform', 'battery', 'personId', 'installed', 'notif'])
+        && (!('installed' in request.resource.data) || request.resource.data.installed is bool)
+        && (!('notif' in request.resource.data) || (request.resource.data.notif is string && request.resource.data.notif.size() <= 10))
         && request.resource.data.lastSeen == request.time
         && request.resource.data.personId == me().personId;
       allow delete: if can('devices.manage');

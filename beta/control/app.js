@@ -113,7 +113,8 @@
     if (rec.length) h += `<a class="banner danger alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">جهاز اتفتح على حساب المدير العام بمفتاح الاسترجاع (${esc(TP.ago(rec[0].approvedAtMs))}) — لو مش إنت، شيله فوراً وغيّر المفتاح</span><b>الأجهزة</b></a>`;
     const u = S.can('all') && D.usage;
     if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
-    el.innerHTML = h;
+    el.innerHTML = (TP.install ? TP.install.bar() : '') + h;
+    if (TP.install) TP.install.bind(el);
   }
 
   function render() {
@@ -165,6 +166,7 @@
     if (k !== permsKey) { permsKey = k; TP.data.start(); }   // re-subscribe only when access changed
     $('#ct').hidden = false; go();
   });
+  document.addEventListener('tp:install', () => { if (S.ready) renderAlerts(); });
   document.addEventListener('tp:session-end', () => { permsKey = null; TP.data.stop(); $('#ct').hidden = true; });
 
   S.start({ kind: 'staff', base: '../shared/', onReady() { /* tp:session handles everything */ } });

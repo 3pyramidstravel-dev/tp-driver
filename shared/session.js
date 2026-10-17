@@ -138,6 +138,8 @@
     const send = async () => {
       if (!S.ready || document.hidden) return;
       const data = { lastSeen: TP.fb.ts(), appVersion: TP.VERSION, screen: opts.kind, platform: (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '' };
+      data.installed = !!(TP.install && TP.install.installed());
+      data.notif = typeof Notification === 'undefined' ? 'none' : String(Notification.permission || '').slice(0, 10);
       try {
         if (navigator.getBattery) { const b = await navigator.getBattery(); data.battery = Math.round(b.level * 100); }
       } catch (e) { /* not available */ }

@@ -166,7 +166,7 @@
             ${U.filterBox('devQ', 'بحث بالاسم أو رقم الجهاز', U.filters.dev)}
           </div>
           ${devs.length ? `<div class="table-wrap"><table class="tbl">
-            <thead><tr><th>الشخص</th><th>الشاشة</th><th>الجهاز</th><th>آخر ظهور</th><th>البطارية</th><th>اتفعّل</th>${manage ? '<th></th>' : ''}</tr></thead>
+            <thead><tr><th>الشخص</th><th>الشاشة</th><th>الجهاز</th><th>آخر ظهور</th><th>متثبت / التنبيهات</th><th>البطارية</th><th>اتفعّل</th>${manage ? '<th></th>' : ''}</tr></thead>
             <tbody>${devs.map(d => {
               const p = TP.q.person(d.personId), on = TP.q.online(d);
               return `<tr>
@@ -174,6 +174,7 @@
                 <td>${esc(KIND[d.kind] || d.kind)}</td>
                 <td class="mono">${shortId(d.id)}${d.id === S.uid ? ' <span class="tag gold">ده جهازك</span>' : ''}</td>
                 <td><span class="dot ${on ? 'on' : ''}"></span>${on ? 'متصل الآن' : TP.ago(d.lastSeen)}</td>
+                <td class="small">${d.installed === undefined ? '—' : d.installed ? '<span class="st st-ok">متثبت</span>' : '<span class="st st-warn">مش متثبت</span>'}<br>${d.notif === 'granted' && d.fcm ? '<span class="st st-ok">التنبيهات شغالة</span>' : d.notif === 'denied' ? '<span class="st st-danger">التنبيهات مقفولة</span>' : d.notif ? '<span class="st st-warn">التنبيهات مش متفعلة</span>' : ''}</td>
                 <td>${d.battery !== undefined ? `<span class="${d.battery < (D.settings.lowBatteryPct || 20) ? 'st st-danger' : ''}">${d.battery}%</span>` : '—'}</td>
                 <td class="muted small">${d.approvedAtMs ? TP.fmtDate(d.approvedAtMs) : '—'}<br>${esc(d.approvedBy || '')}</td>
                 ${manage ? `<td class="acts">${d.id !== S.uid ? `<button class="btn btn-ghost btn-sm" data-remove="${d.id}">${TP.icon('trash', 16)}إزالة</button>` : ''}</td>` : ''}
