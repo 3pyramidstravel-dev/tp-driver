@@ -241,7 +241,6 @@
       <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>
       ${(w => w && whyText(w) ? `<p class="small ${w.reason === 'wiped' ? 'muted' : ''}" style="margin:4px 0 0;${w.reason === 'wiped' ? '' : 'color:var(--warn,#a06000)'}">${w.reason === 'wiped' ? '' : 'سبب الخروج: '}${esc(whyText(w))}</p>` : '')(TP.store.get(WHY + '-' + S.uid, null))}
       ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-gold btn-block" id="gGoogle" style="margin-top:10px">دخول بحساب جوجل</button><div class="gate-msg" id="gGMsg"></div>' : ''}
-      ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-ghost btn-sm" id="gPinRec" style="margin-top:6px">جهازك خرج؟ استرجاع حسابي</button>' : ''}
       ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:2px">استرجاع حساب المدير العام</button>' : ''}`);
     const rb = TP.$('#gRecover', g); if (rb) rb.onclick = showRecovery;
     const pb = TP.$('#gPinRec', g); if (pb) pb.onclick = showPinRecovery;
@@ -488,7 +487,10 @@
     });
   }
   /** Re-ask the PIN before a sensitive action (approve overtime, edit prices…). */
+  /** a Control Tower account with prices or every permission still on 1234: sensitive actions wait until it is changed (agreed 18 Oct) */
+  S.pinStillDefault = () => !!(opts && opts.kind === 'staff' && S.person && S.person.pinIsDefault && TP.needsPin(S.perms));
   S.confirmPin = function (title) {
+    if (S.pinStillDefault()) { TP.toast('رقمك السري لسه 1234 — غيّره الأول من "حسابي"', 'warn'); location.hash = '#/account'; return Promise.resolve(false); }
     // Own overlay (above any open modal) so it can be used from inside a modal's save handler.
     return new Promise(resolve => {
       let o = TP.$('#tp-pin');

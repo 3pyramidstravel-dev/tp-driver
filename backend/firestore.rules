@@ -38,17 +38,11 @@ service cloud.firestore {
     function statePath() { return /databases/$(database)/documents/system/state; }
     function secretPath() { return /databases/$(database)/documents/secrets/recovery; }
     function recoverPath(uid) { return /databases/$(database)/documents/recover/$(uid); }
-    function pinRecPath(uid) { return /databases/$(database)/documents/pinRecover/$(uid); }
-    function pinPath(pid) { return /databases/$(database)/documents/pins/$(pid); }
-    // "استرجاع حسابي" is open to management and tourism drivers only
+    // "دخول بجوجل" is open to management and tourism drivers only
     function canSelfRecover(pid) {
       let p = get(personPath(pid)).data;
       return p.get('active', true) == true
         && (p.type == 'staff' || (p.type == 'driver' && p.get('driverKind', '') == 'tourism'));
-    }
-    // this device passed the phone + PIN check (pinRecover/{uid}) for this person
-    function pinRecoveredFor(pid) {
-      return signedIn() && exists(pinRecPath(request.auth.uid)) && get(pinRecPath(request.auth.uid)).data.pid == pid;
     }
     // "دخول بجوجل" (agreed): a device that just proved, with the Google account linked to this person, who it is
     function gRecPath(uid) { return /databases/$(database)/documents/grecover/$(uid); }
@@ -95,27 +89,13 @@ service cloud.firestore {
         && request.resource.data.setAt == request.time;
       allow delete: if can('all');
     }
-    // phone (last 10 digits) → account, for "استرجاع حسابي". One exact number per read; nobody can list it
-    // except account managers (the GM's screen keeps it in step with people).
+    // "استرجاع حسابي" by phone + PIN was closed (18 Oct — a 4-digit PIN can be guessed; Google sign-in instead): leftovers can only be removed
     match /recoverIndex/{key} {
-      allow get: if signedIn();
-      allow list: if can('staff.manage');
-      allow create, update: if (can('staff.manage') || can('drivers.manage'))
-        && request.resource.data.keys().hasOnly(['pid']) && request.resource.data.pid is string;
+      allow read, create, update: if false;
       allow delete: if can('staff.manage') || can('drivers.manage');
     }
-    // a phone + PIN attempt: accepted only when the PIN hash matches that person's pins/ hash
-    // (the server compares; nobody can read pins/). The device deletes it right after.
     match /pinRecover/{uid} {
-      allow read, update: if false;
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['pid', 'hash', 'at'])
-        && request.resource.data.pid is string
-        && request.resource.data.hash is string && request.resource.data.hash.size() == 64
-        && request.resource.data.at == request.time
-        && exists(pinPath(request.resource.data.pid))
-        && request.resource.data.hash == get(pinPath(request.resource.data.pid)).data.hash
-        && canSelfRecover(request.resource.data.pid);
+      allow read, create, update: if false;
       allow delete: if signedIn() && request.auth.uid == uid;
     }
 
@@ -228,8 +208,7 @@ service cloud.firestore {
         || can('wake.supervise') || can('reports.attendance')
         || can('times.correct') || can('overtime.approve') || can('advances.manage') || can('reports.finance')
         || (isActive() && me().personId == pid)
-        // a device that just passed phone + PIN reads that one account to set itself up
-        || pinRecoveredFor(pid)
+        // a device that just proved itself with "دخول بجوجل" reads that one account to set itself up
         || googleRecoveredFor(pid);
 
       allow create: if
@@ -295,11 +274,6 @@ service cloud.firestore {
           && request.resource.data.personId == get(secretPath()).data.personId
           && request.resource.data.perms == ['all'] && request.resource.data.kind == 'staff'
           && request.resource.data.active == true && request.resource.data.approvedBy == 'recovery'
-          && matchesPerson())
-        // phone + PIN recovery (management + tourism drivers): this device, for the account it proved
-        || (signedIn() && request.auth.uid == uid && pinRecoveredFor(request.resource.data.personId)
-          && canSelfRecover(request.resource.data.personId)
-          && request.resource.data.active == true && request.resource.data.approvedBy == 'pin-recovery'
           && matchesPerson())
         // "دخول بجوجل": this device, for the account its Google sign-in is linked to
         || (signedIn() && request.auth.uid == uid && googleRecoveredFor(request.resource.data.personId)

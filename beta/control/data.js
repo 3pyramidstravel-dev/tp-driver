@@ -29,6 +29,7 @@
   let recIdx = null, recBusy = false, recAgain = false;
   const canRecover = p => p && p.active !== false && (p.type === 'staff' || (p.type === 'driver' && p.driverKind === 'tourism'));
   async function syncRecoverIndex() {
+    return;   // "استرجاع حسابي" by phone + PIN was closed (18 Oct) — Google sign-in instead
     if (!(S.can('staff.manage') && S.can('drivers.manage')) || !D.loaded.people) return;
     if (recBusy) { recAgain = true; return; }
     recBusy = true;

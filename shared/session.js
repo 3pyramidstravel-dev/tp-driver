@@ -425,7 +425,10 @@
     });
   }
   /** Re-ask the PIN before a sensitive action (approve overtime, edit prices…). */
+  /** a Control Tower account with prices or every permission still on 1234: sensitive actions wait until it is changed (agreed 18 Oct) */
+  S.pinStillDefault = () => !!(opts && opts.kind === 'staff' && S.person && S.person.pinIsDefault && TP.needsPin(S.perms));
   S.confirmPin = function (title) {
+    if (S.pinStillDefault()) { TP.toast('رقمك السري لسه 1234 — غيّره الأول من "حسابي"', 'warn'); location.hash = '#/account'; return Promise.resolve(false); }
     // Own overlay (above any open modal) so it can be used from inside a modal's save handler.
     return new Promise(resolve => {
       let o = TP.$('#tp-pin');

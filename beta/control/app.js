@@ -37,6 +37,7 @@
 
   TP.views = TP.views || {};
   let current = null;
+  const PIN_PAGES = ['staff', 'devices', 'prices', 'advances', 'settings'];
 
   function renderNav() {
     $('#nav').innerHTML = NAV.map(n => {
@@ -55,7 +56,9 @@
   function go() {
     const want = (location.hash.match(/^#\/([\w-]+)/) || [])[1] || 'overview';
     const nav = NAV.find(n => n.id === want && !n.soon);
-    const id = nav && allowed(nav) && TP.views[want] ? want : 'overview';
+    let id = nav && allowed(nav) && TP.views[want] ? want : 'overview';
+    // a default PIN (1234) on an account with prices / every permission: these pages wait until it is changed
+    if (S.pinStillDefault() && PIN_PAGES.includes(id)) { id = 'account'; setTimeout(() => TP.toast('رقمك السري لسه 1234 — غيّره الأول، وبعدها الصفحة دي تفتح', 'warn'), 50); }
     if (id !== want) history.replaceState(null, '', '#/' + id);
     if (current && current !== id && TP.views[current] && TP.views[current].leave) { try { TP.views[current].leave(); } catch (e) { console.warn(e); } }
     current = id;
@@ -116,6 +119,7 @@
     if (rec.length) h += `<a class="banner danger alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">جهاز اتفتح على حساب المدير العام بمفتاح الاسترجاع (${esc(TP.ago(rec[0].approvedAtMs))}) — لو مش إنت، شيله فوراً وغيّر المفتاح</span><b>الأجهزة</b></a>`;
     const u = S.can('all') && D.usage;
     if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
+    if (S.pinStillDefault()) h = `<a class="banner danger alert-link" href="#/account">${TP.icon('lock')}<span class="grow">رقمك السري لسه 1234 — غيّره دلوقتي. لحد ما تغيّره: الموظفين والأجهزة والأسعار والسلف والإعدادات مقفولة</span><b>غيّره</b></a>` + h;
     el.innerHTML = (TP.install ? TP.install.bar() : '') + S.googleBar() + (TP.loud ? TP.loud.bar() : '') + h;
     S.googleBind(el);
     if (TP.install) TP.install.bind(el);
