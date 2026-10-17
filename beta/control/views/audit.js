@@ -7,7 +7,7 @@
   const D = TP.D, U = TP.ui;
 
   const ACTIONS = {
-    'activation.code': 'كود تفعيل', 'device.approve': 'موافقة على جهاز', 'device.pinRecover': 'استرجاع حساب بالموبايل', 'device.reject': 'رفض جهاز', 'device.remove': 'إزالة جهاز', 'device.recover': 'استرجاع بالمفتاح', 'recovery.set': 'مفتاح الاسترجاع',
+    'activation.code': 'كود تفعيل', 'device.approve': 'موافقة على جهاز', 'device.pinRecover': 'استرجاع حساب بالموبايل', 'device.reject': 'رفض جهاز', 'device.remove': 'إزالة جهاز', 'device.recover': 'استرجاع بالمفتاح', 'device.relogin': 'سبب خروج جهاز', 'recovery.set': 'مفتاح الاسترجاع',
     'person.create': 'إضافة حساب', 'person.update': 'تعديل حساب', 'person.delete': 'حذف حساب', 'pin.reset': 'إعادة رقم سري', 'pin.change': 'تغيير رقم سري',
     'driver.create': 'إضافة سواق', 'driver.update': 'تعديل سواق', 'driver.delete': 'حذف سواق',
     'factory.create': 'إضافة مصنع', 'factory.update': 'تعديل مصنع', 'factory.delete': 'حذف مصنع',

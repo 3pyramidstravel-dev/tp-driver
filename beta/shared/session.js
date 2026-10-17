@@ -46,6 +46,7 @@
     TP.fb.load().then(() => {
       TP.fb.onAuth(async user => {
         if (!user) {
+          noteLostSignIn();
           try { await TP.fb.signInAnon(); } catch (e) { console.error(e); screenMessage('تعذر الدخول', 'تأكد من الإنترنت، ومن تفعيل الدخول المجهول (Anonymous) في Firebase.', () => location.reload()); }
           return;
         }
@@ -57,6 +58,31 @@
       screenMessage('مفيش اتصال', 'مقدرناش نوصل للخدمة. اتأكد من الإنترنت وحاول تاني.', () => location.reload());
     });
   };
+
+  /* ---------- why a device lands on "تفعيل الجهاز" again — kept as proof, shown on the screen and written to the audit log once inside.
+     'tp-dev-mark' is written while the device is signed in (with its number). On the next start:
+       no Firebase sign-in + the mark is gone      → the browser's data was cleared (by the phone/browser), or a brand-new device
+       no Firebase sign-in + the mark still here   → the sign-in alone was lost, our data was not cleared (our side / Firebase)
+       signed in, same number, device record gone  → the device was removed from the devices page ---------- */
+  const MARK = 'tp-dev-mark', WHY = 'tp-relogin';
+  // one browser can hold more than one sign-in screen (the driver app and the Control Tower): the marks are kept per device number
+  const marks = () => { const m = TP.store.get(MARK, null); return m && typeof m === 'object' && !m.uid ? m : {}; };
+  const markSeen = () => { const m = marks(); m[S.uid] = { at: Date.now(), kind: opts.kind }; TP.store.set(MARK, m); };
+  function noteLostSignIn() {
+    if (TP.store.get(WHY, null)) return;
+    const last = Object.entries(marks()).filter(([, v]) => v && v.kind === opts.kind).sort((a, b) => b[1].at - a[1].at)[0];
+    TP.store.set(WHY, last ? { reason: 'signin-lost', prev: last[0], since: last[1].at, at: Date.now() } : { reason: 'wiped', at: Date.now() });
+  }
+  function noteRemoved() {
+    const m = marks()[S.uid];
+    if (m && !TP.store.get(WHY, null)) TP.store.set(WHY, { reason: 'removed', prev: S.uid, since: m.at, at: Date.now() });
+  }
+  const WHY_TEXT = {
+    wiped: 'الجهاز ده مفيهوش دخول قديم (جهاز جديد، أو المتصفح مسح بياناته)',
+    'signin-lost': 'بيانات البرنامج لسه موجودة لكن الدخول اتلغى (رقم الجهاز القديم {p}) — ده من عندنا مش من الموبايل',
+    removed: 'الجهاز ده ({p}) اتشال من صفحة الأجهزة'
+  };
+  const whyText = w => w && WHY_TEXT[w.reason] ? WHY_TEXT[w.reason].replace('{p}', shortId(w.prev)) : '';
 
   /* ---------- phone clock check: compare the server time of our own heartbeat with the phone's clock ---------- */
   let lastSeenMs = null, beatAt = 0;
@@ -76,6 +102,7 @@
     unsubDevice = TP.fb.onDoc('devices/' + S.uid, async dev => {
       S.device = dev;
       if (!dev) {
+        noteRemoved();
         stopSession();
         if (wasIn) { wasIn = false; TP.toast('تم إزالة هذا الجهاز من النظام', 'warn'); }
         const state = await TP.fb.get('system/state').catch(() => null);
@@ -123,6 +150,8 @@
     if (first) setTimeout(() => TP.push.refresh().catch(() => {}), 1500);
     if (first) opts.onReady && opts.onReady(S);
     if (TP.store.get('tp-pin-recovered', false)) { TP.store.del('tp-pin-recovered'); setTimeout(() => TP.audit('device.pinRecover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — رجع بالموبايل والرقم السري'), 500); }
+    markSeen();
+    { const w = TP.store.get(WHY, null); if (w) { TP.store.del(WHY); setTimeout(() => TP.audit('device.relogin', (S.person && S.person.name) || '', `جهاز ${shortId(S.uid)} — ${whyText(w)}${w.since ? ' — آخر مرة كان داخل ' + TP.fmtDateTime(w.since) : ''}`), 800); } }
     if (TP.store.get('tp-recovered', false)) { TP.store.del('tp-recovered'); setTimeout(() => TP.audit('device.recover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — بمفتاح الاسترجاع'), 500); }
     document.dispatchEvent(new CustomEvent('tp:session'));
   }
@@ -172,6 +201,7 @@
       </form>
       <div id="gWait" hidden><div class="spinner"></div><p id="gWaitText">في انتظار موافقة الإدارة…</p></div>
       <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>
+      ${(w => w && whyText(w) ? `<p class="small ${w.reason === 'wiped' ? 'muted' : ''}" style="margin:4px 0 0;${w.reason === 'wiped' ? '' : 'color:var(--warn,#a06000)'}">${w.reason === 'wiped' ? '' : 'سبب الخروج: '}${esc(whyText(w))}</p>` : '')(TP.store.get(WHY, null))}
       ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-ghost btn-sm" id="gPinRec" style="margin-top:6px">جهازك خرج؟ استرجاع حسابي</button>' : ''}
       ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:2px">استرجاع حساب المدير العام</button>' : ''}`);
     const rb = TP.$('#gRecover', g); if (rb) rb.onclick = showRecovery;
@@ -292,8 +322,10 @@
     if (unsubReq) { unsubReq(); unsubReq = null; }
     const g = gate(`<span class="caps">RECOVERY</span><h1>استرجاع حساب المدير العام</h1>
       <p>اكتب مفتاح الاسترجاع اللي حددته في صفحة "حسابي".</p>
-      <form id="rForm" autocomplete="off" style="width:100%">
-        <input class="input" id="rKey" type="password" autocomplete="off" placeholder="مفتاح الاسترجاع" style="text-align:center" aria-label="مفتاح الاسترجاع">
+      <form id="rForm" action="#" method="post" autocomplete="on" style="width:100%">
+        <input type="text" name="username" autocomplete="username" value="Three Pyramids — المدير العام" readonly hidden aria-hidden="true">
+        <input class="input" id="rKey" name="password" type="password" autocomplete="current-password" placeholder="مفتاح الاسترجاع" style="text-align:center" aria-label="مفتاح الاسترجاع">
+        <p class="small muted" style="margin:6px 0 0">لما جوجل يسألك "حفظ كلمة المرور؟" دوس <b>حفظ</b> — المرة الجاية بيتكتب لوحده.</p>
         <div class="gate-msg" id="rMsg"></div>
         <button type="submit" class="btn btn-primary btn-lg btn-block">استرجاع</button>
       </form>
