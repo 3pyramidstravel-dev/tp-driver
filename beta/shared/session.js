@@ -122,6 +122,7 @@
     startHeartbeat();
     if (first) setTimeout(() => TP.push.refresh().catch(() => {}), 1500);
     if (first) opts.onReady && opts.onReady(S);
+    if (TP.store.get('tp-pin-recovered', false)) { TP.store.del('tp-pin-recovered'); setTimeout(() => TP.audit('device.pinRecover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — رجع بالموبايل والرقم السري'), 500); }
     if (TP.store.get('tp-recovered', false)) { TP.store.del('tp-recovered'); setTimeout(() => TP.audit('device.recover', (S.person && S.person.name) || '', 'جهاز ' + shortId(S.uid) + ' — بمفتاح الاسترجاع'), 500); }
     document.dispatchEvent(new CustomEvent('tp:session'));
   }
@@ -171,8 +172,10 @@
       </form>
       <div id="gWait" hidden><div class="spinner"></div><p id="gWaitText">في انتظار موافقة الإدارة…</p></div>
       <p class="device-id">رقم الجهاز: <b>${shortId(S.uid)}</b></p>
-      ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:6px">استرجاع حساب المدير العام</button>' : ''}`);
+      ${opts.kind === 'staff' || opts.kind === 'driver' ? '<button type="button" class="btn btn-ghost btn-sm" id="gPinRec" style="margin-top:6px">جهازك خرج؟ استرجاع حسابي</button>' : ''}
+      ${opts.kind === 'staff' ? '<button type="button" class="btn btn-ghost btn-sm" id="gRecover" style="margin-top:2px">استرجاع حساب المدير العام</button>' : ''}`);
     const rb = TP.$('#gRecover', g); if (rb) rb.onclick = showRecovery;
+    const pb = TP.$('#gPinRec', g); if (pb) pb.onclick = showPinRecovery;
     const boxes = TP.$$('.code-boxes input', g);
     boxes.forEach((b, i) => {
       b.addEventListener('input', () => {
@@ -221,6 +224,66 @@
         form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
       }
     }, () => {});
+  }
+
+  /* ---------- own-account recovery (management + tourism drivers): phone + own PIN ----------
+     The phone finds the account (recoverIndex/), the PIN hash is checked by the server rules
+     (pinRecover/), then this device is created with exactly the person's permissions. */
+  function showPinRecovery() {
+    if (unsubReq) { unsubReq(); unsubReq = null; }
+    const g = gate(`<span class="caps">${esc(KIND_NAMES[opts.kind] || '')}</span><h1>استرجاع حسابي</h1>
+      <p>اكتب رقم موبايلك المتسجل عندنا والرقم السري بتاعك.</p>
+      <form id="qForm" autocomplete="off" style="width:100%">
+        <input class="input" id="qPhone" type="tel" inputmode="tel" autocomplete="off" placeholder="رقم الموبايل" style="text-align:center;margin-bottom:10px" aria-label="رقم الموبايل">
+        <input class="input" id="qPin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="الرقم السري" style="text-align:center;letter-spacing:6px" aria-label="الرقم السري">
+        <div class="gate-msg" id="qMsg"></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">دخول</button>
+      </form>
+      <p class="muted small" style="margin-top:8px">للإدارة وسواقين السياحة بس. باقي السواقين بياخدوا كود من الإدارة.</p>
+      <button type="button" class="btn btn-ghost btn-sm" id="qBack" style="margin-top:6px">رجوع لكود التفعيل</button>`);
+    TP.$('#qBack', g).onclick = showActivation;
+    setTimeout(() => TP.$('#qPhone', g).focus(), 80);
+    const fkey = 'tp-prec-fails';
+    TP.$('#qForm', g).addEventListener('submit', async e => {
+      e.preventDefault();
+      const msg = TP.$('#qMsg', g), btn = TP.$('#qForm button', g);
+      const err = t => { msg.textContent = t; msg.className = 'gate-msg err'; };
+      const fail = t => {
+        const f = TP.store.get(fkey, { n: 0, until: 0 }), n = (f.n || 0) + 1;
+        TP.store.set(fkey, n >= 5 ? { n: 0, until: Date.now() + 10 * 60000 } : { n, until: 0 });
+        err(n >= 5 ? 'محاولات كتير غلط — استنى 10 دقايق' : t);
+      };
+      const f = TP.store.get(fkey, { n: 0, until: 0 });
+      if (f.until > Date.now()) return err(`استنى ${Math.ceil((f.until - Date.now()) / 60000)} دقيقة وحاول تاني`);
+      const key = TP.phoneKey(TP.$('#qPhone', g).value);
+      const pin = TP.latinDigits(TP.$('#qPin', g).value).trim();
+      if (!key) return err('اكتب رقم الموبايل كامل');
+      if (!/^\d{4,12}$/.test(pin)) return err('اكتب الرقم السري');
+      btn.disabled = true; msg.textContent = ''; msg.className = 'gate-msg';
+      const recPath = 'pinRecover/' + S.uid;
+      try {
+        const idx = await TP.fb.get('recoverIndex/' + key).catch(() => null);
+        if (!idx || !idx.pid) return fail('الرقم ده مش متسجل للاسترجاع — كلّم الإدارة');
+        await TP.fb.remove(recPath).catch(() => {});
+        try { await TP.fb.set(recPath, { pid: idx.pid, hash: await TP.pinHash(idx.pid, pin), at: TP.fb.ts() }); }
+        catch (x) { console.warn(x); return fail('الرقم السري غلط، أو الحساب ده مش مسموح له بالاسترجاع'); }
+        const p = await TP.fb.get('people/' + idx.pid);
+        if (!p || p.active === false) { TP.fb.remove(recPath).catch(() => {}); return err('الحساب موقوف — كلّم الإدارة'); }
+        if (p.type !== opts.kind) { TP.fb.remove(recPath).catch(() => {}); return err(`الحساب ده لـ${KIND_NAMES[p.type] || p.type} — افتح التطبيق الصح`); }
+        const dev = { personId: p.id, name: p.name, kind: p.type, perms: p.perms || [], active: true, approvedAt: TP.fb.ts(), approvedAtMs: Date.now(), approvedBy: 'pin-recovery' };
+        if (p.factoryId) dev.factoryId = p.factoryId;
+        if (p.driverKind) dev.driverKind = p.driverKind;
+        TP.store.del(fkey);
+        TP.store.set('tp-unlocked-' + S.uid, true, true);   // the PIN was just checked
+        TP.store.set('tp-pin-recovered', true);              // written to the audit log once inside
+        await TP.fb.set('devices/' + S.uid, dev);
+        TP.fb.remove(recPath).catch(() => {});
+      } catch (x) {
+        console.warn(x);
+        TP.store.del('tp-pin-recovered');
+        err('حصلت مشكلة — تأكد من النت وحاول تاني');
+      } finally { btn.disabled = false; }
+    });
   }
 
   /* ---------- GM recovery: the recovery key the GM set in "حسابي" opens his account on this device ---------- */

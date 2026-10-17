@@ -176,7 +176,7 @@
                 <td><span class="dot ${on ? 'on' : ''}"></span>${on ? 'متصل الآن' : TP.ago(d.lastSeen)}</td>
                 <td class="small">${d.installed === undefined ? '—' : d.installed ? '<span class="st st-ok">متثبت</span>' : '<span class="st st-warn">مش متثبت</span>'}<br>${d.notif === 'granted' && d.fcm ? '<span class="st st-ok">التنبيهات شغالة</span>' : d.notif === 'denied' ? '<span class="st st-danger">التنبيهات مقفولة</span>' : d.notif ? '<span class="st st-warn">التنبيهات مش متفعلة</span>' : ''}</td>
                 <td>${d.battery !== undefined ? `<span class="${d.battery < (D.settings.lowBatteryPct || 20) ? 'st st-danger' : ''}">${d.battery}%</span>` : '—'}</td>
-                <td class="muted small">${d.approvedAtMs ? TP.fmtDate(d.approvedAtMs) : '—'}<br>${esc(d.approvedBy || '')}</td>
+                <td class="muted small">${d.approvedAtMs ? TP.fmtDate(d.approvedAtMs) : '—'}<br>${d.approvedBy === 'pin-recovery' ? '<span class="st st-warn">رجع بالموبايل والرقم السري</span>' : d.approvedBy === 'recovery' ? 'مفتاح الاسترجاع' : esc(d.approvedBy || '')}</td>
                 ${manage ? `<td class="acts">${d.id !== S.uid ? `<button class="btn btn-ghost btn-sm" data-remove="${d.id}">${TP.icon('trash', 16)}إزالة</button>` : ''}</td>` : ''}
               </tr>`;
             }).join('')}</tbody></table></div>` : U.empty('مفيش أجهزة في الفلتر ده')}

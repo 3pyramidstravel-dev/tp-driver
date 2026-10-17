@@ -157,6 +157,8 @@
     } catch (e) { /* fall back */ }
     return sha256Fallback(unescape(encodeURIComponent(String(text))));
   };
+  /** Phone → recovery lookup key: the last 10 digits (01xxxxxxxxx, +201xxxxxxxxx and 201xxxxxxxxx all match). */
+  TP.phoneKey = v => { const d = TP.latinDigits(String(v || '')).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
   /** PIN hash is salted with the person id, so equal PINs never share a hash. */
   TP.pinHash = (personId, pin) => TP.sha256('tp-pin:' + personId + ':' + TP.latinDigits(pin).trim());
 

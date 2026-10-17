@@ -24,6 +24,43 @@
       && TP.fb.onCol('presence', null, l => { const m = {}; l.forEach(x => { m[x.id] = x; }); D.presence = m; emit('presence'); }, err => { console.warn('presence', err && err.code); emit('presence'); })
   };
 
+  /* ---------- "استرجاع حسابي": phone → account index, kept in step with people by the GM's screen ----------
+     Only management and tourism drivers get an entry (the security rules check that again). */
+  let recIdx = null, recBusy = false, recAgain = false;
+  const canRecover = p => p && p.active !== false && (p.type === 'staff' || (p.type === 'driver' && p.driverKind === 'tourism'));
+  async function syncRecoverIndex() {
+    if (!(S.can('staff.manage') && S.can('drivers.manage')) || !D.loaded.people) return;
+    if (recBusy) { recAgain = true; return; }
+    recBusy = true;
+    try {
+      if (!recIdx) { const m = {}; (await TP.fb.list('recoverIndex')).forEach(d => { m[d.id] = d.pid; }); recIdx = m; }
+      const want = {};
+      D.people.forEach(p => { const k = canRecover(p) && TP.phoneKey(p.phone); if (k && !want[k]) want[k] = p.id; });
+      const ops = [];
+      Object.keys(want).forEach(k => { if (recIdx[k] !== want[k]) ops.push({ op: 'set', path: 'recoverIndex/' + k, data: { pid: want[k] } }); });
+      Object.keys(recIdx).forEach(k => { if (!want[k]) ops.push({ op: 'delete', path: 'recoverIndex/' + k }); });
+      for (let i = 0; i < ops.length; i += 400) await TP.fb.batch(ops.slice(i, i + 400));
+      recIdx = want;
+    } catch (e) { console.warn('recoverIndex', e && e.code); recIdx = null; }
+    finally { recBusy = false; if (recAgain) { recAgain = false; syncRecoverIndex(); } }
+  }
+  /* a toast for whoever manages devices when someone gets back in with phone + PIN */
+  let recSeen = null;
+  function watchRecoveries() {
+    if (!S.can('devices.manage')) return;
+    const list = D.devices.filter(d => d.approvedBy === 'pin-recovery');
+    if (!recSeen) { recSeen = new Set(list.map(d => d.id)); return; }
+    list.forEach(d => {
+      if (recSeen.has(d.id)) return;
+      recSeen.add(d.id);
+      if (Date.now() - (d.approvedAtMs || 0) < 30 * 60000) TP.toast(`${d.name} رجع حسابه على جهاز جديد بالموبايل والرقم السري`, 'warn', 8000);
+    });
+  }
+  document.addEventListener('tp:data', e => {
+    if (e.detail === 'people') syncRecoverIndex();
+    if (e.detail === 'devices') watchRecoveries();
+  });
+
   function dropLazy(keep) { Object.keys(lazy).forEach(k => { if (!keep.includes(k)) { try { lazy[k](); } catch (e) { /* ignore */ } delete lazy[k]; } }); }
   const emit = key => { D.loaded[key] = true; document.dispatchEvent(new CustomEvent('tp:data', { detail: key })); };
   const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
