@@ -562,6 +562,7 @@
     if (TP.dvCar) html += TP.dvCar.custodyBanner();
     // step 1 of the phone setup: install the app (keeps the sign-in and the alarms), then the notifications in the wake card
     if (TP.install) html += TP.install.bar({ dismiss: false, text: 'ثبّت البرنامج على الموبايل — علشان منبه الصحيان يوصلك وميخرجش منك' });
+    if (TP.loud) html += TP.loud.bar({ dismiss: false, text: 'خلّي منبه الصحيان والمشاوير يرن بصوت عالي زي المنبه — مرة واحدة' });
     html += wakeCard();
     // tourism / trips drivers: make the new-trip notification ring like a call (one-time phone setting)
     if (kind() !== 'line' && !TP.store.get('tp-soundset', false)) html += `<section class="glass card"><div class="wake-row">${TP.icon('bell', 26)}<div style="flex:1"><b>خلّي تنبيه المشوار يرن زي المكالمة</b><div class="small muted">مرة واحدة بس — علشان متفوتكش أي رحلة</div></div><button type="button" class="btn btn-primary btn-sm" id="soundHow">إزاي؟</button></div></section>`;
@@ -584,6 +585,7 @@
     const wc = root.querySelector('#wChange'); if (wc) wc.onclick = () => changeWake();
     const sh = root.querySelector('#soundHow'); if (sh) sh.onclick = soundGuide;
     if (TP.install) TP.install.bind(root);
+    if (TP.loud) TP.loud.bind(root);
     const wp = root.querySelector('#wPush'); if (wp) wp.onclick = () => TP.push.enable().then(ok => { TP.toast(ok ? 'التنبيهات اتفعلت ✓' : TP.i18n.t('ar', 'pushFail'), ok ? '' : 'warn', ok ? 0 : 15000); render(); });
   }
 

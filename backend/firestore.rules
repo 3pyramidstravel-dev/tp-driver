@@ -50,6 +50,12 @@ service cloud.firestore {
     function pinRecoveredFor(pid) {
       return signedIn() && exists(pinRecPath(request.auth.uid)) && get(pinRecPath(request.auth.uid)).data.pid == pid;
     }
+    // "دخول بجوجل" (agreed): a device that just proved, with the Google account linked to this person, who it is
+    function gRecPath(uid) { return /databases/$(database)/documents/grecover/$(uid); }
+    function googleRecoveredFor(pid) {
+      return signedIn() && exists(gRecPath(request.auth.uid)) && get(gRecPath(request.auth.uid)).data.pid == pid;
+    }
+    function isGoogle() { return signedIn() && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function me() { return get(devPath(request.auth.uid)).data; }
     function isActive() {
       return signedIn() && exists(devPath(request.auth.uid)) && me().active == true;
@@ -145,6 +151,54 @@ service cloud.firestore {
       allow delete: if can('missions.manage');
     }
 
+    // ---------- "دخول بجوجل" — the Google account of a person (management + tourism drivers) ----------
+    // 1) the signed-in device says which Google account it is linking (glinkClaim/{its uid})
+    match /glinkClaim/{uid} {
+      allow get, delete: if signedIn() && request.auth.uid == uid;
+      allow create: if isActive() && request.auth.uid == uid && canSelfRecover(me().personId)
+        && request.resource.data.keys().hasOnly(['gid', 'at']) && request.resource.data.gid is string
+        && request.resource.data.at == request.time;
+    }
+    // 2) that Google account writes the link itself — only for the person of the device that claimed it
+    match /glinks/{gid} {
+      allow get: if isGoogle() && request.auth.uid == gid;
+      allow list: if can('staff.manage');
+      allow create, update: if isGoogle() && request.auth.uid == gid
+        && request.resource.data.keys().hasOnly(['pid', 'uid', 'email', 'at'])
+        && exists(/databases/$(database)/documents/glinkClaim/$(request.resource.data.uid))
+        && get(/databases/$(database)/documents/glinkClaim/$(request.resource.data.uid)).data.gid == gid
+        && get(devPath(request.resource.data.uid)).data.personId == request.resource.data.pid
+        && get(devPath(request.resource.data.uid)).data.active == true
+        && canSelfRecover(request.resource.data.pid)
+        && (resource == null || resource.data.pid == request.resource.data.pid)
+        && request.resource.data.email is string && request.resource.data.email.size() <= 120
+        && request.resource.data.at == request.time;
+      allow delete: if can('staff.manage') || (isGoogle() && request.auth.uid == gid);
+    }
+    // 3) on a device that lost its sign-in: the linked Google account vouches for it (grecover/{device uid}); the device deletes it right after
+    match /grecover/{uid} {
+      allow get: if false;
+      allow create: if isGoogle()
+        && request.resource.data.keys().hasOnly(['gid', 'pid', 'at'])
+        && request.resource.data.gid == request.auth.uid
+        && exists(/databases/$(database)/documents/glinks/$(request.auth.uid))
+        && get(/databases/$(database)/documents/glinks/$(request.auth.uid)).data.pid == request.resource.data.pid
+        && canSelfRecover(request.resource.data.pid)
+        && request.resource.data.at == request.time;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // the loud ring (ntfy): one secret topic per person — read and made by that person's own devices; the cloud alarm reads it
+    match /ntfy/{pid} {
+      allow get: if isActive() && me().personId == pid;
+      allow create: if isActive() && me().personId == pid
+        && request.resource.data.keys().hasOnly(['topic', 'at'])
+        && request.resource.data.topic is string && request.resource.data.topic.matches('^tp-[A-Za-z0-9]{24}$')
+        && request.resource.data.at == request.time;
+      allow update: if false;
+      allow delete: if (isActive() && me().personId == pid) || can('staff.manage');
+    }
+
     // English names of places and guests (the translator's answers and the manager's corrections) — kept so each is asked once
     match /enNames/{nid} {
       allow read, delete: if can('missions.manage');
@@ -175,7 +229,8 @@ service cloud.firestore {
         || can('times.correct') || can('overtime.approve') || can('advances.manage') || can('reports.finance')
         || (isActive() && me().personId == pid)
         // a device that just passed phone + PIN reads that one account to set itself up
-        || pinRecoveredFor(pid);
+        || pinRecoveredFor(pid)
+        || googleRecoveredFor(pid);
 
       allow create: if
         // first-ever account during setup
@@ -245,6 +300,11 @@ service cloud.firestore {
         || (signedIn() && request.auth.uid == uid && pinRecoveredFor(request.resource.data.personId)
           && canSelfRecover(request.resource.data.personId)
           && request.resource.data.active == true && request.resource.data.approvedBy == 'pin-recovery'
+          && matchesPerson())
+        // "دخول بجوجل": this device, for the account its Google sign-in is linked to
+        || (signedIn() && request.auth.uid == uid && googleRecoveredFor(request.resource.data.personId)
+          && canSelfRecover(request.resource.data.personId)
+          && request.resource.data.active == true && request.resource.data.approvedBy == 'google'
           && matchesPerson());
 
       allow update: if
@@ -257,7 +317,8 @@ service cloud.firestore {
         // the device itself reports presence & health only
         || (signedIn() && request.auth.uid == uid && resource.data.active == true
             && changed().hasOnly(['lastSeen', 'battery', 'appVersion', 'platform',
-                                  'alarmOk', 'permsOk', 'screen', 'fcm', 'fcmAt', 'label'])
+                                  'alarmOk', 'permsOk', 'screen', 'fcm', 'fcmAt', 'label', 'gmail'])
+            && (!('gmail' in changed()) || (request.resource.data.gmail is string && request.resource.data.gmail.size() <= 120))
             && (!('label' in changed()) || (request.resource.data.label is map
                 && request.resource.data.label.keys().hasOnly(['type', 'brand', 'name'])
                 && request.resource.data.label.type in ['mobile', 'laptop', 'desktop', 'tablet']
