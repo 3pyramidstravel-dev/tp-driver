@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-16T12:26Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-17T15:31Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -397,15 +397,21 @@
     const LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
     const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
     // short: the car's own group already knows the car and its captain — no header, no signature (agreed)
-    const out = [];
-    items.forEach((m, i) => {
+    const out = [], bold = t => String(t || '').replace(/\*/g, '').split('\n').map(x => x.trim()).filter(Boolean).map(x => `*${x}*`).join('\n');
+    // a title for each day (agreed): "تشغيل اليوم كالتالي:" / "التشغيل غداً كالتالي:" / "تشغيل يوم … كالتالي:"
+    const title = m => m.when === 'النهاردة' ? 'تشغيل اليوم كالتالي:' : m.when === 'بكرة' ? 'التشغيل غداً كالتالي:' : `تشغيل يوم ${m.dayFull} كالتالي:`;
+    let lastDay = null, i = 0;
+    items.forEach(m => {
+      const dk = m.day || m.dayFull || '';
+      if (dk !== lastDay) { out.push('', `*${title(m)}*`); lastDay = dk; i = 0; }
       out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
         row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
-        row('ميعاد الوصول', m.time ? hm12(m.time) : ''), row('نوع المشوار', m.type),
-        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''),
+        row('ميعاد الوصول', m.time ? `*${hm12(m.time)}*` : ''), row('نوع المشوار', m.type),
+        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''), row('الصالة', !m.flightNo && m.terminal ? m.terminal : ''),
         row('متابعة الرحلة', m.flightNo ? 'https://airportinfo.live/flight/' + String(m.flightNo).toLowerCase().replace(/[^a-z0-9]/g, '') : ''),
         row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
-        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
+        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes ? bold(m.notes) : ''));
+      i++;
     });
     return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };
@@ -1092,6 +1098,37 @@ export async function translate(req, env, f, nowMs) {
   } catch (e) { return out({ error: 'translation failed' }, 502); }
 }
 
+/* ---------------- place names and people's names → English (for the guests' messages) ---------------- */
+const NAMES_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const NAMES_PROMPT = 'You write Egyptian Arabic names in English for a VIP chauffeur company in Egypt. '
+  + 'For a PLACE, give the English name used on Google Maps in Egypt; translate generic words (فندق=Hotel, مصنع=Factory, شركة=Company, شارع=Street, مول=Mall, كمبوند=Compound, مدينة=City, مطار=Airport, برج=Tower, نادي=Club, مستشفى=Hospital, جامعة=University, محطة=Station, ميدان=Square, الحي=District) and keep brand names as they are known (هيلتون=Hilton, سونستا=Sonesta, ماريوت=Marriott). '
+  + 'For a PERSON, give the usual Egyptian passport spelling of the name (محمد=Mohamed, أحمد=Ahmed, عبدالمنعم=Abdelmonem, شيرين=Sherine, علاء=Alaa), without titles. '
+  + 'Answer with ONLY a JSON array of strings, one per input, in the same order, nothing else.';
+/** Only clean Latin text comes back — anything doubtful is empty (the app then keeps the Arabic). */
+export function cleanName(v) { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t && t.length <= 80 && /^[A-Za-z0-9 .,'&()\-\/]+$/.test(t) && /[A-Za-z]/.test(t) ? t : ''; }
+export async function namesEn(req, env, f, nowMs) {
+  const H = cors(req), out = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H) });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: H });
+  if (req.method !== 'POST') return out({ error: 'POST only' }, 405);
+  if (!env.AI) return out({ error: 'translation is not set up' }, 501);
+  const ctx = { env, now: nowMs || Date.now(), reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
+  ctx.f = (u, o) => { ctx.calls++; return f ? f(u, o) : fetch(u, o); };
+  let uid;
+  try { uid = await verifyIdToken(ctx, (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')); } catch (e) { return out({ error: 'sign in first' }, 401); }
+  const dev = await getDoc(ctx, 'devices/' + uid).catch(() => null), perms = (dev && dev.perms) || [];
+  if (!dev || dev.active !== true || dev.kind !== 'staff' || !(perms.includes('all') || perms.includes('missions.manage'))) return out({ error: 'not allowed' }, 403);
+  const hist = (perUid.get('n' + uid) || []).filter(t => ctx.now - t < 60000); if (hist.length >= 12) return out({ error: 'too many — wait a minute' }, 429); hist.push(ctx.now); perUid.set('n' + uid, hist);
+  let body = {}; try { body = await req.json(); } catch (e) { /* empty */ }
+  const items = (Array.isArray(body.items) ? body.items : []).slice(0, 25).map(x => ({ kind: x && x.kind === 'person' ? 'PERSON' : 'PLACE', ar: String((x && x.ar) || '').replace(/\s+/g, ' ').trim().slice(0, 120) })).filter(x => x.ar);
+  if (!items.length) return out({ out: [] });
+  try {
+    const r = await env.AI.run(NAMES_MODEL, { messages: [{ role: 'system', content: NAMES_PROMPT }, { role: 'user', content: JSON.stringify(items.map(x => x.kind + ': ' + x.ar)) }], max_tokens: 600, temperature: 0.1 });
+    const txt = String((r && (r.response || r.result || r.text)) || ''), m = txt.match(/\[[\s\S]*\]/);
+    let arr = []; try { arr = m ? JSON.parse(m[0]) : []; } catch (e) { arr = []; }
+    return out({ out: items.map((x, i) => cleanName(arr[i]).replace(/^(Mr|Mrs|Ms|Dr|Eng)\.?\s+/i, '')) });
+  } catch (e) { return out({ error: 'translation failed' }, 502); }
+}
+
 /* ---------------- a new trip: tell the driver's phone right away ---------------- */
 const perUidN = new Map();
 /** POST /notify {id} from the Control Tower (missions.manage) after saving a trip → a push to the driver's phones. */
@@ -1368,6 +1405,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === '/translate') return translate(req, env);
+    if (url.pathname === '/names') return namesEn(req, env);
     if (url.pathname === '/notify') return notifyMission(req, env);
     if (url.pathname === '/resolve') return resolveMap(req, env);
     if (url.pathname === '/check') {

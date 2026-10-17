@@ -444,6 +444,7 @@
     custodyLow: 100,               // cash custody at or below this → the driver and the operations manager are told
     fuelLow: 1000,                 // fuel card below this → the airports manager and the GM are told
     maintPlan: {},                 // the GM's changes to the maintenance kilometres (TP.fleet.PARTS)
+    aiNamesOn: false,              // translate unknown places / guest names to English before the guest's message (reviewed first in settings)
     retentionOn: false,            // delete records older than 3 months (only months already exported to the accounts)
     retentionMonths: 3
   };

@@ -33,7 +33,8 @@
       ['nearLeadMin', 'عملاء أول نقطة يجيلهم "العربية في الطريق" قبل ميعاد الخط بكام دقيقة', 'لو التطبيق مفتوح والسواق بيتحرك', 'int', 10, 180],
       ['noShowWaitMin', 'زرار "مجاش" يظهر للسواق بعد انتظار كام دقيقة', '', 'int', 1, 30],
       ['liveEverySec', 'مكان العربية يتبعت للعميل كل كام ثانية (وهي جاية له)', '60 مناسب — أقل من 30 بيقرب من الحد المجاني', 'int', 15, 120],
-      ['opsPhone', 'رقم التشغيل اللي بيظهر للعميل', 'العميل يقدر يكلم الشركة منه', 'text']
+      ['opsPhone', 'رقم التشغيل اللي بيظهر للعميل', 'العميل يقدر يكلم الشركة منه', 'text'],
+      ['aiNamesOn', 'ترجمة الأماكن والأسماء الجديدة للإنجليزي في رسالة العميل', 'راجع الجدول تحت الأول. مقفول = اللي مش في القائمة بيتكتب بالعربي زي ما هو', 'bool']
     ] },
     { title: 'المطار', items: [
       ['airportArriveEarlyOn', 'في الاستقبال: الكابتن يوصل المطار قبل الهبوط', 'مقفول = ميعاد الكابتن هو ميعاد الهبوط بالظبط', 'bool'],
@@ -116,12 +117,50 @@
     TP.toast('اتحفظت ✓');
   }
 
+  /* ---------- English names review: real places and names from the customer book, before the switch is turned on ---------- */
+  const nm = { rows: null, busy: false };
+  const SRC = { kept: 'محفوظة', list: 'من القائمة', ai: 'ترجمة جديدة', '': 'مش لاقيها — هتتكتب بالعربي' };
+  async function loadNames() {
+    if (nm.busy) return; nm.busy = true; TP.rerender();
+    try {
+      const book = await TP.fb.list('clients').catch(() => []);
+      book.sort((a, b) => (b.atMs || 0) - (a.atMs || 0));
+      const seen = new Set(), items = [];
+      const add = (kind, ar) => { ar = String(ar || '').trim(); const k = kind + ':' + ar; if (!ar || seen.has(k) || items.length >= 50) return; seen.add(k); items.push({ kind, ar }); };
+      (D.missions || []).slice(-40).forEach(m => { add('place', m.from && m.from.name); add('place', m.to && m.to.name); });
+      book.forEach(c => { add('place', c.fromName); add('person', TP.firstNameAr(c.name)); });
+      const out = await TP.namesEnDetail(items, { save: false, timeoutMs: 20000 });
+      nm.rows = items.map((x, i) => Object.assign({}, x, out[i]));
+    } catch (e) { TP.toast(TP.errorText(e), 'warn'); }
+    nm.busy = false; TP.rerender();
+  }
+  function namesHtml() {
+    const r = nm.rows;
+    return `<section class="card"><div class="card-head"><h3>مراجعة ترجمة الأماكن والأسماء</h3><span class="muted small">أماكن وأسماء حقيقية من دفتر العملاء — صحّح أي كلمة واحفظ، والتصحيح بيتستخدم على طول</span></div>
+      ${!r ? `<button class="btn btn-gold" id="nmLoad" ${nm.busy ? 'disabled' : ''}>${nm.busy ? 'بيترجم… (ممكن ياخد دقيقة)' : 'اعرض الجدول'}</button>`
+      : !r.length ? '<p class="muted">مفيش أماكن أو أسماء في دفتر العملاء لسه.</p>'
+      : `<div class="table-wrap"><table class="tbl"><thead><tr><th>النوع</th><th>بالعربي</th><th>بالإنجليزي في الرسالة</th><th>المصدر</th></tr></thead><tbody>${r.map((x, i) => `<tr><td>${x.kind === 'place' ? 'مكان' : 'اسم'}</td><td><b>${esc(x.ar)}</b></td><td><input class="input" dir="ltr" data-nm="${i}" value="${esc(x.en || '')}" maxlength="80" placeholder="${esc(x.ar)}"></td><td class="small ${x.src ? 'muted' : 'warn'}">${esc(SRC[x.src || ''])}</td></tr>`).join('')}</tbody></table></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn btn-ghost" id="nmLoad">${nm.busy ? 'بيترجم…' : 'ترجم تاني'}</button><button class="btn btn-primary" id="nmSave">${TP.icon('check', 18)}احفظ الجدول</button></div>`}</section>`;
+  }
+  async function saveNames() {
+    const r = nm.rows || []; let n = 0;
+    for (let i = 0; i < r.length; i++) {
+      const el = document.querySelector(`[data-nm="${i}"]`); const en = el ? el.value.trim() : '';
+      if (!en || !/^[\x20-\x7E\u00C0-\u024F]+$/.test(en)) continue;
+      if (r[i].src === 'kept' && en === r[i].en) continue;
+      if (r[i].src === 'list' && en === r[i].en) continue;
+      await TP.enCache.put(r[i].kind, r[i].ar, en); r[i].en = en; r[i].src = 'kept'; n++;
+    }
+    TP.audit('settings.update', 'ترجمة الأماكن والأسماء', String(n));
+    TP.toast(n ? `اتحفظ ${n} ✓` : 'مفيش جديد يتحفظ'); TP.rerender();
+  }
+
   TP.views.settings = {
     deps: ['settings'],
     render(root) {
       const s = D.settings, ends = s.overtimeTierEnds || ['21:00', '23:00', '24:00'];
       const input = (k, type, min, max, step) => type === 'bool'
-        ? `<label class="check"><input type="checkbox" id="s_${k}" ${(['financeOn', 'retentionOn'].includes(k) ? s[k] === true : s[k] !== false) ? 'checked' : ''}><span>شغال</span></label>`
+        ? `<label class="check"><input type="checkbox" id="s_${k}" ${(['financeOn', 'retentionOn', 'aiNamesOn'].includes(k) ? s[k] === true : s[k] !== false) ? 'checked' : ''}><span>شغال</span></label>`
         : type === 'text'
         ? `<input class="input" id="s_${k}" dir="ltr" value="${esc(s[k] || '')}" style="max-width:220px">`
         : type === 'time'
@@ -142,6 +181,11 @@
       });
       root.querySelectorAll('[data-meetrm]').forEach(b => b.onclick = () => { keepTexts(); meet.changed[b.dataset.meetrm] = null; TP.rerender(); });
       root.querySelector('#saveMeet').onclick = () => saveMeet().catch(e => TP.toast(TP.errorText(e), 'warn'));
+      if (TP.namesEnDetail && TP.session.can('missions.manage')) {
+        root.insertAdjacentHTML('beforeend', namesHtml());
+        const ld = root.querySelector('#nmLoad'); if (ld) ld.onclick = () => { nm.rows = null; loadNames(); };
+        const sv = root.querySelector('#nmSave'); if (sv) sv.onclick = () => saveNames().catch(e => TP.toast(TP.errorText(e), 'warn'));
+      }
     }
   };
 })(window.TP = window.TP || {});

@@ -131,7 +131,10 @@
   }
   const cleanPhone = v => { let t = TP.latinDigits(String(v || '')).trim(); const plus = /^\s*(\+|00)/.test(t); t = t.replace(/\D/g, ''); if (/^00/.test(t)) t = t.slice(2); return (plus ? '+' : '') + t; };
   const canContacts = () => !!(navigator.contacts && navigator.contacts.select && window.ContactsManager);
-  function readCusts() { custs = TP.$$('#mCusts .cust-row').map(r => ({ id: r.dataset.id || '', h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value, sex: '' })); }
+  function readCusts() {
+    const prev = {}; custs.forEach(c => { if (c.id) prev[c.id] = c; });
+    custs = TP.$$('#mCusts .cust-row').map(r => { const id = r.dataset.id || '', p = prev[id] || {}; return { id, h: r.dataset.h || '', name: r.querySelector('[data-c=name]').value.trim(), phone: TP.latinDigits(r.querySelector('[data-c=phone]').value.trim()), lang: r.querySelector('[data-c=lang]').value, sex: '', nameEn: p.nameEn || '', nameAr: p.nameAr || '' }; });
+  }
   function drawCusts() {
     const box = TP.$('#mCusts');
     const book = custBook();
@@ -205,7 +208,7 @@
     const canPrice = S.can('prices.edit') && money();
     const drivers = TP.q.drivers().filter(p => p.active !== false || p.id === m.driverId);
     const fl = m.flight || {};
-    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '' }));
+    custs = (m.customers || []).map(c => ({ id: c.id || '', h: c.h || '', name: c.name || '', phone: c.phone || '', lang: c.lang || 'ar', sex: c.sex || '', nameEn: c.nameEn || '', nameAr: c.name || '' }));
     if (!custs.length && !mid) custs = [{ id: '', h: '', name: '', phone: '', lang: 'ar', sex: '' }];
     const manualTime = fl.src === 'manual' && fl.sched ? O.hm(fl.sched) : '';
     const bk = batch;
@@ -222,6 +225,7 @@
           <div class="fld" data-arr>ميعاد الطيارة <small>سيبه فاضي — بييجي لوحده</small>${U.timeField('fTime', manualTime)}</div>
           <label class="fld" data-arr>الصالة <small>اختياري</small><input class="input" id="fTerm" value="${esc(fl.terminalSet ? fl.terminal : '')}" maxlength="10" placeholder="${esc(fl.terminal || '')}"></label>
           <div class="full small muted" id="fInfo" data-arr>${flightLine(m)}</div>
+          <label class="fld" data-dep>الصالة <small>اختياري</small><input class="input" id="fTermDep" value="${esc(fl.dir === 'dep' ? (fl.terminal || '') : '')}" maxlength="10" placeholder="مثال 3"></label>
           <p class="full small muted" data-dep>توصيل مطار سفر: اكتب تحت ميعاد خروج العميل من مكانه — بيروح للكابتن زي ما هو.</p>
         </div>
         <label class="fld full">وصف المشوار<input class="input" id="mTitle" value="${esc(m.title || '')}" placeholder="مثال: توصيل وفد من الفندق للمصنع — للمطار بيتكتب لوحده" maxlength="120"></label>
@@ -299,6 +303,7 @@
     if (U.timeIncomplete('mTime') || U.timeIncomplete('fTime')) { TP.toast('اختار صباحًا ولا مساءً للميعاد'); return false; }
     const from = readPlace('from'), to = readPlace('to');
     if (from.error || to.error) { TP.toast(from.error || to.error); return false; }
+    [['from', from], ['to', to]].forEach(([k, p]) => { const o = old && old[k]; if (o && o.nameEn && o.name === p.name) p.nameEn = o.nameEn; });   // the English stays with the same place
     readCusts();
     const customers = [], fresh = {};
     for (const c of custs.filter(x => x.name || x.phone)) {
@@ -306,7 +311,9 @@
       if (c.phone && !TP.phoneIntl(c.phone)) { TP.toast(`موبايل ${c.name} مش مظبوط`); return false; }
       let h = c.h;
       if (!h) { const k = await TP.cust.newLink(); h = k.h; fresh[h] = k.token; }
-      customers.push({ id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar', sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') });
+      const cu = { id: c.id || TP.newId('C'), h, name: c.name.slice(0, 60), phone: c.phone || '', lang: TP.i18n.ok(c.lang) ? c.lang : 'ar', sex: (c.sex === 'm' || c.sex === 'f' ? c.sex : '') };
+      if (c.nameEn && c.nameAr === c.name) cu.nameEn = c.nameEn;                                 // the English stays while the Arabic name is the same
+      customers.push(cu);
     }
     if (customers.length > maxTripCust()) { TP.toast(`العربية فيها ${maxTripCust()} ركاب بس — سياسة الأمان`); return false; }
     const wakeRaw = TP.latinDigits(U.val('mWake') || '').trim(), wakeMin = wakeRaw === '' ? null : Math.round(Number(wakeRaw));
@@ -320,6 +327,7 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { TP.toast('اختار اليوم'); return false; }
       if (!time) { TP.toast('اكتب ميعاد خروج العميل'); return false; }
       flight = { dir: 'dep', dirSet: true };
+      const tdep = U.val('fTermDep').trim().slice(0, 10); if (tdep) { flight.terminal = tdep; flight.terminalSet = true; }
       if (!title || (old && old.type === 'airport' && old.title === autoTitle(old.flight))) title = autoTitle(flight);
     } else if (type === 'airport') {
       const no = FL().norm(U.val('fNo')), fdate = U.val('fDate'), dirSel = 'arr', ftime = U.val('fTime'), term = U.val('fTerm');
@@ -358,7 +366,7 @@
     else if (mid && old.wakeMin != null) data.wakeMin = TP.fb.del();
     if (cashAmt) data.cash = { amount: cashAmt, note: U.val('mCashNote') };
     else if (mid && old.cash) data.cash = TP.fb.del();
-    if (type === 'airport') Object.assign(data, { flight, flightCheckAt: depTrip ? TP.fb.del() : flightCheckAt });
+    if (type === 'airport') { data.flight = flight; if (!depTrip) data.flightCheckAt = flightCheckAt; else if (mid && old.flightCheckAt != null) data.flightCheckAt = TP.fb.del(); }
     else if (mid && old.flight) Object.assign(data, { flight: TP.fb.del(), flightCheckAt: TP.fb.del() });
     if (mid && old.driveMin != null) data.driveMin = TP.fb.del();
     const renotify = !mid || old.driverId !== driverId || old.day !== day || (old.time || '') !== (time || '');
@@ -411,6 +419,7 @@
     const toGroup = () => { if (TP.actions.missionToGroup) TP.actions.missionToGroup(all.map(x => Object.assign({ id: x.id }, x.data))); };
     const send = all.filter(x => x.renotify && (x.data.customers || []).some(c => TP.phoneIntl(c.phone || '')));
     if (!send.length) return toGroup();
+    await addEnglish(send);
     const tok = await TP.cust.tokens([].concat(...send.map(x => x.data.customers))).catch(() => ({}));
     const drv = TP.q.person(all[0].data.driverId) || '';
     const rows = [];
@@ -434,6 +443,31 @@
     const body = TP.$('#tp-modal-body'); if (body) body.scrollTop = 0;
     TP.$$('#tp-modal [data-wsent]').forEach(a => a.addEventListener('click', () => { a.textContent = 'اتبعت ✓'; a.classList.replace('btn-primary', 'btn-ghost'); }));
     TP.$$('#tp-modal [data-wcopy]').forEach(b => b.onclick = () => TP.actions.copy(rows[Number(b.dataset.wcopy)].text));
+  }
+  /** Before the guest's message: the places and first names in English (the settings switch "ترجمة الأماكن والأسماء").
+      Kept on the trip (from.nameEn / to.nameEn / customers[].nameEn) so every later message — the driver's too — uses the same words.
+      Nothing found = the Arabic stays as written; the line never disappears. */
+  async function addEnglish(list) {
+    if (!(D.settings && D.settings.aiNamesOn === true) || !TP.namesEnDetail) return;
+    const jobs = [];
+    list.forEach(x => {
+      const d = x.data;
+      ['from', 'to'].forEach(k => { const p = d[k]; if (p && p.name && !p.nameEn) jobs.push({ x, k, kind: 'place', ar: p.name }); });
+      (d.customers || []).forEach((c, i) => { const f = TP.firstNameAr(c.name); if (f && !c.nameEn) jobs.push({ x, i, kind: 'person', ar: f }); });
+    });
+    if (!jobs.length) return;
+    TP.toast('بيترجم الأماكن والأسماء…');
+    const out = await TP.namesEnDetail(jobs.map(j => ({ kind: j.kind, ar: j.ar }))).catch(() => []);
+    const touched = new Set();
+    jobs.forEach((j, n) => {
+      const en = out[n] && out[n].en; if (!en) return;
+      const d = j.x.data;
+      if (j.k) d[j.k] = Object.assign({}, d[j.k], { nameEn: en.slice(0, 80) });
+      else d.customers = d.customers.map((c, i) => i === j.i ? Object.assign({}, c, { nameEn: en.slice(0, 40) }) : c);
+      touched.add(j.x);
+    });
+    const ops = [...touched].map(x => { const d = x.data, up = { customers: d.customers || [] }; ['from', 'to'].forEach(k => { if (d[k]) up[k] = d[k]; }); return { op: 'update', path: 'missions/' + x.id, data: up }; });
+    if (ops.length) await TP.fb.batch(ops).catch(e => console.warn('names', e));
   }
   /** A push to the driver's phone right away (the cloud alarm sends it); the app rings until he presses "استلمت". */
   async function notifyDriver(id) {

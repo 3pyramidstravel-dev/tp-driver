@@ -108,15 +108,21 @@
     const LRM = '\u200E', row = (k, v) => v ? `*${k}* ← ${v}` : null;   // an empty row is left out
     const map = l => l && isFinite(l.lat) && isFinite(l.lng) ? `https://maps.google.com/?q=${l.lat},${l.lng}` : '';
     // short: the car's own group already knows the car and its captain — no header, no signature (agreed)
-    const out = [];
-    items.forEach((m, i) => {
+    const out = [], bold = t => String(t || '').replace(/\*/g, '').split('\n').map(x => x.trim()).filter(Boolean).map(x => `*${x}*`).join('\n');
+    // a title for each day (agreed): "تشغيل اليوم كالتالي:" / "التشغيل غداً كالتالي:" / "تشغيل يوم … كالتالي:"
+    const title = m => m.when === 'النهاردة' ? 'تشغيل اليوم كالتالي:' : m.when === 'بكرة' ? 'التشغيل غداً كالتالي:' : `تشغيل يوم ${m.dayFull} كالتالي:`;
+    let lastDay = null, i = 0;
+    items.forEach(m => {
+      const dk = m.day || m.dayFull || '';
+      if (dk !== lastDay) { out.push('', `*${title(m)}*`); lastDay = dk; i = 0; }
       out.push('', `*المشوار ${FL.ORD[i] || i + 1}*`,
         row('اليوم', [m.when, m.dayFull].filter((x, k, a) => x && a.indexOf(x) === k).join('، ')),
-        row('ميعاد الوصول', m.time ? hm12(m.time) : ''), row('نوع المشوار', m.type),
-        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''),
+        row('ميعاد الوصول', m.time ? `*${hm12(m.time)}*` : ''), row('نوع المشوار', m.type),
+        row('رقم الرحلة', m.flightNo ? m.flightNo + (m.terminal ? ' — صالة ' + m.terminal : '') : ''), row('الصالة', !m.flightNo && m.terminal ? m.terminal : ''),
         row('متابعة الرحلة', m.flightNo ? 'https://airportinfo.live/flight/' + String(m.flightNo).toLowerCase().replace(/[^a-z0-9]/g, '') : ''),
         row('من', m.from || ''), row('لوكيشن البداية', map(m.fromLoc)), row('إلى', m.to || ''), row('لوكيشن الوجهة', map(m.toLoc)),
-        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes || ''));
+        row('العميل', m.client || ''), row('رقم العميل', m.phone ? LRM + m.phone : ''), row('الجهة', m.factory || ''), row('ملاحظات', m.notes ? bold(m.notes) : ''));
+      i++;
     });
     return out.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   };

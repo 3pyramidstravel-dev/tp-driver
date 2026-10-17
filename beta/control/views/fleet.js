@@ -105,7 +105,7 @@
   /* ---------- the car's schedule to its WhatsApp group (like the old manager screen) ---------- */
   function schedItem(m) {
     const f = TP.q.company(m.factoryId), air = m.type === 'airport' && m.flight, t = today();
-    return { id: m.id, when: m.day === t ? 'النهاردة' : m.day === O.addDays(t, 1) ? 'بكرة' : '', dayFull: TP.fmtDay(m.day + 'T12:00:00'), time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'توصيل مطار سفر' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
+    return { id: m.id, day: m.day, when: m.day === t ? 'النهاردة' : m.day === O.addDays(t, 1) ? 'بكرة' : '', dayFull: TP.fmtDay(m.day + 'T12:00:00'), time: m.time || '', type: air ? (m.flight.dir === 'dep' ? 'توصيل مطار سفر' : 'استقبال مطار') : 'مشوار', from: (m.from && m.from.name) || '', to: (m.to && m.to.name) || '',
       fromLoc: m.from && m.from.location, toLoc: m.to && m.to.location,
       flight: air && m.flight.dir === 'arr' ? m.flight.no : '', flightNo: air ? m.flight.no : '', terminal: air ? (m.flight.terminal || '') : '', client: (m.customers || []).map(c => c.name).join('، '), phone: (m.customers || []).map(c => c.phone).filter(Boolean).map(ph => TP.phoneNice ? TP.phoneNice(ph) : ph).join(' / '),
       factory: f ? f.name : (m.client || ''), notes: m.notes || '' };

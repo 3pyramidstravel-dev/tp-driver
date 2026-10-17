@@ -109,6 +109,17 @@ service cloud.firestore {
       allow delete: if can('missions.manage');
     }
 
+    // English names of places and guests (the translator's answers and the manager's corrections) — kept so each is asked once
+    match /enNames/{nid} {
+      allow read, delete: if can('missions.manage');
+      allow create, update: if can('missions.manage')
+        && request.resource.data.keys().hasOnly(['kind', 'ar', 'en', 'at'])
+        && request.resource.data.kind in ['place', 'person']
+        && request.resource.data.ar is string && request.resource.data.ar.size() > 0 && request.resource.data.ar.size() <= 120
+        && request.resource.data.en is string && request.resource.data.en.size() > 0 && request.resource.data.en.size() <= 80
+        && request.resource.data.at == request.time;
+    }
+
     // the database's use of the free daily quota (written by the cloud alarm) — the general manager's eyes only
     match /system/usage {
       allow read: if can('all');

@@ -14,8 +14,12 @@
   /** First names in English letters (an Arabic name is written the usual Egyptian way). */
   // "مستر علاء" → Alaa: the honorific is not the name
   const TITLE_WORDS = /^(مستر|مسيو|مدام|مس|استاذ|أستاذ|استاذه|أستاذة|استاذة|دكتور|دكتوره|د|د\.|م|م\.|م\/|مهندس|باشمهندس|بشمهندس|حاج|حاجه|الحاج|الاستاذ|السيد|السيده|كابتن|mr\.?|mrs\.?|ms\.?|miss|dr\.?|eng\.?)$/i;
-  const firstName = n => { const w = String(n || '').trim().split(/\s+/).filter(Boolean); const k = w.findIndex(x => !TITLE_WORDS.test(x.replace(/[\/.]$/, '')) && !TITLE_WORDS.test(x)); return w[k >= 0 ? k : 0] || ''; };
+  // a title stuck to the name ("أ.محمد", "م/أحمد", "د.سارة") is split off first
+  const firstName = n => { const w = String(n || '').trim().replace(/(^|\s)(أ|ا|م|د|ك|Mr|Mrs|Ms|Dr|Eng)[.\/]+\s*/gi, '$1').split(/\s+/).filter(Boolean); const k = w.findIndex(x => !TITLE_WORDS.test(x.replace(/[\/.]$/, '')) && !TITLE_WORDS.test(x)); return w[k >= 0 ? k : 0] || ''; };
   const enFirst = n => TP.enName(firstName(n));
+  /** The guest's first name in English: the translation kept with him (nameEn) first. */
+  const guestFirst = c => (c && (c.nameEn || '').trim()) ? first(c.nameEn) : enFirst(c && c.name);
+  TP.firstNameAr = firstName;
   const drvFirst = d => d && typeof d === 'object' ? ((d.nameEn || '').trim() ? first(d.nameEn) : enFirst(d.name)) : enFirst(d || '');
   /** The car for the customer: model and colour in English, the plate as it is on the car. */
   const carEn = v => { if (!v) return ''; if (typeof v === 'string') return v; return [(v.modelEn || '').trim() || TP.enName(v.model || ''), TP.enName(v.color || '')].filter(Boolean).join(', '); };
@@ -49,6 +53,8 @@
   const LET = { 'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd',
     'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh', 'ف': 'f', 'ق': 'k', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'ة': 'a', 'و': 'o', 'ي': 'y', 'ى': 'a', 'ئ': 'e', 'ؤ': 'o', 'ء': '' };
   const norm = w => w.replace(/[أإآ]/g, 'ا').replace(/ة$/, 'ه').replace(/[\u064B-\u0652]/g, '');
+  /** A word the dictionary knows ('' if not) — the rest goes to the translator. */
+  TP.enKnownWord = w => WORDS[norm(String(w || '').trim())] || '';
   TP.enName = function (text) {
     return String(text || '').trim().split(/\s+/).filter(Boolean).map(w => {
       if (!/[\u0600-\u06FF]/.test(w)) return w;
@@ -85,12 +91,52 @@
     return /^the /.test(out) ? out : out.charAt(0).toUpperCase() + out.slice(1);
   };
 
+  /** A trip place for an English message: its kept translation, the fixed list, else the Arabic as written (never left out). */
+  TP.placeOut = p => { const name = String((p && p.name) || '').trim(); return ((p && p.nameEn) || '').trim() || TP.placeEn(name) || name; };
+
+  /* ---------- English names that are not in the lists: the cloud translator (staff), kept in enNames for everyone ---------- */
+  const enNorm = s => String(s || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim();
+  TP.enCache = {
+    map: null, loading: null,
+    key: async (kind, ar) => 'k' + (await TP.sha256(kind + ':' + enNorm(ar))).slice(0, 28),
+    load() { if (!this.loading) this.loading = TP.fb.list('enNames').then(l => { this.map = {}; l.forEach(x => { this.map[x.id] = x; }); }).catch(() => { this.map = {}; }); return this.loading; },
+    async get(kind, ar) { await this.load(); const d = this.map[await this.key(kind, ar)]; return (d && d.en) || ''; },
+    async put(kind, ar, en) { const id = await this.key(kind, ar); const doc = { kind, ar: String(ar).slice(0, 120), en: String(en).slice(0, 80), at: TP.fb.ts() }; await TP.fb.set('enNames/' + id, doc); if (this.map) this.map[id] = Object.assign({ id }, doc, { at: Date.now() }); }
+  };
+  /** items [{kind:'place'|'person', ar}] → [{en, src}] — src: kept (corrected/saved before) | list | ai | '' (unknown → the Arabic stays).
+      The saved memory wins (a correction from the settings page), then the fixed lists, then the cloud translator (saved for next time). */
+  TP.namesEnDetail = async function (items, opts) {
+    const o = opts || {}, res = items.map(() => ({ en: '', src: '' })), ask = [];
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i], ar = String(x.ar || '').trim(); if (!ar) continue;
+      if (!/[\u0600-\u06FF]/.test(ar)) { res[i] = { en: ar, src: 'list' }; continue; }
+      const kept = await TP.enCache.get(x.kind, ar).catch(() => '');
+      if (kept) { res[i] = { en: kept, src: 'kept' }; continue; }
+      const known = x.kind === 'person' ? TP.enKnownWord(ar) : TP.placeEn(ar);
+      if (known) { res[i] = { en: known, src: 'list' }; continue; }
+      ask.push(i);
+    }
+    for (let s0 = 0; s0 < ask.length; s0 += 25) {
+      const part = ask.slice(s0, s0 + 25);
+      try {
+        const tok = await TP.fb.idToken();
+        const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), o.timeoutMs || 6000);
+        const r = await fetch(TP.WORKER_URL + '/names', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ items: part.map(i => ({ kind: items[i].kind, ar: String(items[i].ar).trim() })) }) });
+        clearTimeout(timer);
+        const j = await r.json().catch(() => ({}));
+        (j.out || []).forEach((en, k) => { const i = part[k]; if (en && i !== undefined) { res[i] = { en, src: 'ai' }; if (o.save !== false) TP.enCache.put(items[i].kind, items[i].ar, en).catch(() => {}); } });
+      } catch (e) { /* no network / no translator: the Arabic stays */ }
+    }
+    return res;
+  };
+  TP.namesEn = async (items, opts) => (await TP.namesEnDetail(items, opts)).map(r => r.en);
+
   /* ---------- the driver's own WhatsApp to a trip / airport guest — always English, VIP (agreed with the GM, design 2; no link: the company sends it) ---------- */
   const cairoHour = () => { try { return Number(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', hourCycle: 'h23' })); } catch (e) { return new Date().getHours(); } };
   const hm12en = hm => { const x = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!x) return ''; const h = Number(x[1]); return `${h % 12 || 12}:${x[2]} ${h < 12 ? 'AM' : 'PM'}`; };
   TP.vipDriverMsg = function (m, drv, arrived) {
     const d = drv || {}, name = (d.nameEn || '').trim() || TP.enName(d.name || ''), id = d.code ? ` (ID ${d.code})` : '';
-    const from = TP.placeEn(m.from && m.from.name), to = TP.placeEn(m.to && m.to.name), time = hm12en(m.time);
+    const from = TP.placeOut(m.from), to = TP.placeOut(m.to), time = hm12en(m.time);
     const h = cairoHour(), hi = h >= 5 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
     const head = ['✦ *THREE PYRAMIDS TRAVEL* ✦', '_Private Chauffeur Service_', ''];
     const body = arrived
@@ -138,11 +184,12 @@
     const ms = TP.ops.cairoMs(m.day, m.time || '12:00'), hasT = /^\d{2}:\d{2}$/.test(m.time || '');
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
     const DOTS = '.........................';
-    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', enFirst(c.name)), '',
+    const lines = [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', guestFirst(c)), '',
       row(T.cap, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
       row(T.fl, m.type === 'airport' && fl.no ? fl.no + (fl.terminal ? ` — ${T.term} ${fl.terminal}` : '') : ''),
-      row(T.from, ar ? (m.from && m.from.name) || '' : TP.placeEn(m.from && m.from.name)), row(T.to, ar ? (m.to && m.to.name) || '' : TP.placeEn(m.to && m.to.name)),
+      row(T.term, m.type === 'airport' && !fl.no && fl.terminal ? fl.terminal : ''),
+      row(T.from, ar ? (m.from && m.from.name) || '' : TP.placeOut(m.from)), row(T.to, ar ? (m.to && m.to.name) || '' : TP.placeOut(m.to)),
       DOTS, link ? T.link + ' 👇\n' + link : null, link ? DOTS : null, TP.signature(sender(), ar)];
     return lines.filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n');
   }
@@ -162,7 +209,7 @@
    * link = his page (staff only — the driver does not hold the link), drv = the driver (his English name goes to foreign guests) or a name.
    */
   function messages(m, c, link, drv) {
-    const L = custL(c), n = enFirst(c.name),
+    const L = custL(c), n = guestFirst(c),
       driver = drvFirst(drv), t = (k, v) => I().t(L, k, v), fl = m.flight || {};
     const arr = m.type === 'airport' && fl.dir === 'arr', term = fl.terminal ? t('termTag', { t: fl.terminal }) : '';
     const out = [];
@@ -217,7 +264,7 @@
   }
   /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
   function stepMessage(m, c, key, drv, car) {
-    const L = custL(c), t = (k, v) => I().t(L, k, v), fl = m.flight || {}, n = enFirst(c.name);
+    const L = custL(c), t = (k, v) => I().t(L, k, v), fl = m.flight || {}, n = guestFirst(c);
     const driver = drvFirst(drv);
     const plate = plateLine(car, L);
     car = carEn(car); car = car ? t('carTag', { c: car }) + plate : '';

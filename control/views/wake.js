@@ -55,63 +55,83 @@
     if (!role || role === 'supervisor' || role === 'custom') return 'المشرف';
     return (TP.ROLES.find(x => x.id === role) || {}).name || 'المشرف';
   }
-  function card(r, urgent) {
-    const e = r.e, st = TP.wakeCore.STATUS[r.status] || ['', 'st-off'], late = Math.max(0, Math.round((TP.now() - e.wakeAt) / 60000));
+  /* ---------- the board: one short row per driver, colored by his state (approved design) ---------- */
+  const GROUP = { late: 'r', escalated: 'r', claimed: 'o', waiting: 'y', upcoming: 'w', awake: 'g', woke: 'g', replaced: 'g' };
+  const ORDER = { r: 0, o: 1, y: 2, w: 3, g: 4 };
+  const FILTERS = [['r', 'محتاج تدخل'], ['o', 'مع المشرف'], ['y', 'مستني'], ['g', 'صحيوا']];
+  const ui = { flt: '', open: '' };
+  const mins = ms => Math.max(0, Math.round(ms / 60000));
+  const inTime = ms => { const m = mins(ms); return m < 60 ? `بعد ${m} د` : `بعد ${Math.floor(m / 60)} س${m % 60 ? ' و' + (m % 60) + ' د' : ''}`; };
+  /** the short status at the row's end */
+  function stText(r, now) {
+    const e = r.e, late = mins(now - e.wakeAt);
+    if (r.status === 'late') return `متأخر ${late} د`;
+    if (r.status === 'escalated') return `متأخر ${late} د · وصل للإدارة`;
+    if (r.status === 'claimed') return `مع ${e.claim ? claimRole(e.claim) : 'المشرف'} · ${late} د`;
+    if (r.status === 'waiting') return `رن من ${late} د`;
+    if (r.status === 'upcoming') return inTime(e.wakeAt - now);
+    if (r.status === 'replaced') return 'اتعيّن بديل';
+    const at = e.awakeAt || (r.ack && r.ack.awakeAt);
+    return (r.status === 'woke' ? 'صحي (المشرف)' : 'صحي') + (at ? ' ' + W().hm12(at) : '');
+  }
+  function readyText(r, tomorrow) {
+    const a = r.ack || {};
+    if (a.readyAt) return `<span class="wb-ok">جاهز${a.battery ? ' ' + esc(a.battery) + '%' : ''}</span>`;
+    return r.day === tomorrow && r.status === 'upcoming' ? '<span class="wb-no">مأكدش جاهز</span>' : '';
+  }
+  function boardRow(r, now, tomorrow) {
+    const e = r.e, g = GROUP[r.status] || 'w', key = r.day + '|' + r.pid, open = ui.open === key;
     const canAct = S.can('wake.supervise') || S.can('times.correct');
     const noPush = e.noToken || !(e.tokens || []).length;
-    return `<div class="request-card ${urgent ? 'sos' : ''}" style="${urgent ? '' : 'border-color:var(--line);box-shadow:none'}">
-      <span class="st ${st[1]}">${esc(r.status === 'claimed' && e.claim ? 'المخالفة مع ' + claimRole(e.claim) + ' الآن' : st[0])}</span>
-      <div class="grow"><b>${esc(TP.driverLabel({ code: e.code, name: e.name }))}</b> ${e.watch ? '<span class="badge-s far">تحت المتابعة</span>' : ''} ${noPush ? '<span class="badge-s nogps">التنبيهات مش متفعلة عنده</span>' : ''}
-        <div class="small muted">${esc(e.job.label)} الساعة ${esc(W().hm12(e.job.at))} · ميعاد صحيانه ${esc(W().hm12(e.wakeAt))}${r.status === 'late' || r.status === 'escalated' || r.status === 'claimed' ? ` · متأخر ${late} دقيقة` : ''}</div>
-        ${e.claim ? `<div class="small" style="color:var(--warn)">تم المتابعة واستلام المخالفة من خلال: ${esc(String(e.claim.by || '').split(/\s*[-–—(|]\s*/)[0])} (${esc(TP.ago(e.claim.at))})</div>` : ''}
-        ${e.mgmtAt ? '<div class="small" style="color:var(--danger)">وصل للإدارة</div>' : ''}</div>
-      ${e.phone ? `<a class="btn btn-ghost btn-sm" href="tel:${esc(e.phone)}">${TP.icon('phone', 16)}اتصل</a>` : ''}
-      ${canAct && !e.claim ? `<button class="btn btn-primary btn-sm" data-claim="${esc(r.day + '|' + r.pid)}">استلمت</button>` : ''}
-      ${canAct ? `<button class="btn btn-ghost btn-sm" data-woke="${esc(r.day + '|' + r.pid)}">${TP.icon('check', 16)}صحي</button>` : ''}
-      ${canAct && (e.job.type === 'line' || S.can('wake.supervise') || S.can('missions.manage')) ? `<button class="btn btn-ghost btn-sm" data-sub="${esc(r.day + '|' + r.pid)}">${TP.icon('users', 16)}بديل</button>` : ''}
+    const live = !['awake', 'woke', 'replaced'].includes(r.status);
+    const ready = readyText(r, tomorrow);
+    const l2 = [`${esc(e.job.label)} ${esc(W().hm12(e.job.at))}`, `صحيان ${esc(W().hm12(e.wakeAt))}`, ready].filter(Boolean).join(' · ');
+    const badges = (e.watch ? ' <span class="badge-s far">تحت المتابعة</span>' : '') + (noPush && live ? ' <span class="badge-s nogps">التنبيهات مش متفعلة</span>' : '');
+    const how = (e.awakeMethod || (r.ack && r.ack.method)) === 'opened' ? ' (فتح التطبيق)' : '';
+    return `<div class="wb-row ${g} ${open ? 'open' : ''}" data-wrow="${esc(key)}">
+      <div class="wb-main"><div class="wb-l1"><span class="wb-name">${esc(TP.driverLabel({ code: e.code, name: e.name }))}</span><span class="wb-st">${esc(stText(r, now))}${esc(how)}</span></div>
+        <div class="wb-l2">${l2}${badges}</div>
+        ${open ? `<div class="wb-more">
+          ${r.status === 'claimed' && e.claim ? `<div class="small">المخالفة مع ${esc(claimRole(e.claim))} الآن</div>` : ''}
+          ${e.claim ? `<div class="small" style="color:var(--warn)">تم المتابعة واستلام المخالفة من خلال: ${esc(String(e.claim.by || '').split(/\s*[-–—(|]\s*/)[0])} (${esc(TP.ago(e.claim.at))})</div>` : ''}
+          ${e.mgmtAt ? '<div class="small" style="color:var(--danger)">وصل للإدارة</div>' : ''}
+          ${e.outcome && e.outcome.by ? `<div class="small muted">${esc(e.outcome.by)}${e.supAt ? ' · اتأخر' : ''}</div>` : ''}
+          <div class="small muted">${esc(TP.driverKindName(e.kind))} · ${r.day === D.todayKey ? 'النهارده' : 'بكره'} · قبلها بـ ${Math.round(e.leadMin / 6) / 10} ساعة</div>
+          ${canAct && live ? `<div class="wb-acts">
+            ${!e.claim ? `<button class="btn btn-primary btn-sm" data-claim="${esc(key)}">استلمت</button>` : ''}
+            <button class="btn btn-ghost btn-sm" data-woke="${esc(key)}">${TP.icon('check', 16)}صحي</button>
+            ${e.job.type === 'line' || S.can('wake.supervise') || S.can('missions.manage') ? `<button class="btn btn-ghost btn-sm" data-sub="${esc(key)}">${TP.icon('users', 16)}بديل</button>` : ''}</div>` : ''}</div>` : ''}</div>
+      ${e.phone ? `<a class="wb-call" href="tel:${esc(e.phone)}" title="اتصل" data-nocollapse>${TP.icon('phone', 18)}</a>` : '<span class="wb-call off"></span>'}
     </div>`;
   }
 
   TP.views.wake = {
     deps: ['wake', 'wakeAcks', 'people', 'settings', 'todayDays'],
     render(root) {
-      const rows = TP.q.wakeRows(), now = TP.now(), today = D.todayKey, tomorrow = O.addDays(today, 1);
-      const urgent = rows.filter(r => r.status === 'late' || r.status === 'escalated');
-      const claimed = rows.filter(r => r.status === 'claimed');
-      const waiting = rows.filter(r => r.status === 'waiting');
-      const upcoming = rows.filter(r => r.status === 'upcoming');
-      const done = rows.filter(r => ['awake', 'woke', 'replaced'].includes(r.status));
+      const rows = TP.q.wakeRows().filter(r => GROUP[r.status]), now = TP.now(), today = D.todayKey, tomorrow = O.addDays(today, 1);
+      const count = g => rows.filter(r => GROUP[r.status] === g).length;
       const s = Object.assign({}, TP.wakeCore.DEFAULTS, D.settings);
       const nightOn = now >= TP.wakeCore.cairoMs(today, s.nightCheckTime);
-      const tomorrowRows = rows.filter(r => r.day === tomorrow && r.status === 'upcoming');
-      const notReady = tomorrowRows.filter(r => !(r.ack && r.ack.readyAt));
+      const notReady = rows.filter(r => r.day === tomorrow && r.status === 'upcoming' && !(r.ack && r.ack.readyAt));
       const built = [today, tomorrow].map(d => D.wakePlans[d] && D.wakePlans[d].builtAt).filter(Boolean);
       const push = TP.push.state();
+      const shown = rows.filter(r => !ui.flt || GROUP[r.status] === ui.flt)
+        .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) || ORDER[GROUP[a.status]] - ORDER[GROUP[b.status]] || a.e.wakeAt - b.e.wakeAt);
+      const days = [today, tomorrow].concat(Array.from(new Set(shown.map(r => r.day))).filter(d => d !== today && d !== tomorrow));
+      const dayName = d => d === today ? 'النهارده' : d === tomorrow ? 'بكره' : d;
       root.innerHTML = `
         ${push !== 'granted' ? `<div class="banner warn">${TP.icon('bell')}<span class="grow">${push === 'denied' ? 'التنبيهات مقفولة على الجهاز ده — افتحها من إعدادات المتصفح للموقع ده.' : push === 'unsupported' ? 'المتصفح ده مش بيدعم التنبيهات — استخدم Chrome على الموبايل.' : 'فعّل التنبيهات على الجهاز ده علشان جرس الصحيان يوصلك حتى لو الشاشة مقفولة.'}</span>${push === 'default' ? '<button class="btn btn-primary btn-sm" id="wPush">فعّل التنبيهات</button>' : ''}</div>` : ''}
         ${!built.length ? `<div class="banner info">${TP.icon('clock')}<span class="grow">لسه مفيش خطة صحيان — المنبه السحابي بيعملها أوتوماتيك أول ما يشتغل (بعد تركيب Cloudflare).</span></div>` : ''}
-        <div class="kpis">
-          <div class="kpi ${urgent.length ? 'danger' : ''}"><span class="kpi-ic">${TP.icon('alarm', 22)}</span><div><span>محتاج تدخل</span><strong>${urgent.length}</strong></div></div>
-          <div class="kpi ${claimed.length ? 'warn' : ''}"><span class="kpi-ic">${TP.icon('phone', 22)}</span><div><span>مع المشرف</span><strong>${claimed.length}</strong></div></div>
-          <div class="kpi"><span class="kpi-ic">${TP.icon('clock', 22)}</span><div><span>مستني صباح الخير</span><strong>${waiting.length}</strong></div></div>
-          <div class="kpi ok"><span class="kpi-ic">${TP.icon('check', 22)}</span><div><span>صحيوا</span><strong>${done.length}</strong></div></div>
-        </div>
-        ${urgent.length || claimed.length ? `<section class="card"><div class="card-head"><h3>محتاج تدخل دلوقتي</h3></div>${urgent.map(r => card(r, true)).join('')}${claimed.map(r => card(r, false)).join('')}</section>` : ''}
-        ${waiting.length ? `<section class="card"><div class="card-head"><h3>المنبه رن — مستنيين "صباح الخير"</h3></div>${waiting.map(r => card(r, false)).join('')}</section>` : ''}
-        <section class="card"><div class="card-head"><h3>الصحيان الجاي</h3>
-          <div class="toolbar-end"><span class="muted small">${built.length ? 'الخطة اتحدثت ' + esc(TP.ago(Math.max(...built))) : ''}</span>${S.can('wake.supervise') || S.can('times.correct') || S.can('lines.manage') ? `<button class="btn btn-ghost btn-sm" id="wRebuild">${TP.icon('refresh', 16)}حدّث الخطة</button>` : ''}</div></div>
-          ${upcoming.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>السواق</th><th>الشغل</th><th>ميعاد الصحيان</th><th>جاهز لبكره</th><th></th></tr></thead><tbody>${upcoming.map(r => `<tr>
-            <td><b>${esc(TP.driverLabel({ code: r.e.code, name: r.e.name }))}</b>${r.e.watch ? ' <span class="badge-s far">تحت المتابعة</span>' : ''}<div class="muted small">${esc(TP.driverKindName(r.e.kind))}</div></td>
-            <td>${esc(r.e.job.label)}<div class="muted small">${r.day === today ? 'النهارده' : 'بكره'} الساعة ${esc(W().hm12(r.e.job.at))}</div></td>
-            <td class="num"><b>${esc(W().hm12(r.e.wakeAt))}</b><div class="muted small">قبلها بـ ${Math.round(r.e.leadMin / 6) / 10} ساعة</div></td>
-            <td>${r.ack && r.ack.readyAt ? `<span class="st st-ok">جاهز</span>${r.ack.battery ? `<div class="muted small">بطارية ${esc(r.ack.battery)}%</div>` : ''}` : (r.day === tomorrow ? '<span class="st st-warn">لسه</span>' : '—')}</td>
-            <td>${!(r.e.tokens || []).length ? '<span class="badge-s nogps">التنبيهات مش متفعلة</span>' : ''}</td></tr>`).join('')}</tbody></table></div>` : U.empty('مفيش صحيان جاي')}
-        </section>
-        ${nightOn && notReady.length ? `<section class="card"><div class="card-head"><h3>فحص الليل — مأكدوش "جاهز لبكره"</h3><span class="st st-warn">${notReady.length}</span></div>${notReady.map(r => card(r, false)).join('')}</section>` : ''}
-        ${done.length ? `<section class="card"><details><summary class="link">صحيوا (${done.length})</summary>
-          <div class="table-wrap" style="margin-top:8px"><table class="tbl"><tbody>${done.map(r => `<tr><td>${esc(TP.driverLabel({ code: r.e.code, name: r.e.name }))}</td><td>${esc(r.e.job.label)}</td>
-            <td><span class="st ${TP.wakeCore.STATUS[r.status][1]}">${esc(TP.wakeCore.STATUS[r.status][0])}</span></td>
-            <td class="small muted">${r.e.awakeAt || (r.ack && r.ack.awakeAt) ? esc(TP.fmtTime(r.e.awakeAt || r.ack.awakeAt)) + ((r.e.awakeMethod || (r.ack && r.ack.method)) === 'opened' ? ' (فتح التطبيق)' : '') : r.e.outcome ? esc(r.e.outcome.by || '') : ''}${r.e.supAt ? ' · اتأخر' : ''}</td></tr>`).join('')}</tbody></table></div></details></section>` : ''}`;
+        ${nightOn && notReady.length ? `<div class="banner warn">${TP.icon('clock')}<span class="grow">فحص الليل: ${notReady.length} سواق مأكدوش "جاهز لبكره" — مكتوب جنبهم بالأحمر.</span></div>` : ''}
+        <div class="wb-chips">${FILTERS.map(([g, l]) => `<button type="button" class="wb-chip ${g} ${ui.flt === g ? 'on' : ''}" data-wflt="${g}"><b>${count(g)}</b><span>${l}</span></button>`).join('')}</div>
+        <div class="wb-tools"><span class="muted small">${ui.flt ? `<button type="button" class="link" data-wflt="">اعرض الكل</button> · ` : ''}${built.length ? 'الخطة اتحدثت ' + esc(TP.ago(Math.max(...built))) : ''}</span>${S.can('wake.supervise') || S.can('times.correct') || S.can('lines.manage') ? `<button class="btn btn-ghost btn-sm" id="wRebuild">${TP.icon('refresh', 16)}حدّث الخطة</button>` : ''}</div>
+        ${days.map(d => { const list = shown.filter(r => r.day === d); return list.length ? `<h3 class="wb-day">${esc(dayName(d))} · ${list.length} ${list.length === 1 ? 'سواق' : 'سواقين'}</h3>${list.map(r => boardRow(r, now, tomorrow)).join('')}` : ''; }).join('')}
+        ${!shown.length ? U.empty(ui.flt ? 'مفيش حد في الخانة دي' : 'مفيش صحيان جاي') : `<p class="wb-note">دوس على أي سطر ← استلمت · صحي · بديل</p>`}`;
+      root.querySelectorAll('[data-wflt]').forEach(b => b.onclick = () => { ui.flt = ui.flt === b.dataset.wflt ? '' : b.dataset.wflt; TP.rerender(); });
+      root.querySelectorAll('[data-wrow]').forEach(el => el.onclick = ev => {
+        if (ev.target.closest('a,button')) return;
+        ui.open = ui.open === el.dataset.wrow ? '' : el.dataset.wrow; TP.rerender();
+      });
       const find = v => { const [day, pid] = v.split('|'); return TP.q.wakeRows().find(r => r.day === day && r.pid === pid); };
       const guard = p => p.catch(e => TP.toast(TP.errorText(e), 'warn'));
       root.querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { const r = find(b.dataset.claim); if (r) guard(claim(r)); });

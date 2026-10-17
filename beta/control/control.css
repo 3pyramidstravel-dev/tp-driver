@@ -230,3 +230,34 @@ body { background: linear-gradient(160deg, #f9f0e1, #efdfc2); min-height: 100vh;
 .us-left span { font-weight: 800; color: var(--ink-2, #5a4636); }
 .us-note { margin: 4px 4px 0; font-size: 13px; color: var(--muted, #8b7464); }
 .us-err { margin: 6px 4px 0; font-size: 12px; color: #8b2d24; word-break: break-word; background: #fff4f2; border-radius: 10px; padding: 8px; }
+
+/* ---------- wake board (الصحيان): one row per driver, colored by state ---------- */
+.wb-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+.wb-chip { background: #fffaf2; border: 1px solid var(--line); border-radius: 14px; padding: 8px 4px; text-align: center; font: inherit; cursor: pointer; }
+.wb-chip b { display: block; font-size: 22px; line-height: 1.15; }
+.wb-chip span { font-size: 12px; color: var(--muted); }
+.wb-chip.r b { color: #b4231f; } .wb-chip.r { background: #fff1f1; border-color: #e7a3a3; }
+.wb-chip.o b { color: #c46f00; } .wb-chip.y b { color: #a07c00; } .wb-chip.g b { color: #1f7a4d; }
+.wb-chip.on { outline: 2px solid var(--maroon, #5a1418); }
+.wb-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 2px 6px; }
+.wb-day { margin: 12px 4px 8px; font-size: 16px; color: var(--maroon-2, #5a1418); }
+.wb-row { display: flex; align-items: center; gap: 10px; background: #fffaf2; border: 1px solid var(--line); border-radius: 14px; padding: 9px 10px; margin-bottom: 6px; border-inline-start: 6px solid #c9bfb0; cursor: pointer; }
+.wb-row.r { border-inline-start-color: #c62828; background: #fff4f3; }
+.wb-row.o { border-inline-start-color: #e08a00; }
+.wb-row.y { border-inline-start-color: #e6b400; }
+.wb-row.g { border-inline-start-color: #2e9b5f; opacity: .88; }
+.wb-row.open { opacity: 1; box-shadow: 0 6px 16px rgba(0,0,0,.06); }
+.wb-main { flex: 1; min-width: 0; }
+.wb-l1 { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; font-size: 15px; }
+.wb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-st { font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--muted); }
+.wb-row.r .wb-st { color: #c62828; } .wb-row.o .wb-st { color: #c46f00; } .wb-row.y .wb-st { color: #a07c00; } .wb-row.g .wb-st { color: #2e9b5f; }
+.wb-l2 { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-row.open .wb-l2 { white-space: normal; }
+.wb-ok { color: #2e9b5f; font-weight: 700; } .wb-no { color: #c62828; font-weight: 700; }
+.wb-more { margin-top: 8px; display: grid; gap: 4px; }
+.wb-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.wb-call { width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; flex: none; color: inherit; }
+.wb-call.off { visibility: hidden; }
+.wb-row.r .wb-call { background: var(--maroon, #5a1418); color: #fff; border: 0; }
+.wb-note { font-size: 12px; color: var(--muted); text-align: center; margin: 10px 0 0; }
