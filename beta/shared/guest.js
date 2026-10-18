@@ -19,6 +19,16 @@
   const enFirst = n => TP.enName(firstName(n));
   /** The guest's first name in English: the translation kept with him (nameEn) first. */
   const guestFirst = c => (c && (c.nameEn || '').trim()) ? first(c.nameEn) : enFirst(c && c.name);
+  /** "Mr. Ahmed" / "Ms. Dina" — the title + the first name, in every message to a guest (agreed 18 Oct; man / woman is chosen when the trip is made) */
+  const TITLE = { en: ['Mr.', 'Ms.'], de: ['Herr', 'Frau'], fr: ['M.', 'Mme'], ru: ['господин', 'госпожа'] };
+  const salute = (c, L) => {
+    const n = guestFirst(c), s = c && c.sex;
+    if (!n || (s !== 'm' && s !== 'f')) return n;
+    if (L === 'zh') return n + (s === 'm' ? '先生' : '女士');
+    if (L === 'ko') return n;                                    // "{n}님" is already the polite form
+    return (TITLE[L] || TITLE.en)[s === 'm' ? 0 : 1] + ' ' + n;
+  };
+  TP.guestSalute = (c, L) => salute(c, L || 'en');
   TP.firstNameAr = firstName;
   const drvFirst = d => d && typeof d === 'object' ? ((d.nameEn || '').trim() ? first(d.nameEn) : enFirst(d.name)) : enFirst(d || '');
   /** The car for the customer: model and colour in English, the plate as it is on the car. */
@@ -134,12 +144,12 @@
   /* ---------- the driver's own WhatsApp to a trip / airport guest — always English, VIP (agreed with the GM, design 2; no link: the company sends it) ---------- */
   const cairoHour = () => { try { return Number(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', hourCycle: 'h23' })); } catch (e) { return new Date().getHours(); } };
   const hm12en = hm => { const x = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!x) return ''; const h = Number(x[1]); return `${h % 12 || 12}:${x[2]} ${h < 12 ? 'AM' : 'PM'}`; };
-  TP.vipDriverMsg = function (m, drv, arrived) {
+  TP.vipDriverMsg = function (m, drv, arrived, guest) {
     const d = drv || {}, name = (d.nameEn || '').trim() || TP.enName(d.name || ''), id = d.code ? ` (ID ${d.code})` : '';
     const from = TP.placeOut(m.from), to = TP.placeOut(m.to), time = hm12en(m.time);
     if (m.cls === 'c') return ['*Driver Information*', '', `Your driver *${name}*${id} ${arrived ? 'has arrived and is waiting for you' + (from ? ' at ' + from : '') : 'is on his way to you'}.`,
       !arrived && from ? `*From* → ${from}` : null, !arrived && to ? `*To* → ${to}` : null, !arrived && time ? `*Pickup Time* → ${time}` : null].filter(x => x !== null).join('\n');
-    const h = cairoHour(), hi = h >= 5 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
+    const h = cairoHour(), gn = guest ? salute(guest, 'en') : '', hi = (h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening') + (gn ? ', ' + gn : '') + ',';
     const head = ['✦ *THREE PYRAMIDS TRAVEL* ✦', '_Private Chauffeur Service_', ''];
     const body = arrived
       ? [hi, `Your private chauffeur, *${name}*${id}, has arrived and is waiting for you${from ? ' at ' + from : ''} 🚗`]
@@ -187,7 +197,7 @@
     const row = (k, val) => val ? `*${k}* ${T.arrow} ${val}` : null;                       // an empty row is left out (no blank line)
     const DOTS = '.........................';
     const clsC = m.cls === 'c', capL = clsC && T.cap === 'Captain' ? 'Driver' : T.cap;
-    const head = clsC ? [(ar ? RLM : '') + '*Driver Information*', ''] : [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', guestFirst(c)), ''];
+    const head = clsC ? [(ar ? RLM : '') + '*Driver Information*', ''] : [(ar ? RLM : '') + '*VIP TRANSPORTATION*', '', T.greet.replace('{n}', salute(c, L)), ''];
     const lines = head.concat([
       row(capL, capName), row(T.ph, d && d.phone ? (ar ? LRM : '') + intl(d.phone) : ''), row(T.car, carTxt ? carTxt + (clsC ? ' — Class C' : '') : (clsC ? 'Class C' : '')),
       row(T.date, ar ? TP.fmtDay(m.day + 'T12:00:00') : I().fmtDay(L, ms)), row(T.time, hasT ? (ar ? TP.ops.hm12(m.time) : I().fmtTime(L, ms)) : ''),
@@ -213,7 +223,7 @@
    * link = his page (staff only — the driver does not hold the link), drv = the driver (his English name goes to foreign guests) or a name.
    */
   function messages(m, c, link, drv) {
-    const L = custL(c), n = guestFirst(c),
+    const L = custL(c), n = salute(c, L),
       driver = drvFirst(drv), t = (k, v) => I().t(L, k, v), fl = m.flight || {};
     const arr = m.type === 'airport' && fl.dir === 'arr', term = fl.terminal ? t('termTag', { t: fl.terminal }) : '';
     const out = [];
@@ -268,7 +278,7 @@
   }
   /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
   function stepMessage(m, c, key, drv, car, names) {
-    const L = custL(c), fl = m.flight || {}, n = names ? names.text : guestFirst(c);
+    const L = custL(c), fl = m.flight || {}, n = names ? names.text : salute(c, L);
     let t = (k, v) => I().t(L, k, v);
     const driver = drvFirst(drv);
     const plate = plateLine(car, L);
@@ -285,7 +295,7 @@
   /** One message for the trip's WhatsApp group: every guest's name in it (agreed 18 Oct — one message, not one per guest). English. */
   function groupMessage(m, key, drv, car) {
     const cs = (m.customers || []).filter(c => c.name);
-    const firsts = cs.map(c => guestFirst(c)).filter(Boolean);
+    const firsts = cs.map(c => salute(c, 'en')).filter(Boolean);
     const join = firsts.length <= 1 ? (firsts[0] || '') : firsts.slice(0, -1).join(', ') + ' & ' + firsts[firsts.length - 1];
     const text = join || (key === 'arrive' ? 'The guest' : 'Guest');
     return stepMessage(m, { lang: 'en' }, key, drv, car, { text, many: firsts.length > 1 });

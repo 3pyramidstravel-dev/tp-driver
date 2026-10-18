@@ -677,7 +677,7 @@
       : seen ? '<span class="st st-ok">شاف الرسالة ✓</span>' : today && t.st === 'arrived' ? '<span class="st st-warn">لسه مشافش</span>' : '';
     const msg = o.arrived ? `أنا وصلت 🚗 ومستنيك عند ${o.where || ''}.` : 'أنا في الطريق ليك 🚗.';
     // trips and airports: always English, VIP (the GM's design) — lines stay as they are
-    const wa = !c.phone ? '' : o.m && TP.vipDriverMsg ? TP.waLink(c.phone, TP.vipDriverMsg(o.m, S.person, o.arrived)) : TP.waLink(c.phone, `${msg}\nالسواق ${S.person.name}${S.person.code ? ' — كود ' + S.person.code : ''} من Three Pyramids Travel\nتابع العربية من اللينك اللي وصلك من الشركة.`);
+    const wa = !c.phone ? '' : o.m && TP.vipDriverMsg ? TP.waLink(c.phone, TP.vipDriverMsg(o.m, S.person, o.arrived, c)) : TP.waLink(c.phone, `${msg}\nالسواق ${S.person.name}${S.person.code ? ' — كود ' + S.person.code : ''} من Three Pyramids Travel\nتابع العربية من اللينك اللي وصلك من الشركة.`);
     const noPush = c.h && t && !t.fcm;
     const said = t && t.cust ? (t.cust.out ? '<span class="st st-ok">العميل طالع من الصالة ✓</span>' : t.cust.landed ? '<span class="st st-info">العميل نزل من الطيارة ✓</span>' : '') : '';
     const home = c.home && isFinite(c.home.lat) ? ` <a class="small" href="https://www.google.com/maps/search/?api=1&query=${c.home.lat},${c.home.lng}" target="_blank" rel="noopener">البيت 📍</a>` : '';

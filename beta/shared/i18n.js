@@ -130,7 +130,12 @@
     /** how we address a customer: "أستاذ محمد" / "أستاذة هبة", "Mr. John Smith"… (sex: 'm' | 'f' | '') */
     honor(l, name, sex) {
       const full = String(name || '').trim().replace(/\s+/g, ' '), first = full.split(' ')[0] || '';
-      return first;   // no أستاذ / أستاذة any more (agreed: "أهلاً يا فندم" for everyone) — also for customers saved with a title before
+      if (l === 'ar' || (sex !== 'm' && sex !== 'f') || !first) return first;   // Arabic: "أهلاً يا فندم" for everyone (agreed)
+      // other languages: the title + the first name (agreed 18 Oct)
+      if (l === 'zh') return first + (sex === 'm' ? '先生' : '女士');
+      if (l === 'ko') return first;
+      const T2 = { en: ['Mr.', 'Ms.'], de: ['Herr', 'Frau'], fr: ['M.', 'Mme'], ru: ['господин', 'госпожа'] }[l] || ['Mr.', 'Ms.'];
+      return T2[sex === 'm' ? 0 : 1] + ' ' + first;
     },
     info: l => LANGS[idx(l)],
     /** text in a language, with {n}-style values */

@@ -124,7 +124,7 @@ service cloud.firestore {
     match /clients/{cid} {
       allow read: if can('missions.manage');
       allow create, update: if can('missions.manage')
-        && request.resource.data.keys().hasOnly(['name', 'phone', 'lang', 'sex', 'fromName', 'fromLoc', 'factoryId', 'client', 'atMs', 'at'])
+        && request.resource.data.keys().hasOnly(['name', 'nameEn', 'phone', 'lang', 'sex', 'fromName', 'fromLoc', 'factoryId', 'client', 'atMs', 'at'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 60
         && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 200
         && request.resource.data.at == request.time;
