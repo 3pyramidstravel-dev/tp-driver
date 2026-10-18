@@ -18,6 +18,7 @@
     { id: 'devices', label: 'الأجهزة والدخول', icon: 'device', any: ['devices.manage', 'tracking.view'], eyebrow: 'ACCESS & DEVICES', badge: () => TP.D.requests.filter(r => r.status === 'matched').length },
     { id: 'staff', label: 'الموظفين والصلاحيات', icon: 'shield', any: ['staff.manage'], eyebrow: 'PEOPLE & PERMISSIONS' },
     { sep: true },
+    { id: 'groups', label: 'جروبات الواتساب', icon: 'users', any: ['missions.manage'], eyebrow: 'WHATSAPP GROUPS' },
     { id: 'factories', label: 'المصانع', icon: 'factory', any: ['factories.manage'], eyebrow: 'CLIENTS' },
     { id: 'lines', label: 'الخطوط', icon: 'route', any: ['lines.manage'], eyebrow: 'FIXED LINES' },
     { id: 'drivers', label: 'السواقين', icon: 'steering', any: ['drivers.manage'], eyebrow: 'DRIVERS' },

@@ -168,6 +168,17 @@ service cloud.firestore {
       allow delete: if signedIn() && request.auth.uid == uid;
     }
 
+    // جروبات واتساب المصانع: name + factory + invite link — kept by whoever makes trips; the trip carries its own copy for the driver
+    match /waGroups/{gid} {
+      allow read, delete: if can('missions.manage');
+      allow create, update: if can('missions.manage')
+        && request.resource.data.keys().hasOnly(['name', 'factoryId', 'link', 'at', 'by'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.factoryId is string && request.resource.data.factoryId.size() <= 60
+        && request.resource.data.link is string && request.resource.data.link.matches('^https://chat[.]whatsapp[.]com/[A-Za-z0-9]+.*') && request.resource.data.link.size() <= 120
+        && request.resource.data.at == request.time;
+    }
+
     // the loud ring (ntfy): one secret topic per person — read and made by that person's own devices; the cloud alarm reads it
     match /ntfy/{pid} {
       allow get: if isActive() && me().personId == pid;

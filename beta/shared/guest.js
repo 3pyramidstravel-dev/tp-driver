@@ -267,8 +267,8 @@
     (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => TP.toast('اتنسخ ✓')).catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); TP.toast('اتنسخ ✓'); } catch (e) { /* ignore */ } ta.remove(); });
   }
   /** The one message for a trip step, in the guest's language (no link — the driver does not hold it). */
-  function stepMessage(m, c, key, drv, car) {
-    const L = custL(c), fl = m.flight || {}, n = guestFirst(c);
+  function stepMessage(m, c, key, drv, car, names) {
+    const L = custL(c), fl = m.flight || {}, n = names ? names.text : guestFirst(c);
     let t = (k, v) => I().t(L, k, v);
     const driver = drvFirst(drv);
     const plate = plateLine(car, L);
@@ -277,8 +277,18 @@
     if (key === 'start') return t('msgOnWay', { n, d: driver, c: car || '' });
     if (key === 'depart') return t('msgDepart', { n });
     if (key === 'done') return t('msgDone', { n });
+    // "وصلت الوجهة" — the guest got where he was going (agreed 18 Oct)
+    if (key === 'arrive') { const to = TP.placeOut(m.to); return to ? t(names && names.many ? 'msgDroppedMany' : 'msgDropped', { n, p: to }) : ''; }
     if (key === 'pickup') return m.type === 'airport' && fl.dir === 'arr' ? t('msgWaiting', { n, d: driver, t: fl.terminal ? t('termTag', { t: fl.terminal }) : '' }) : t('msgArrived', { n, d: driver, c: car || '' });
     return '';
   }
-  TP.guest = { messages, compose, stepMessage, rideCard };
+  /** One message for the trip's WhatsApp group: every guest's name in it (agreed 18 Oct — one message, not one per guest). English. */
+  function groupMessage(m, key, drv, car) {
+    const cs = (m.customers || []).filter(c => c.name);
+    const firsts = cs.map(c => guestFirst(c)).filter(Boolean);
+    const join = firsts.length <= 1 ? (firsts[0] || '') : firsts.slice(0, -1).join(', ') + ' & ' + firsts[firsts.length - 1];
+    const text = join || (key === 'arrive' ? 'The guest' : 'Guest');
+    return stepMessage(m, { lang: 'en' }, key, drv, car, { text, many: firsts.length > 1 });
+  }
+  TP.guest = { messages, compose, stepMessage, groupMessage, rideCard };
 })(window.TP = window.TP || {});

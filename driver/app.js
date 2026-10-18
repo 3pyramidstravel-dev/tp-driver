@@ -370,7 +370,8 @@
       const p = TP.fb.update('missions/' + m.id, patch);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
-      if (!auto && ['start', 'pickup'].includes(step.key)) { if (moving()) offerOut({ kind: 'trip', missionId: m.id, stepKey: step.key }, true); else tellCustomers(m, step); }
+      // the messages: pressed by hand, or "وصلت الوجهة" recorded by GPS (agreed 18 Oct — the group hears it either way); later if driving
+      if ((!auto && ['start', 'pickup'].includes(step.key)) || step.key === 'arrive') { if (moving()) offerOut({ kind: 'trip', missionId: m.id, stepKey: step.key }, true); else tellCustomers(m, step); }
       if (!auto && ['depart', 'done'].includes(step.key)) tellCustomers(m, step);      // "we are on our way" / "mission completed" (agreed)
       if (step.key === 'start' && (m.customers || []).some(c => c.h)) keepOpenNote();
       await p.catch(() => {});
@@ -382,15 +383,29 @@
     show(); setTimeout(show, 3000);
   }
   /** After "اتحركت" / "وصلت": a WhatsApp message to each guest, one tap each (WhatsApp opens with the text ready). */
+  /** After each trip step: the ready WhatsApp messages (agreed 18 Oct) — "للعميل" for each guest with a number,
+      and ONE message with every name for the trip's group (its own button when the dispatcher chose the group).
+      Shown even when no guest has a number, so the group always gets it. */
   function tellCustomers(m, step) {
-    if (!['start', 'pickup', 'depart', 'done'].includes(step.key)) return;
+    if (!['start', 'pickup', 'depart', 'arrive', 'done'].includes(step.key)) return;
     const car = (TP.dvCar && TP.dvCar.vehicle && TP.dvCar.vehicle()) || '';
-    const list = (m.customers || []).filter(c => c.phone && TP.phoneIntl(c.phone) && !(st.track[c.h] && st.track[c.h].st === 'noshow'))
+    const here = (m.customers || []).filter(c => !(st.track[c.h] && st.track[c.h].st === 'noshow'));
+    const list = here.filter(c => c.phone && TP.phoneIntl(c.phone))
       .map(c => ({ c, text: TP.guest.stepMessage(m, c, step.key, S.person, car) })).filter(x => x.text);
-    if (!list.length) return;
-    TP.openModal(({ start: 'بلّغ العميل إنك اتحركت', pickup: 'بلّغ العميل إنك وصلت', depart: 'بلّغ العميل إنكم اتحركتوا', done: 'ابعت للعميل رسالة نهاية المهمة' })[step.key], `
-      <p class="modal-text">دوس "للعميل" يروح على رقمه، أو "لجروب" والواتساب يوريك الجروبات تختار — الرسالة جاهزة، دوس ابعت.</p>
-      ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">📱 للعميل</a><a class="btn btn-ghost btn-sm" href="${esc('https://wa.me/?text=' + encodeURIComponent(x.text))}" target="_blank" rel="noopener">👥 لجروب</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
+    const gText = TP.guest.groupMessage(Object.assign({}, m, { customers: here }), step.key, S.person, car);
+    const g = m.waGroup && /^https:\/\/chat\.whatsapp\.com\//.test(m.waGroup.link || '') ? m.waGroup : null;
+    if (!list.length && !gText) return;
+    TP.openModal(({ start: 'بلّغ العميل إنك اتحركت', pickup: 'بلّغ العميل إنك وصلت', depart: 'بلّغ العميل إنكم اتحركتوا', arrive: 'بلّغ إن العميل وصل', done: 'ابعت رسالة نهاية المهمة' })[step.key], `
+      ${gText ? `<div class="gm"><div class="gm-h"><b>👥 الجروب</b></div>
+        <div class="gm-acts" style="display:grid;gap:6px;margin:6px 0">
+          ${g ? `<button type="button" class="btn btn-primary btn-block" id="tgOpen">📤 ابعت لجروب ${esc(g.name || '')}</button>` : ''}
+          <a class="btn ${g ? 'btn-ghost' : 'btn-primary'} btn-block" href="${esc('https://wa.me/?text=' + encodeURIComponent(gText))}" target="_blank" rel="noopener">👥 لجروب${g ? ' تاني' : ''}</a>
+        </div>
+        ${g ? '<p class="small muted">الرسالة بتتنسخ والجروب بيفتح — دوس مطوّل في خانة الكتابة ← لصق ← ابعت.</p>' : ''}
+        <p class="gm-t" dir="ltr">${esc(gText)}</p></div>` : ''}
+      ${list.map(x => `<div class="gm"><div class="gm-h"><b>${esc(x.c.name)}</b><a class="btn btn-primary btn-sm" href="${esc(TP.waLink(x.c.phone, x.text))}" target="_blank" rel="noopener">📱 للعميل</a></div><p class="gm-t" dir="${TP.i18n.info(TP.i18n.ok(x.c.lang) ? x.c.lang : 'ar').dir}">${esc(x.text)}</p></div>`).join('')}`, null, { noSave: true, noFocus: true });
+    const go = TP.$('#tgOpen');
+    if (go) go.onclick = () => { copyText(gText); setTimeout(() => window.open(g.link, '_blank', 'noopener'), 400); };
   }
   function onMissionStep(m, step) {
     const drv = first(S.person.name), air = m.type === 'airport' && m.flight;

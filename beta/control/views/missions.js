@@ -233,6 +233,7 @@
         <div class="fld" data-reg>الميعاد (عند العميل)${U.timeField('mTime', m.time || '')}</div>
         <label class="fld">المصنع (العميل)<select class="input" id="mFactory">${U.opts(D.companies, m.factoryId, c => c.id, c => c.name, 'جهة تانية / عميل فرد')}</select></label>
         <label class="fld">اسم الجهة <small>لو مش مصنع</small><input class="input" id="mClient" value="${esc(m.client || '')}" maxlength="80"></label>
+        <label class="fld full">جروب التشغيل <small>السواق بيلاقي زرار باسمه في كل رسالة — من "جروبات الواتساب"</small><select class="input" id="mGroup"><option value="">من غير جروب</option></select></label>
         <label class="fld full">السواق<select class="input" id="mDriver">${U.opts(drivers, m.driverId, p => p.id, p => `${TP.driverLabel(p)} — ${TP.driverKindName(p.driverKind)}`, 'اختار السواق')}</select></label>
         <label class="fld" id="mClsWrap">درجة العربية <small>رسالة العميل بتتكتب على حسبها</small><select class="input" id="mCls"><option value="vip" ${m.cls !== 'c' ? 'selected' : ''}>VIP</option><option value="c" ${m.cls === 'c' ? 'selected' : ''}>Class C</option></select></label>
         ${placeHtml('from', m.from)}${placeHtml('to', m.to)}
@@ -260,6 +261,19 @@
     // VIP / Class C: asked only when the driver is not a tourism driver (tourism = VIP always)
     const syncCls = () => { const p = TP.q.person(U.val('mDriver')); TP.$('#mClsWrap').hidden = !p || p.driverKind === 'tourism'; };
     TP.$('#mDriver').addEventListener('change', syncCls); syncCls();
+    // جروب التشغيل: the groups of the chosen factory (or "جهة تانية"); nothing chosen by itself (agreed 18 Oct)
+    const curG = m.waGroup || null;
+    const fillG = () => {
+      const sel = TP.$('#mGroup'); if (!sel) return;
+      const keep = sel.value || (curG && curG.id) || '';
+      const list = TP.waGroups.of(U.val('mFactory'));
+      const opts = list.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('');
+      const old = curG && !list.some(g => g.id === curG.id) ? `<option value="${esc(curG.id)}">${esc(curG.name)} (محفوظ في المشوار)</option>` : '';
+      sel.innerHTML = '<option value="">من غير جروب</option>' + opts + old;
+      sel.value = [...sel.options].some(o => o.value === keep) ? keep : '';
+    };
+    TP.waGroups.load().then(fillG).catch(() => fillG());
+    TP.$('#mFactory').addEventListener('change', () => { const s = TP.$('#mGroup'); if (s) s.value = ''; fillG(); });
     syncType(); drawCusts(); bindLoc('from'); bindLoc('to'); U.bindTime(TP.$('#tp-modal'));
     const fsel = TP.$('#mFactory'), pfIn = TP.$('#mPF');
     if (fsel && pfIn) fsel.onchange = () => { pfIn.disabled = !fsel.value; if (!fsel.value) pfIn.value = ''; };
@@ -368,6 +382,8 @@
       customers, notes: U.val('mNotes'), type, updatedAt: TP.fb.ts() };
     const drvP = TP.q.person(driverId), clsC = !!drvP && drvP.driverKind !== 'tourism' && U.val('mCls') === 'c';
     if (clsC) data.cls = 'c'; else if (mid && old.cls) data.cls = TP.fb.del();
+    { const gid = U.val('mGroup'), g = gid && ((TP.waGroups.list || []).find(x => x.id === gid) || (old && old.waGroup && old.waGroup.id === gid ? old.waGroup : null));
+      if (g) data.waGroup = { id: g.id, name: g.name, link: g.link }; else if (mid && old.waGroup) data.waGroup = TP.fb.del(); }
     if (wakeMin !== null) data.wakeMin = wakeMin;
     else if (mid && old.wakeMin != null) data.wakeMin = TP.fb.del();
     if (cashAmt) data.cash = { amount: cashAmt, note: U.val('mCashNote') };
