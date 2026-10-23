@@ -281,8 +281,7 @@
     const L = custL(c), fl = m.flight || {}, n = names ? names.text : salute(c, L);
     let t = (k, v) => I().t(L, k, v);
     const driver = drvFirst(drv);
-    const plate = plateLine(car, L);
-    car = carEn(car); car = car ? t('carTag', { c: car }) + plate : '';
+    car = ''; // the car and plate stay out of the driver's messages to the guest (agreed 23 Oct) — the management ride card keeps them
     if (m.cls === 'c') { const t0 = t; t = (k, v) => t0(k, v).replace(/\bcaptain\b/g, 'driver').replace(/\bCaptain\b/g, 'Driver'); }
     if (key === 'start') return t('msgOnWay', { n, d: driver, c: car || '' });
     if (key === 'depart') return t('msgDepart', { n });
