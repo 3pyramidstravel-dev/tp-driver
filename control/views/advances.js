@@ -25,7 +25,7 @@
         <label class="fld full">السواق<select class="input" id="aDriver">${U.opts(drivers, a.driverId, p => p.id, p => `${TP.driverLabel(p)} — ${TP.driverKindName(p.driverKind)}`, 'اختار السواق')}</select></label>
         <label class="fld">النوع<select class="input" id="aType"><option value="advance" ${a.type === 'advance' ? 'selected' : ''}>سلفة</option><option value="deduction" ${a.type === 'deduction' ? 'selected' : ''}>خصم</option></select></label>
         <label class="fld">المبلغ<input class="input" id="aAmount" inputmode="decimal" dir="ltr" value="${a.amount ?? ''}"></label>
-        <label class="fld">التاريخ <small>بيتخصم من حساب الشهر ده</small><input class="input" type="date" id="aDay" value="${esc(a.day || '')}"></label>
+        <label class="fld">التاريخ <small>بيتخصم من حساب الشهر اللي التاريخ ده جواه (بتواريخ مصنعه)</small><input class="input" type="date" id="aDay" value="${esc(a.day || '')}"></label>
         <label class="fld full">السبب <small>بيظهر للسواق في حسابه</small><input class="input" id="aReason" maxlength="200" value="${esc(a.reason || '')}"></label>
       </div>`, async () => {
       const driverId = U.val('aDriver'), amount = U.money('aAmount'), day = U.val('aDay'), reason = U.val('aReason'), type = U.val('aType');
@@ -33,6 +33,7 @@
       if (!(amount > 0)) { TP.toast('اكتب المبلغ'); return false; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { TP.toast('اختار التاريخ'); return false; }
       if (!reason) { TP.toast('اكتب السبب'); return false; }
+      if (TP.period.acctLocked(driverId, day) || (aid && TP.period.acctLocked(a.driverId, a.day))) { TP.toast(TP.period.LOCKED_MSG, 'warn'); return false; }
       const data = { driverId, type, amount, day, month: O.monthOf(day), reason, by: S.person.name, at: TP.fb.ts() };
       if (aid) await TP.fb.set('adjustments/' + aid, data);
       else await TP.fb.add('adjustments', data);
@@ -43,6 +44,7 @@
   }
   async function remove(aid) {
     const a = live.list.find(x => x.id === aid), p = a && TP.q.person(a.driverId);
+    if (a && TP.period.acctLocked(a.driverId, a.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     if (!a || !(await TP.confirm('حذف', `${O.ADJ_TYPES[a.type]} ${TP.money(a.amount)} لـ ${p ? p.name : ''} هتتحذف.`, 'حذف', true))) return;
     await TP.fb.remove('adjustments/' + aid);
     TP.audit('adjustment.delete', p ? p.name : a.driverId, `${O.ADJ_TYPES[a.type]} ${a.amount} — ${a.reason}`);
@@ -52,17 +54,20 @@
   TP.actions.showStatement = async function (driverId, month) {
     const p = TP.q.person(driverId);
     TP.openModal(`كشف حساب — ${TP.driverLabel(p)}`, '<div class="spinner"></div>', null, { noSave: true, wide: true });
-    const w = { where: [['driverId', '==', driverId], ['month', '==', month]] };
+    // فترات الحساب: his factory's dates (or his own / the calendar month for tourism) — maybe two calendar months
+    const per = TP.period.forDriver(p, TP.D.lines, month);
+    const w = { where: [['driverId', '==', driverId], per.months.length > 1 ? ['month', 'in', per.months] : ['month', '==', per.months[0] || month]] };
     try {
       const [days, missions, pay, rates, adj, dpay] = await Promise.all([
         TP.fb.list('days', w), TP.fb.list('missions', w), TP.fb.list('missionDriver', w),
         TP.fb.get('driverRates/' + driverId), TP.fb.list('adjustments', w), TP.fb.list('dayPay', w)
       ]);
-      const missionPay = {}; pay.forEach(x => { missionPay[x.id] = x.amount; });
-      const dayPay = {}; dpay.forEach(x => { dayPay[x.id] = x.amount; });
-      const d = O.statement({ days, missions, missionPay, rateHistory: (rates && rates.history) || [], adjustments: adj, dayPay, manualDays: !!(p && p.driverKind === 'external') });
+      const missionPay0 = {}; pay.forEach(x => { missionPay0[x.id] = x.amount; });
+      const dayPay0 = {}; dpay.forEach(x => { dayPay0[x.id] = x.amount; });
+      const k = per.pick({ days, missions, adjustments: adj, dayPay: dayPay0, missionPay: missionPay0 });
+      const d = O.statement({ days: k.days, missions: k.missions, missionPay: k.missionPay, rateHistory: (rates && rates.history) || [], adjustments: k.adjustments, dayPay: k.dayPay, manualDays: !!(p && p.driverKind === 'external') });
       const body = TP.$('#tp-modal-body');
-      if (body) body.innerHTML = `<p class="muted small" style="margin-bottom:10px">${esc(O.monthName(month))} · ${esc(TP.driverKindName(p && p.driverKind))}${p && p.driverKind === 'tourism' ? ' — السواق ده مبيشوفش المبالغ في تطبيقه' : ''}</p>` + O.statementHtml(d, true);
+      if (body) body.innerHTML = `<p class="muted small" style="margin-bottom:10px">${esc(O.monthName(month))} · ${esc(TP.driverKindName(p && p.driverKind))}${p && p.driverKind === 'tourism' ? ' — السواق ده مبيشوفش المبالغ في تطبيقه' : ''}</p>` + O.periodHtml(k) + O.statementHtml(d, true);
       if (body) TP.hydrateIcons(body);
     } catch (e) {
       const body = TP.$('#tp-modal-body'); if (body) body.innerHTML = `<div class="banner danger">${esc(TP.errorText(e))}</div>`;

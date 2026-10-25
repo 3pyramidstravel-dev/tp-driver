@@ -1,0 +1,24 @@
+# The alarm that watches the alarm (agreed 26 Oct): every 20 minutes, if the cloud alarm (tp-alarm) has not
+# written its heartbeat for 25 minutes, the top managers' loud ntfy ring goes off. Free (public repository).
+# Uses the FIREBASE_SA secret that already publishes the rules; skips if it is missing.
+name: Watch the cloud alarm
+
+on:
+  schedule:
+    - cron: '7,27,47 * * * *'
+  workflow_dispatch:
+
+concurrency: { group: watchdog, cancel-in-progress: true }
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: backend }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Check the heartbeat
+        env: { FIREBASE_SA: '${{ secrets.FIREBASE_SA }}' }
+        run: node backend/watchdog.mjs

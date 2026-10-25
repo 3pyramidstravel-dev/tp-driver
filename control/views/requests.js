@@ -84,6 +84,7 @@
   }
 
   async function decideExpense(x, status, note) {
+    if (TP.period.acctLocked(x.driverId, x.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     await TP.fb.update('expenses/' + x.id, { status, decidedBy: S.person.name, decidedAt: TP.fb.ts(), decisionNote: note || '' });
     TP.audit('expense.' + status, TP.q.dname(x.driverId), `${EXP[x.kind] || ''} ${x.amount}${note ? ' — ' + note : ''}`);
     TP.toast(status === 'approved' ? 'اتقبل ✓' : 'اترفض');

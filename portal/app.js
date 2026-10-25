@@ -191,14 +191,14 @@
     if (st.sheetOpen) {
       const sh = st.sheets.find(x => x.id === st.sheetOpen); if (!sh) { st.sheetOpen = null; return renderSheets(); }
       const sd = sh.data || {}, fin = sd.finance && TP.financeOn(st.settings), money = v => v === null || v === undefined ? '—' : esc(TP.money(v));
-      return `<section class="glass card"><div class="dv-h"><div><h2>كشف ${esc(O.monthName(sh.month))}</h2><div class="sub">معتمد من ${esc(sh.approvedBy || '')}</div></div><button type="button" class="btn btn-ghost btn-sm" id="shBack">رجوع</button></div>
+      return `<section class="glass card"><div class="dv-h"><div><h2>كشف ${esc(O.monthName(sh.month))}</h2><div class="sub">${sh.from && sh.to ? `من <bdi dir="ltr">${esc(TP.period.fmt(sh.from))}</bdi> لـ <bdi dir="ltr">${esc(TP.period.fmt(sh.to))}</bdi> · ` : ''}معتمد من ${esc(sh.approvedBy || '')}</div></div><button type="button" class="btn btn-ghost btn-sm" id="shBack">رجوع</button></div>
         <div class="table-wrap"><table class="tbl"><thead><tr><th>الخط</th><th>كامل</th><th>نص</th><th>سهرات</th><th>انتظار</th>${fin ? '<th>المبلغ</th>' : ''}</tr></thead><tbody>${(sd.lines || []).map(l => `<tr><td>${esc(l.name)}</td><td class="num">${l.full}</td><td class="num">${l.half}</td><td class="num">${l.ot}</td><td class="num">${l.wait} د</td>${fin ? `<td class="num">${money(l.amount)}</td>` : ''}</tr>`).join('')}</tbody></table></div>
         ${(sd.missions || []).length ? `<h3 class="p-h3">المشاوير (${sd.missions.length})</h3><div class="table-wrap"><table class="tbl"><tbody>${sd.missions.map(m => `<tr><td><bdi dir="ltr">${esc(m.day)}</bdi></td><td>${m.type === 'airport' ? '✈ ' : ''}${esc(m.title)}</td>${fin ? `<td class="num">${money(m.amount)}</td>` : ''}</tr>`).join('')}</tbody></table></div>` : ''}
         ${(sd.absences || []).length ? `<h3 class="p-h3">الغياب</h3><div class="table-wrap"><table class="tbl"><tbody>${sd.absences.map(a => `<tr><td>${esc(a.name)}<div class="muted small">${esc(a.line)}</div></td><td class="num">اعتذر ${a.skip}</td><td class="num">مجاش ${a.noshow}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${fin && sd.totals ? `<table class="stmt" style="margin-top:12px"><tbody><tr><td>الخطوط</td><td>${money(sd.totals.lines)}</td></tr><tr><td>المشاوير</td><td>${money(sd.totals.missions)}</td></tr><tr class="total"><td>الإجمالي</td><td>${money(sd.totals.total)}</td></tr><tr><td>الضريبة ${esc(sd.totals.pct)}%</td><td>${money(sd.totals.tax)}</td></tr></tbody></table>` : ''}
         <div class="p-tools"><button type="button" class="btn btn-primary" id="shDown">${TP.icon('file', 18)}تنزيل الكشف (PDF أو Excel)</button></div></section>`;
     }
-    return `<section class="glass card"><div class="dv-h"><h2>الكشوفات الشهرية</h2></div>${st.sheets.length ? st.sheets.map(sh => `<button type="button" class="p-sheet" data-sheet="${esc(sh.id)}"><b>${esc(O.monthName(sh.month))}</b><span class="st st-ok">معتمد</span></button>`).join('') : '<div class="empty">لسه مفيش كشوفات معتمدة. الكشف بيظهر هنا بعد ما الإدارة تعتمده.</div>'}</section>`;
+    return `<section class="glass card"><div class="dv-h"><h2>الكشوفات الشهرية</h2></div>${st.sheets.length ? st.sheets.map(sh => `<button type="button" class="p-sheet" data-sheet="${esc(sh.id)}"><b>${esc(O.monthName(sh.month))}${sh.from && sh.to ? ` <span class="muted small">(${esc(TP.period.fmt(sh.from))} – ${esc(TP.period.fmt(sh.to))})</span>` : ''}</b><span class="st st-ok">معتمد</span></button>`).join('') : '<div class="empty">لسه مفيش كشوفات معتمدة. الكشف بيظهر هنا بعد ما الإدارة تعتمده.</div>'}</section>`;
   }
 
   /* ---------- shell ---------- */
@@ -220,7 +220,7 @@
       const sh = st.sheets.find(x => x.id === st.sheetOpen), sd = Object.assign({}, sh.data || {});
       if (!TP.financeOn(st.settings)) { sd.finance = false; delete sd.totals; }
       const f = st.factory && st.factory.name;
-      TP.report.choose(Object.assign(TP.xlsx.sheetReport(sd, f, O.monthName(sh.month)), { fileName: `TP-${(st.factory && st.factory.nameEn) || 'sheet'}-${sh.month}`, by: 'معتمد من ' + (sh.approvedBy || ''), audit: false }));
+      TP.report.choose(Object.assign(TP.xlsx.sheetReport(sd, f, O.monthName(sh.month) + (sh.from && sh.to ? ` — من ${TP.period.fmt(sh.from)} لـ ${TP.period.fmt(sh.to)}` : '')), { fileName: `TP-${(st.factory && st.factory.nameEn) || 'sheet'}-${sh.month}`, by: 'معتمد من ' + (sh.approvedBy || ''), audit: false }));
     };
     const ad = TP.$('#absDown', root); if (ad) ad.onclick = () => TP.report.choose({ title: 'غياب الموظفين', subtitle: st.factory ? st.factory.name : '', period: O.monthName(st.absMonth), fileName: `TP-absences-${st.absMonth}`, audit: false,
       kpis: [['موظفين غابوا', st.absRows.length], ['اعتذر', st.absRows.reduce((a, r) => a + r.skip, 0)], ['مجاش', st.absRows.reduce((a, r) => a + r.noshow, 0), 'bad']],

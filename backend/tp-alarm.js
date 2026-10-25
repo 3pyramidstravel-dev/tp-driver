@@ -1,4 +1,4 @@
-/* tp-alarm — built 2026-10-17T21:29Z. Paste this whole file into the Cloudflare editor. */
+/* tp-alarm — built 2026-10-25T21:24Z. Paste this whole file into the Cloudflare editor. */
 /* ==========================================================================
    Wake-up core — pure logic shared by the driver app, the Control Tower AND
    the cloud alarm (Cloudflare worker, which inlines this file).
@@ -532,6 +532,8 @@
       '{n}，您好 👋\n我们是 Three Pyramids Travel。您的司机 {d} 将于 {w} 接您。\n在此查看车辆位置：{link}',
       '{n}님, 안녕하세요 👋\nThree Pyramids Travel입니다. 기사 {d}님이 {w} 모시러 갑니다.\n차량 위치 확인: {link}'],
     msgWaiting: ['السواق {d} مستنيك قدام صالة الوصول{t}، ومعاه لافتة باسمك.', "Hello {n},\nWelcome to Egypt!\nYour captain *{d}* is waiting for you at the arrivals hall{t}, holding a sign with your name.", "Hallo {n},\nWillkommen in Ägypten!\nIhr Fahrer *{d}* erwartet Sie vor der Ankunftshalle{t} mit einem Schild mit Ihrem Namen.", "Bonjour {n},\nBienvenue en Égypte !\nVotre chauffeur *{d}* vous attend devant le hall des arrivées{t}, avec une pancarte à votre nom.", "Здравствуйте, {n}!\nДобро пожаловать в Египет!\nВаш водитель *{d}* ждёт вас у зала прилёта{t} с табличкой с вашим именем.", "{n}，您好！\n欢迎来到埃及！\n您的司机 *{d}* 正在到达大厅{t}外举着写有您名字的牌子等候您。", "{n}님, 안녕하세요.\n이집트에 오신 것을 환영합니다!\n기사 {d}님이 도착 홀{t} 앞에서 고객님 성함이 적힌 팻말을 들고 기다리고 있습니다."],
+    msgDropped: ['{n} وصل {p} ✓', '{n} has arrived at *{p}* ✓', '{n} ist in *{p}* angekommen ✓', '{n} est arrivé(e) à *{p}* ✓', '{n} прибыл(а) в *{p}* ✓', '{n} 已到达 *{p}* ✓', '{n}님이 *{p}*에 도착했습니다 ✓'],
+    msgDroppedMany: ['{n} وصلوا {p} ✓', '{n} have arrived at *{p}* ✓', '{n} sind in *{p}* angekommen ✓', '{n} sont arrivés à *{p}* ✓', '{n} прибыли в *{p}* ✓', '{n} 已到达 *{p}* ✓', '{n}님이 *{p}*에 도착했습니다 ✓'],
     msgDepart: ['{n}، اتحركنا. رحلة سعيدة 🌹', '{n}, we are on our way. Have a great trip 🌹', '{n}, wir sind unterwegs. Gute Fahrt 🌹', '{n}, nous sommes en route. Bon voyage 🌹', '{n}, мы выехали. Приятной поездки 🌹', '{n}，我们出发了。祝您旅途愉快 🌹', '{n}님, 출발했습니다. 즐거운 여행 되세요 🌹'],
     msgDone: ['شكراً لثقتك يا {n}. المهمة خلصت 🌹', 'Thank you for your trust, {n}. Mission completed 🌹', 'Vielen Dank für Ihr Vertrauen, {n}. Fahrt abgeschlossen 🌹', 'Merci de votre confiance, {n}. Mission accomplie 🌹', 'Спасибо за доверие, {n}. Поездка завершена 🌹', '{n}，感谢您的信任。行程已完成 🌹', '{n}님, 믿어 주셔서 감사합니다. 운행이 완료되었습니다 🌹'],
     msgOnWay: ['أهلاً يا فندم 🌹 الكابتن {d} اتحرك وفي الطريق لحضرتك دلوقتي{c}.', "Hello {n},\nYour captain *{d}* is on his way to you now.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist jetzt auf dem Weg zu Ihnen.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est en route vers vous.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* уже едет к вам.{c}", "{n}，您好！\n您的司机 *{d}* 正在前往接您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 지금 고객님께 가고 있습니다.{c}"],
@@ -566,7 +568,12 @@
     /** how we address a customer: "أستاذ محمد" / "أستاذة هبة", "Mr. John Smith"… (sex: 'm' | 'f' | '') */
     honor(l, name, sex) {
       const full = String(name || '').trim().replace(/\s+/g, ' '), first = full.split(' ')[0] || '';
-      return first;   // no أستاذ / أستاذة any more (agreed: "أهلاً يا فندم" for everyone) — also for customers saved with a title before
+      if (l === 'ar' || (sex !== 'm' && sex !== 'f') || !first) return first;   // Arabic: "أهلاً يا فندم" for everyone (agreed)
+      // other languages: the title + the first name (agreed 18 Oct)
+      if (l === 'zh') return first + (sex === 'm' ? '先生' : '女士');
+      if (l === 'ko') return first;
+      const T2 = { en: ['Mr.', 'Ms.'], de: ['Herr', 'Frau'], fr: ['M.', 'Mme'], ru: ['господин', 'госпожа'] }[l] || ['Mr.', 'Ms.'];
+      return T2[sex === 'm' ? 0 : 1] + ' ' + first;
     },
     info: l => LANGS[idx(l)],
     /** text in a language, with {n}-style values */
@@ -1449,6 +1456,9 @@ export async function run(env, now, f) {
       }
     }
   }
+  // 9) the heartbeat (every 10 minutes): "I ran to the end". The watchdog (GitHub, every 20 minutes) and the
+  //    Control Tower ring the top managers when it is older than 25 minutes — the alarm that watches the alarm.
+  if (minute % 10 === 5) { try { await patch(ctx, 'system/beat', { at: now, calls: ctx.calls }, ['at', 'calls']); } catch (e) { ctx.log.push('beat: ' + e.message); } }
   return { today, reads: ctx.reads, writes: ctx.writes, sent: ctx.sent, calls: ctx.calls, pushed: ctx.pushed, log: ctx.log };
 }
 

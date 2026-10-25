@@ -18,16 +18,27 @@
   const safe = p => p.catch(e => { console.warn('report', e && e.code); return null; });
   const PART = { full: 'يوم كامل', half: 'نص يوم' };
 
+  /* فترات الحساب: label month M holds each factory's own dates (Mondelēz 26/9 → 25/10…) — read every calendar month they touch */
+  const PER = TP.period;
+  const spanOf = month => PER.months(month);
+  const sigOf = month => month + '|' + spanOf(month).months.join(',');
+  /** a factory's work of the month (its own dates) */
+  const inF = (fid, day) => !!fid && PER.has('f_' + fid, data.month, day);
+  /** a driver's work in HIS account (his factory's dates / his own / calendar for tourism) */
+  const homeOf = pid => PER.homeKey(TP.q.person(pid), D.lines);
+  const inD = (pid, fid, day) => PER.has(PER.workKey(TP.q.person(pid), fid, homeOf(pid)), data.month, day);
+  const inHome = (pid, day) => PER.has(homeOf(pid), data.month, day);
   async function load(month) {
-    data = { month, loading: true, error: '', excused: {}, days: [], missions: [], ratings: [], expenses: [], wake: {}, md: {}, mf: {}, dayPay: {}, adj: [], sheets: {} };
+    data = { month, sig: sigOf(month), loading: true, error: '', excused: {}, days: [], missions: [], ratings: [], expenses: [], wake: {}, md: {}, mf: {}, dayPay: {}, adj: [], sheets: {} };
     TP.rerender();
-    const w = { where: [['month', '==', month]] };
+    const span = spanOf(month);
+    const w = { where: [span.months.length > 1 ? ['month', 'in', span.months] : ['month', '==', span.months[0] || month]] };
     try {
       const sheetsOk = S.can('month.close') || S.can('reports.finance');
       const rateOk = ['reports.attendance', 'reports.finance', 'month.close', 'tracking.view'].some(p => S.can(p));
       const expOk = ['missions.manage', 'times.correct', 'advances.manage', 'reports.finance', 'prices.view'].some(p => S.can(p));
       const [excused, days, missions, ratings, expenses, sheets, md, mf, dp, adj] = await Promise.all([
-        safe(TP.fb.list('excused', w)), safe(TP.fb.list('days', w)), safe(TP.fb.list('missions', w)), rateOk ? safe(TP.fb.list('ratings', w)) : null, expOk ? safe(TP.fb.list('expenses', w)) : null, sheetsOk ? safe(TP.fb.list('sheets', w)) : null,
+        safe(TP.fb.list('excused', w)), safe(TP.fb.list('days', w)), safe(TP.fb.list('missions', w)), rateOk ? safe(TP.fb.list('ratings', w)) : null, expOk ? safe(TP.fb.list('expenses', w)) : null, sheetsOk ? safe(TP.fb.list('sheets', { where: [['month', '==', month]] })) : null,
         money() ? safe(TP.fb.list('missionDriver', w)) : null, money() ? safe(TP.fb.list('missionFactory', w)) : null,
         money() ? safe(TP.fb.list('dayPay', w)) : null, money() ? safe(TP.fb.list('adjustments', w)) : null
       ]);
@@ -38,8 +49,8 @@
       (md || []).forEach(x => { data.md[x.id] = x.amount; }); (mf || []).forEach(x => { data.mf[x.id] = x.amount; }); (dp || []).forEach(x => { data.dayPay[x.id] = x.amount; });
       // late wake-ups: the supervisor had to be called (from the plans of each day)
       if (S.can('wake.supervise') || S.can('tracking.view') || S.can('times.correct')) {
-        const [y, m] = month.split('-').map(Number), n = new Date(Date.UTC(y, m, 0)).getUTCDate(), today = TP.dayKey();
-        const list = Array.from({ length: n }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`).filter(d => d <= today);
+        const today = TP.dayKey(), list = [];
+        for (let d = span.from; d <= span.to && d <= today && list.length < 62; d = O.addDays(d, 1)) list.push(d);
         const plans = await Promise.all(list.map(d => safe(TP.fb.get('wake/' + d))));
         plans.forEach((p, i) => { if (p) data.wake[list[i]] = p; });
       }
@@ -53,15 +64,15 @@
     const rows = {};
     const row = pid => rows[pid] = rows[pid] || { pid, full: 0, half: 0, wait: 0, ot: 0, far: 0, staff: 0, missions: 0, airport: 0, lateWake: 0, ratings: [], expenses: 0 };
     data.days.forEach(d => {
-      const p = O.part(d.events); if (!d.driverId) return;
+      const p = O.part(d.events); if (!d.driverId || !inD(d.driverId, d.factoryId, d.day)) return;
       const r = row(d.driverId), f = O.flags(d.events);
       if (p === 'full') r.full++; else if (p === 'half') r.half++;
       r.wait += O.waitMin(d.events); if (d.ot && d.ot.status === 'approved') r.ot++; r.far += f.far; r.staff += f.staff;
     });
-    data.missions.filter(m => m.status === 'done').forEach(m => { const r = row(m.driverId); r.missions++; if (m.type === 'airport') r.airport++; });
-    Object.values(data.wake).forEach(p => Object.keys(p.d || {}).forEach(pid => { if (p.d[pid].supAt && !p.d[pid].gone) row(pid).lateWake++; }));
-    data.ratings.forEach(x => row(x.driverId).ratings.push(x));
-    data.expenses.forEach(x => { row(x.driverId).expenses += Number(x.amount) || 0; });
+    data.missions.filter(m => m.status === 'done' && inD(m.driverId, m.factoryId, m.day)).forEach(m => { const r = row(m.driverId); r.missions++; if (m.type === 'airport') r.airport++; });
+    Object.entries(data.wake).forEach(([day, p]) => Object.keys(p.d || {}).forEach(pid => { if (p.d[pid].supAt && !p.d[pid].gone && inHome(pid, day)) row(pid).lateWake++; }));
+    data.ratings.filter(x => inD(x.driverId, x.factoryId, x.day)).forEach(x => row(x.driverId).ratings.push(x));
+    data.expenses.filter(x => inHome(x.driverId, x.day)).forEach(x => { row(x.driverId).expenses += Number(x.amount) || 0; });
     return Object.values(rows).filter(r => TP.q.person(r.pid) || r.full || r.missions).sort((a, b) => (Number((TP.q.person(a.pid) || {}).code) || 9e9) - (Number((TP.q.person(b.pid) || {}).code) || 9e9));
   }
   function absences(fid) {
@@ -69,7 +80,7 @@
     // every line-day with a record or an excuse
     const list = data.days.slice();
     Object.values(data.excused).forEach(x => { if (!list.some(d => d.lineId === x.lineId && d.day === x.day)) list.push({ lineId: x.lineId, factoryId: x.factoryId, day: x.day }); });
-    list.filter(d => !fid || d.factoryId === fid).forEach(d => {
+    list.filter(d => (!fid || d.factoryId === fid) && inF(d.factoryId, d.day)).forEach(d => {
       const line = TP.q.line(d.lineId), names = {};
       if (line) O.lineCustomers(line).forEach(c => { names[c.id] = c.name; });
       Object.entries(O.ridersOf(d, data.excused[d.lineId + '_' + d.day])).forEach(([cid, r]) => {
@@ -82,26 +93,26 @@
   }
   function factoryRows() {
     return D.companies.map(f => {
-      const days = data.days.filter(d => d.factoryId === f.id), ms = data.missions.filter(m => m.factoryId === f.id && m.status === 'done');
+      const days = data.days.filter(d => d.factoryId === f.id && inF(f.id, d.day)), ms = data.missions.filter(m => m.factoryId === f.id && m.status === 'done' && inF(f.id, m.day));
       const ab = absences(f.id);
       return { f, full: days.filter(d => O.part(d.events) === 'full').length, half: days.filter(d => O.part(d.events) === 'half').length,
         ot: days.filter(d => d.ot && d.ot.status === 'approved').length, wait: days.reduce((a, d) => a + O.waitMin(d.events), 0),
         missions: ms.length, airport: ms.filter(m => m.type === 'airport').length, skip: ab.reduce((a, x) => a + x.skip, 0), noshow: ab.reduce((a, x) => a + x.noshow, 0),
-        rating: avg(data.ratings.filter(x => x.factoryId === f.id)), nRatings: data.ratings.filter(x => x.factoryId === f.id).length };
+        rating: avg(data.ratings.filter(x => x.factoryId === f.id && inF(f.id, x.day))), nRatings: data.ratings.filter(x => x.factoryId === f.id && inF(f.id, x.day)).length };
     });
   }
   /** Factory invoice of the month from its own prices (effective-dated). */
   function invoice(fid) {
     const fr = (D.factoryRates[fid] || {}).history || [], items = [];
     let lines = 0, ms = 0;
-    data.days.filter(d => d.factoryId === fid).forEach(d => {
+    data.days.filter(d => d.factoryId === fid && inF(fid, d.day)).forEach(d => {
       const part = O.part(d.events), otOk = d.ot && d.ot.status === 'approved'; if (!part && !otOk) return;
       const r = TP.rateAt(fr, d.day); if (!r) { items.push({ missing: true, day: d.day }); return; }
       const dayPrice = r.lineOverrides && r.lineOverrides[d.lineId] !== undefined ? Number(r.lineOverrides[d.lineId]) : Number(r.lineDay) || 0;
       const amt = TP.calc.dayAmount(dayPrice, part) + TP.calc.waitAmount(O.waitMin(d.events), r.waitHour) + (otOk ? TP.calc.overtimeAmount(d.ot.tier, [r.ot1, r.ot2, r.ot3]) : 0);
       lines = TP.round2(lines + amt); items.push({ day: d.day, lineId: d.lineId, part, amt: TP.round2(amt) });
     });
-    const missions = data.missions.filter(m => m.factoryId === fid && m.status === 'done').map(m => ({ id: m.id, day: m.day, title: m.title, type: m.type, amt: data.mf[m.id] ?? null }));
+    const missions = data.missions.filter(m => m.factoryId === fid && m.status === 'done' && inF(fid, m.day)).map(m => ({ id: m.id, day: m.day, title: m.title, type: m.type, amt: data.mf[m.id] ?? null }));
     missions.forEach(m => { ms = TP.round2(ms + (m.amt || 0)); });
     const total = TP.round2(lines + ms), pct = Number(D.settings.taxPct) || 0;
     return { lines, missions, ms, total, tax: TP.calc.tax(total, pct), missing: items.filter(x => x.missing).length + missions.filter(m => m.amt === null).length, items };
@@ -109,14 +120,14 @@
   /** Driver pay that belongs to a factory's work (days + trips), from each driver's own prices. */
   function driverCost(fid) {
     let total = 0, missing = 0;
-    data.days.filter(d => d.factoryId === fid).forEach(d => {
+    data.days.filter(d => d.factoryId === fid && inF(fid, d.day)).forEach(d => {
       const part = O.part(d.events), otOk = d.ot && d.ot.status === 'approved'; if (!part && !otOk) return;
       if (data.dayPay[d.id] !== undefined) { total += Number(data.dayPay[d.id]) || 0; return; }
       const r = TP.rateAt((D.driverRates[d.driverId] || {}).history || [], d.day); if (!r) { missing++; return; }
       total += TP.calc.dayAmount(Number(r.lineDay) || 0, part) + TP.calc.waitAmount(O.waitMin(d.events), r.waitHour) + (otOk ? TP.calc.overtimeAmount(d.ot.tier, [r.ot1, r.ot2, r.ot3]) : 0);
     });
-    data.missions.filter(m => m.factoryId === fid && m.status === 'done').forEach(m => { if (data.md[m.id] === undefined) missing++; else total += Number(data.md[m.id]) || 0; });
-    const ids = new Set(data.missions.filter(m => m.factoryId === fid).map(m => m.id));
+    data.missions.filter(m => m.factoryId === fid && m.status === 'done' && inF(fid, m.day)).forEach(m => { if (data.md[m.id] === undefined) missing++; else total += Number(data.md[m.id]) || 0; });
+    const ids = new Set(data.missions.filter(m => m.factoryId === fid && inF(fid, m.day)).map(m => m.id));
     const exp = data.expenses.filter(x => x.missionId && ids.has(x.missionId)).reduce((a, x) => a + (Number(x.amount) || 0), 0);
     return { pay: TP.round2(total), exp: TP.round2(exp), missing };
   }
@@ -169,36 +180,155 @@
     const fin = TP.financeOn(D.settings) && S.can('prices.view');
     const inv = fin ? invoice(fid) : null;
     const lines = D.lines.filter(l => l.factoryId === fid).map(l => {
-      const ds = data.days.filter(d => d.lineId === l.id);
+      const ds = data.days.filter(d => d.lineId === l.id && inF(fid, d.day));
       const amt = inv ? TP.round2(inv.items.filter(x => x.lineId === l.id && !x.missing).reduce((a, x) => a + x.amt, 0)) : null;
       return { name: l.name, full: ds.filter(d => O.part(d.events) === 'full').length, half: ds.filter(d => O.part(d.events) === 'half').length,
         ot: ds.filter(d => d.ot && d.ot.status === 'approved').length, wait: ds.reduce((a, d) => a + O.waitMin(d.events), 0), amount: amt };
     }).filter(l => l.full || l.half || l.ot);
-    const missions = data.missions.filter(m => m.factoryId === fid && m.status === 'done').sort((a, b) => (a.day < b.day ? -1 : 1))
+    const missions = data.missions.filter(m => m.factoryId === fid && m.status === 'done' && inF(fid, m.day)).sort((a, b) => (a.day < b.day ? -1 : 1))
       .map(m => ({ day: m.day, title: m.title || '', type: m.type || '', flight: (m.flight && m.flight.no) || '', amount: inv ? (data.mf[m.id] ?? null) : null }));
     const ab = absences(fid).map(a => ({ name: a.name, line: a.line, skip: a.skip, noshow: a.noshow, days: a.days.join(' · ') }));
-    const out = { lines, missions, absences: ab, finance: !!inv };
+    const out = { lines, missions, absences: ab, finance: !!inv, from: PER.from('f_' + fid, data.month), to: PER.to('f_' + fid, data.month) };
     if (inv) out.totals = { lines: inv.lines, missions: inv.ms, total: inv.total, tax: inv.tax, pct: Number(D.settings.taxPct) || 0 };
     return out;
   }
+  /* ---------- closing a month (agreed 26 Oct): approving a factory's sheet closes its dates ---------- */
+  const today = () => TP.dayKey(TP.now());
+  const maxDay = (a, b) => (a || '') > (b || '') ? a : b;
+  /** the drivers whose account follows a key (not tourism — salaried staff on the calendar month) */
+  const driversOf = key => TP.q.drivers().filter(p => p.driverKind !== 'tourism' && homeOf(p.id) === key);
+  const isClosed = (key, M) => !!PER.lockOf(key) && PER.lockOf(key) >= PER.to(key, M);
+  /** the lock writes for closing (or opening) a key's month: its own lock + its drivers' accounts */
+  function lockData(key, M, close) {
+    const r = PER.range(key, M), back = O.addDays(r.from, -1), L = {}, C = {};
+    const move = (k) => { const cur = PER.lockOf(k); if (close) L[k] = maxDay(cur, r.to); else if (cur && cur >= r.from) L[k] = back; };
+    move(key);
+    driversOf(key).forEach(p => move('a_' + p.id));
+    C[key] = { [M]: close ? { by: S.person.name, at: TP.fb.ts(), from: r.from, to: r.to } : TP.fb.del() };
+    return { lock: L, closed: C };
+  }
   async function approveSheet(fid) {
-    const f = TP.q.company(fid);
-    if (!(await TP.confirm('اعتماد كشف الشهر', `كشف ${f.name} لشهر ${O.monthName(data.month)} هيظهر لـ HR المصنع بالأرقام دي. أي تعديل بعد كده محتاج اعتماد تاني.`, 'اعتماد'))) return;
+    const f = TP.q.company(fid), key = 'f_' + fid, r = PER.range(key, data.month), over = r.to < today();
+    const n = driversOf(key).length;
+    const msg = `كشف ${f.name} لشهر ${O.monthName(data.month)} (${PER.label(key, data.month)}) هيظهر لـ HR المصنع بالأرقام دي.`
+      + (over ? ` والفترة هتتقفل: أيام الخطوط والسهرات والمشاوير والأسعار بتاعتها${n ? `، وحسابات ${n} سواق تبعه (سلف، خصومات، مصاريف، أجر يوم)` : ''} لحد ${PER.fmt(r.to)} — مفيش تعديل عليها غير لما تفتح القفل.`
+        : ` الفترة لسه مخلصتش (آخرها ${PER.fmt(r.to)})، فمش هتتقفل دلوقتي — اعتمده تاني بعد ما تخلص علشان يتقفل.`);
+    if (!(await TP.confirm(over ? 'اعتماد الكشف وقفل الفترة' : 'اعتماد كشف الشهر', msg, over ? 'اعتماد وقفل' : 'اعتماد'))) return;
     if (TP.needsPin(S.perms) && !(await S.confirmPin('اعتماد كشف المصنع'))) return;
     const sd = sheetData(fid);
-    await TP.fb.set(`sheets/${fid}_${data.month}`, { factoryId: fid, month: data.month, status: 'approved', approvedBy: S.person.name, approvedAt: TP.fb.ts(), data: sd });
-    data.sheets[fid] = { factoryId: fid, month: data.month, status: 'approved', approvedBy: S.person.name, approvedAt: new Date(), data: sd };
+    const doc = { factoryId: fid, month: data.month, from: r.from, to: r.to, status: 'approved', approvedBy: S.person.name, approvedAt: TP.fb.ts(), data: sd };
+    const ops = [{ op: 'set', path: `sheets/${fid}_${data.month}`, data: doc }];
+    if (over) ops.push({ op: 'set', path: 'system/periods', data: lockData(key, data.month, true), merge: true });
+    await TP.fb.batch(ops);
+    data.sheets[fid] = Object.assign({}, doc, { approvedAt: new Date() });
     TP.audit('sheet.approve', f.name, data.month);
-    TP.toast('اتعتمد ✓ — HR المصنع يقدر يشوفه');
+    if (over) TP.audit('period.close', f.name, `${O.monthName(data.month)} — ${PER.label(key, data.month)}`);
+    TP.toast(over ? 'اتعتمد واتقفل ✓ — HR المصنع يقدر يشوفه' : 'اتعتمد ✓ — HR المصنع يقدر يشوفه');
     TP.rerender();
   }
   async function withdrawSheet(fid) {
     const f = TP.q.company(fid);
-    if (!(await TP.confirm('سحب الاعتماد', `كشف ${f.name} هيختفي من عند HR المصنع لحد ما تعتمده تاني.`, 'سحب', true))) return;
+    if (!(await TP.confirm('سحب الاعتماد', `كشف ${f.name} هيختفي من عند HR المصنع لحد ما تعتمده تاني.${isClosed('f_' + fid, data.month) ? ' القفل بيفضل زي ما هو — علشان تعدّل، دوس "فتح القفل".' : ''}`, 'سحب', true))) return;
     await TP.fb.set(`sheets/${fid}_${data.month}`, { factoryId: fid, month: data.month, status: 'draft', withdrawnBy: S.person.name, withdrawnAt: TP.fb.ts() }, true);
     data.sheets[fid] = Object.assign({}, data.sheets[fid], { status: 'draft' });
     TP.audit('sheet.withdraw', f.name, data.month);
     TP.rerender();
+  }
+  /** a name for a key (factory / driver / the general period) */
+  const keyName = key => key.startsWith('f_') ? ((TP.q.company(key.slice(2)) || {}).name || '—') : key.startsWith('d_') ? TP.q.dname(key.slice(2)) : 'السواقين اللي من غير خط';
+  /** close a driver's own period or the general one (the factories close with their sheet) */
+  async function closeKey(key) {
+    const r = PER.range(key, data.month);
+    if (r.to >= today()) return TP.toast(`الفترة لسه مخلصتش — آخرها ${PER.fmt(r.to)}`, 'warn');
+    const n = driversOf(key).length;
+    if (!n) return TP.toast('مفيش سواقين على الفترة دي', 'warn');
+    if (!(await TP.confirm('قفل الفترة', `${keyName(key)} — ${O.monthName(data.month)} (${PER.label(key, data.month)}): حسابات ${n} سواق (سلف، خصومات، مصاريف، أجر يوم${key.startsWith('d_') ? '، وأيامه ومشاويره' : ''}) هتتقفل لحد ${PER.fmt(r.to)}.`, 'قفل'))) return;
+    if (!(await S.confirmPin('قفل الفترة'))) return;
+    await TP.fb.set('system/periods', lockData(key, data.month, true), true);
+    TP.audit('period.close', keyName(key), `${O.monthName(data.month)} — ${PER.label(key, data.month)}`);
+    TP.toast('اتقفلت ✓');
+  }
+  /** open a closed month again (with the PIN) — the sheet goes back to draft until it is approved again */
+  async function openKey(key) {
+    const isF = key.startsWith('f_'), fid = key.slice(2), r = PER.range(key, data.month);
+    if (!(await TP.confirm('فتح القفل', `${keyName(key)} — ${O.monthName(data.month)} (${PER.label(key, data.month)}) هيتفتح للتعديل${isF ? '، والكشف هيختفي من عند HR المصنع لحد ما تعتمده تاني (الاعتماد بيقفله تاني)' : ''}. لو فيه شهور بعده مقفولة هتتفتح هي كمان.`, 'فتح القفل', true))) return;
+    if (!(await S.confirmPin('فتح قفل الفترة'))) return;
+    const ops = [{ op: 'set', path: 'system/periods', data: lockData(key, data.month, false), merge: true }];
+    if (isF && data.sheets[fid] && data.sheets[fid].status === 'approved') ops.push({ op: 'set', path: `sheets/${fid}_${data.month}`, data: { factoryId: fid, month: data.month, status: 'draft', withdrawnBy: S.person.name, withdrawnAt: TP.fb.ts() }, merge: true });
+    await TP.fb.batch(ops);
+    if (isF && data.sheets[fid]) data.sheets[fid] = Object.assign({}, data.sheets[fid], { status: 'draft' });
+    TP.audit('period.open', keyName(key), `${O.monthName(data.month)} — ${PER.label(key, data.month)}`);
+    TP.toast('اتفتح ✓ — بعد التعديل اعتمد/اقفل تاني');
+    TP.rerender();
+  }
+  /** change a month's dates (from → to); the next months follow the same end day */
+  function editDates(key) {
+    if (isClosed(key, data.month)) return TP.toast('الشهر ده مقفول — افتح القفل الأول', 'warn');
+    const r = PER.range(key, data.month), prevTo = PER.to(key, O.addMonths(data.month, -1));
+    TP.openModal(`تواريخ ${O.monthName(data.month)} — ${keyName(key)}`, `
+      <div class="form-grid">
+        <label class="fld">من<input class="input" type="date" id="pFrom" value="${esc(r.from)}"></label>
+        <label class="fld">إلى<input class="input" type="date" id="pTo" value="${esc(r.to)}"></label>
+      </div>
+      <p class="muted small" style="margin-top:8px">الشهر اللي قبله خلص <b dir="ltr">${esc(PER.fmt(prevTo))}</b>. الشهور الجاية هتبدأ من اليوم اللي بعد "إلى" وتخلص في نفس اليوم من كل شهر (تقدر تغيّرها في أي وقت).</p>`, async () => {
+      const from = U.val('pFrom'), to = U.val('pTo'), re = /^\d{4}-\d{2}-\d{2}$/;
+      if (!re.test(from) || !re.test(to) || from > to) { TP.toast('اختار التاريخين صح'); return false; }
+      if ((new Date(to) - new Date(from)) / 864e5 > 62) { TP.toast('الفترة أطول من شهرين — راجع التواريخ'); return false; }
+      if (from !== O.addDays(prevTo, 1) && !(await TP.confirm('تنبيه', from > O.addDays(prevTo, 1) ? `فيه أيام مش داخلة في أي شهر: من ${PER.fmt(O.addDays(prevTo, 1))} لـ ${PER.fmt(O.addDays(from, -1))}. تكمّل؟` : `فيه أيام داخلة في الشهر اللي قبله كمان (لحد ${PER.fmt(prevTo)}). تكمّل؟`, 'تكمّل'))) return false;
+      const lastDay = Number(to.slice(8)), endDay = lastDay === new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).getUTCDate() ? 0 : lastDay;
+      const upd = { x: { [key]: { [data.month]: [from, to] } } };
+      if (key === 'def') upd.def = endDay; else upd[key[0]] = { [key.slice(2)]: endDay };
+      await TP.fb.set('system/periods', upd, true);
+      TP.audit('period.dates', keyName(key), `${O.monthName(data.month)}: ${PER.fmt(from)} → ${PER.fmt(to)}`);
+      TP.toast('اتحفظ ✓');
+    }, { saveLabel: 'حفظ' });
+  }
+  /** a driver gets his own period (or goes back to his factory's) */
+  function ownDriver() {
+    const list = TP.q.drivers().filter(p => p.active !== false && p.driverKind !== 'tourism' && !PER.own(p.id));
+    TP.openModal('سواق بفترة خاصة بيه', `
+      <div class="form-grid">
+        <label class="fld full">السواق<select class="input" id="oDrv">${U.opts(list, '', p => p.id, p => TP.driverLabel(p), 'اختار السواق')}</select></label>
+        <label class="fld">${esc(O.monthName(data.month))}: من<input class="input" type="date" id="oFrom"></label>
+        <label class="fld">إلى<input class="input" type="date" id="oTo"></label>
+      </div>
+      <p class="muted small" style="margin-top:8px">السواق ده هيتحسب على التواريخ دي بدل تواريخ مصنعه — أيامه ومشاويره وسلفه ومصاريفه.</p>`, async () => {
+      const did = U.val('oDrv'), from = U.val('oFrom'), to = U.val('oTo'), re = /^\d{4}-\d{2}-\d{2}$/;
+      if (!did) { TP.toast('اختار السواق'); return false; }
+      if (!re.test(from) || !re.test(to) || from > to || (new Date(to) - new Date(from)) / 864e5 > 62) { TP.toast('اختار التاريخين صح'); return false; }
+      const lastDay = Number(to.slice(8)), endDay = lastDay === new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).getUTCDate() ? 0 : lastDay;
+      await TP.fb.set('system/periods', { d: { [did]: endDay }, x: { ['d_' + did]: { [data.month]: [from, to] } } }, true);
+      TP.audit('period.driver', TP.q.dname(did), `${O.monthName(data.month)}: ${PER.fmt(from)} → ${PER.fmt(to)}`);
+      TP.toast('اتحفظ ✓');
+    }, { saveLabel: 'حفظ' });
+  }
+  async function dropOwn(did) {
+    if (!(await TP.confirm('رجوع لفترة المصنع', `${TP.q.dname(did)} هيرجع يتحسب على تواريخ المصنع اللي بيشتغل فيه.`, 'رجوع'))) return;
+    await TP.fb.set('system/periods', { d: { [did]: TP.fb.del() }, x: { ['d_' + did]: TP.fb.del() } }, true);
+    TP.audit('period.driver', TP.q.dname(did), 'رجع لفترة المصنع');
+  }
+  /** the sheets tab */
+  function sheetsBody() {
+    const M = data.month, all = S.can('all');
+    const lockBadge = key => isClosed(key, M) ? `<span class="st st-off">${TP.icon('lock', 13)} مقفول</span>` : '';
+    const dateBtn = key => all && !isClosed(key, M) ? `<button class="link small" data-pdate="${esc(key)}">✎ التواريخ</button>` : '';
+    const lockBtns = (key, own) => all ? (isClosed(key, M) ? `<button class="btn btn-ghost btn-sm" data-popen="${esc(key)}">${TP.icon('lock', 15)}فتح القفل</button>` : own ? `<button class="btn btn-ghost btn-sm" data-pclose="${esc(key)}">${TP.icon('lock', 15)}قفل</button>` : '') : '';
+    const rows = D.companies.map(f => {
+      const key = 'f_' + f.id, sd = sheetData(f.id), sh = data.sheets[f.id], ok = sh && sh.status === 'approved', closed = isClosed(key, M);
+      return `<tr><td><b>${esc(f.name)}</b></td><td class="small" dir="rtl">${esc(PER.label(key, M))} ${dateBtn(key)}</td><td class="small">${sd.lines.reduce((a, l) => a + l.full, 0)} يوم كامل · ${sd.lines.reduce((a, l) => a + l.half, 0)} نص · ${sd.missions.length} مشوار · ${sd.absences.reduce((a, x) => a + x.skip + x.noshow, 0)} غياب${sd.totals ? ` · <b>${esc(TP.money(sd.totals.total))}</b>` : ''}</td>
+        <td>${ok ? `<span class="st st-ok">معتمد</span><div class="muted small">${esc(sh.approvedBy || '')}</div>` : '<span class="st st-off">لسه</span>'} ${lockBadge(key)}</td>
+        <td class="acts">${all && !closed ? `<button class="btn btn-primary btn-sm" data-approve="${esc(f.id)}">${ok ? 'اعتماد تاني' : 'اعتماد'}${PER.to(key, M) < today() ? ' وقفل' : ''}</button>` : ''}${all && ok ? `<button class="btn btn-ghost btn-sm" data-withdraw="${esc(f.id)}">سحب</button>` : ''}${lockBtns(key, false)}<button class="btn btn-ghost btn-sm" data-sx="${esc(f.id)}">${TP.icon('file', 15)}تنزيل</button></td></tr>`;
+    }).join('');
+    const own = Object.keys((PER.doc || {}).d || {}).filter(id => PER.own(id));
+    const dRow = (key, note, extra) => `<tr><td><b>${esc(keyName(key))}</b>${note ? `<div class="muted small">${esc(note)}</div>` : ''}</td><td class="small">${esc(PER.label(key, M))} ${dateBtn(key)}</td><td>${lockBadge(key)}</td><td class="acts">${lockBtns(key, true)}${extra || ''}</td></tr>`;
+    return `<p class="muted small" style="margin-bottom:10px">كل مصنع بتواريخه (تقدر تغيّرها). سواقين الخطوط بيمشوا على تواريخ مصنعهم، وسواقين السياحة مرتبهم شهري من أول الشهر لآخره. اعتماد الكشف بعد ما الفترة تخلص بيقفلها: أيام المصنع ومشاويره وحسابات سواقينه — مفيش تعديل غير بعد "فتح القفل" بالرقم السري. ${TP.financeOn(D.settings) ? 'الحسابات شغالة: الكشف فيه المبالغ بأسعار المصنع.' : 'الحسابات مقفولة: الكشف تشغيل بس (أيام ومشاوير وغياب) من غير فلوس.'}</p>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>المصنع</th><th>الفترة</th><th>الشغل</th><th>الحالة</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h4 style="margin:18px 0 8px;color:var(--maroon-2)">فترات السواقين</h4>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>مين</th><th>الفترة</th><th>الحالة</th><th></th></tr></thead><tbody>
+        ${dRow('def', 'الفترة العامة — للمصانع اللي من غير تواريخ وللسواقين اللي من غير خط')}
+        ${own.map(id => dRow('d_' + id, 'فترة خاصة بيه', all ? `<button class="btn btn-ghost btn-sm" data-pdrop="${esc(id)}">رجوع لفترة المصنع</button>` : '')).join('')}
+      </tbody></table></div>
+      ${all ? `<button class="btn btn-ghost btn-sm" id="pOwn" style="margin-top:10px">${TP.icon('plus', 15)}سواق بفترة خاصة بيه</button>` : ''}`;
   }
   /* ---------- export for the accounting system (then the period is locked) ---------- */
   /** The day after the last export — or the start of this month (of last month on the 1st). */
@@ -305,11 +435,11 @@
   }
 
   TP.views.reports = {
-    deps: ['settings', 'lock', 'companies', 'lines', 'people', 'factoryRates', 'driverRates'],
+    deps: ['settings', 'lock', 'periods', 'companies', 'lines', 'people', 'factoryRates', 'driverRates'],
     render(root) {
       const M = O.monthOf(TP.dayKey());
       if (!state.month) state.month = M;
-      if (data.month !== state.month && !data.loading) load(state.month);
+      if ((data.month !== state.month || data.sig !== sigOf(state.month)) && !data.loading) load(state.month);
       const tabs = [['drivers', 'السواقين'], ['factories', 'المصانع'], ['absences', 'غياب العملاء']]
         .concat(money() && S.can('reports.finance') ? [['profit', 'الربح لكل مصنع']] : [])
         .concat(S.can('month.close') || S.can('reports.finance') ? [['sheets', 'كشوف المصانع']] : [])
@@ -319,15 +449,7 @@
       let body = '';
       if (data.loading) body = '<div class="spinner"></div>';
       else if (data.error) body = `<div class="banner danger">${esc(data.error)}</div>`;
-      else if (state.tab === 'sheets') {
-        body = `<p class="muted small" style="margin-bottom:10px">الكشف بيظهر لـ HR المصنع بعد ما تعتمده بس. ${TP.financeOn(D.settings) ? 'الحسابات شغالة: الكشف فيه المبالغ بأسعار المصنع.' : 'الحسابات مقفولة: الكشف تشغيل بس (أيام ومشاوير وغياب) من غير فلوس.'}</p>
-          <div class="table-wrap"><table class="tbl"><thead><tr><th>المصنع</th><th>الشغل</th><th>الحالة</th><th></th></tr></thead><tbody>${D.companies.map(f => {
-            const sd = sheetData(f.id), sh = data.sheets[f.id], ok = sh && sh.status === 'approved';
-            return `<tr><td><b>${esc(f.name)}</b></td><td class="small">${sd.lines.reduce((a, l) => a + l.full, 0)} يوم كامل · ${sd.lines.reduce((a, l) => a + l.half, 0)} نص · ${sd.missions.length} مشوار · ${sd.absences.reduce((a, x) => a + x.skip + x.noshow, 0)} غياب${sd.totals ? ` · <b>${esc(TP.money(sd.totals.total))}</b>` : ''}</td>
-              <td>${ok ? `<span class="st st-ok">معتمد</span><div class="muted small">${esc(sh.approvedBy || '')}</div>` : '<span class="st st-off">لسه</span>'}</td>
-              <td class="acts">${S.can('all') ? `<button class="btn btn-primary btn-sm" data-approve="${esc(f.id)}">${ok ? 'اعتماد تاني' : 'اعتماد'}</button>${ok ? `<button class="btn btn-ghost btn-sm" data-withdraw="${esc(f.id)}">سحب</button>` : ''}` : ''}<button class="btn btn-ghost btn-sm" data-sx="${esc(f.id)}">${TP.icon('file', 15)}تنزيل</button></td></tr>`;
-          }).join('')}</tbody></table></div>`;
-      } else if (state.tab === 'export') {
+      else if (state.tab === 'sheets') body = sheetsBody(); else if (state.tab === 'export') {
         const lock = D.lock;
         body = `<div class="banner info" style="margin-bottom:12px">${TP.icon('file')}<span class="grow">ملف Excel فيه كل الشغل الفعلي للفترة (أيام الخطوط، المشاوير والمطار، المصاريف، الكاش، الغياب)، بكود السواق الثابت — علشان المالية تنقله على سيستم الحسابات.</span></div>
           ${lock && lock.until ? `<p class="small" style="margin-bottom:10px">${TP.icon('lock', 15)} مقفول لحد <b dir="ltr">${esc(lock.until)}</b> — آخر تصدير بواسطة ${esc(lock.by || '')} (${esc(TP.fmtDateTime(lock.at))}). التعديلات اللي بعده هتظهر في صفحة "تعديلات بعد القفل".</p>` : ''}
@@ -352,7 +474,12 @@
       if (dl) dl.onclick = () => TP.report.choose(defOf(state.tab));
       root.querySelectorAll('[data-approve]').forEach(b => b.onclick = () => guard(approveSheet(b.dataset.approve)));
       root.querySelectorAll('[data-withdraw]').forEach(b => b.onclick = () => guard(withdrawSheet(b.dataset.withdraw)));
-      root.querySelectorAll('[data-sx]').forEach(b => b.onclick = () => { const f = TP.q.company(b.dataset.sx); TP.report.choose(Object.assign(TP.xlsx.sheetReport(sheetData(f.id), f.name, O.monthName(state.month)), { fileName: `TP-${f.nameEn || 'factory'}-${state.month}` })); });
+      root.querySelectorAll('[data-pdate]').forEach(b => b.onclick = () => editDates(b.dataset.pdate));
+      root.querySelectorAll('[data-pclose]').forEach(b => b.onclick = () => guard(closeKey(b.dataset.pclose)));
+      root.querySelectorAll('[data-popen]').forEach(b => b.onclick = () => guard(openKey(b.dataset.popen)));
+      root.querySelectorAll('[data-pdrop]').forEach(b => b.onclick = () => guard(dropOwn(b.dataset.pdrop)));
+      const po = root.querySelector('#pOwn'); if (po) po.onclick = () => ownDriver();
+      root.querySelectorAll('[data-sx]').forEach(b => b.onclick = () => { const f = TP.q.company(b.dataset.sx); TP.report.choose(Object.assign(TP.xlsx.sheetReport(sheetData(f.id), f.name, O.monthName(state.month) + ' — ' + PER.label('f_' + f.id, state.month)), { fileName: `TP-${f.nameEn || 'factory'}-${state.month}` })); });
       const xg = root.querySelector('#xGo');
       if (xg) {
         ['xFrom', 'xTo'].forEach(id => root.querySelector('#' + id).onchange = e => { state[id === 'xFrom' ? 'from' : 'to'] = e.target.value; });

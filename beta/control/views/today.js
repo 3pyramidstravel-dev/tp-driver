@@ -24,6 +24,7 @@
     return pay.map;
   }
   function openPay(line, doc) {
+    if (TP.period.workLocked(line.factoryId, doc.driverId, doc.day) || TP.period.acctLocked(doc.driverId, doc.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     const f = TP.q.company(line.factoryId), steps = O.steps(line, f), ev = doc.events || {}, p = TP.q.person(doc.driverId), cur = pay.map[doc.id];
     const ot = doc.ot, wait = O.waitMin(ev), fl = O.flags(ev);
     TP.openModal('أجر اليوم — ' + TP.driverLabel(p), `
@@ -89,6 +90,7 @@
     const f = TP.q.company(line.factoryId), steps = O.steps(line, f), ev = (doc && doc.events) || {};
     const did = driverOf(line, doc, day), drv = TP.q.person(did);
     if (!did) return TP.toast('الخط مالوش سواق — حدد سواق أو بديل الأول');
+    if (TP.period.workLocked(line.factoryId, did, day) || (doc && TP.period.workLocked(doc.factoryId, doc.driverId, doc.day))) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     TP.openModal(`تسجيل / تصحيح — ${line.name}`, `
       <p class="muted small" style="margin-bottom:10px">${esc(drv ? drv.name : '')} · <bdi dir="ltr">${esc(day)}</bdi>. سيب الخانة فاضية لو الخطوة متعملتش. أي تعديل بيتسجل باسمك وبالسبب.</p>
       ${TP.isLocked(day) ? `<div class="banner warn" style="margin-bottom:10px">${TP.icon('lock')}<span>اليوم ده اتصدّر للحسابات — أي تعديل هيظهر في التصدير الجاي.</span></div>` : ''}
@@ -122,6 +124,7 @@
   }
 
   function openSub(line, doc, day) {
+    if (doc && TP.period.workLocked(doc.factoryId, doc.driverId, doc.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     const cur = line.subDay === day ? line.subDriverId : '';
     const drivers = TP.q.drivers().filter(p => p.active !== false && p.id !== line.driverId);
     TP.openModal(`سواق بديل — ${line.name}`, `
@@ -143,6 +146,7 @@
 
   /* ---------- overtime ---------- */
   async function decideOT(doc, status, tier, note) {
+    if (TP.period.workLocked(doc.factoryId, doc.driverId, doc.day)) { TP.toast(TP.period.LOCKED_MSG, 'warn'); return false; }
     if (!(await S.confirmPin(status === 'approved' ? 'اعتماد السهرة' : 'تعديل السهرة'))) return false;
     const ot = Object.assign({}, doc.ot || { by: 'staff', reqAt: Date.now() }, { tier, status, decidedBy: S.person.name, decidedAt: Date.now() });
     if (note) ot.note = note; else delete ot.note;

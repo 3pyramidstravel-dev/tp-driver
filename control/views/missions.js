@@ -217,6 +217,7 @@
     const base = { day: TP.dayKey(), factoryId: '', status: 'assigned', type: '' };
     const m = mid ? find(mid) : Object.assign(base, prefill || {});
     if (!m) return;
+    if (mid && TP.period.workLocked(m.factoryId, m.driverId, m.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     onSavedHook = onSaved || null;
     if (!clients.list) loadClients().then(() => { if (TP.$('#tp-modal.show #mCusts')) { readCusts(); drawCusts(); } });
     const canPrice = S.can('prices.edit') && money();
@@ -332,6 +333,7 @@
     const driverId = U.val('mDriver');
     let title = U.val('mTitle'), day = U.val('mDay'), time = U.val('mTime');
     if (!driverId) { TP.toast('اختار السواق'); return false; }
+    if (TP.period.workLocked(U.val('mFactory'), driverId, day)) { TP.toast(TP.period.LOCKED_MSG, 'warn'); return false; }
     if (U.timeIncomplete('mTime') || U.timeIncomplete('fTime')) { TP.toast('اختار صباحًا ولا مساءً للميعاد'); return false; }
     const from = readPlace('from'), to = readPlace('to');
     if (from.error || to.error) { TP.toast(from.error || to.error); return false; }
@@ -542,6 +544,7 @@
 
   async function cancel(mid) {
     const m = find(mid);
+    if (m && TP.period.workLocked(m.factoryId, m.driverId, m.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     if (!m || !(await TP.confirm('إلغاء المشوار', `المشوار "${m.title}" هيتلغي ويختفي من عند السواق، ولينك العميل هيقوله إنه اتلغى.`, 'إلغاء المشوار', true))) return;
     await TP.fb.batch([{ op: 'update', path: 'missions/' + mid, data: Object.assign({ status: 'cancelled', flightCheckAt: FL().NEVER, updatedAt: TP.fb.ts() }, ['done', 'active'].includes(m.status) ? TP.lockFix(m.day, 'إلغاء مشوار بعد التصدير') : {}) }]
       .concat((m.customers || []).filter(c => c.h).map(c => ({ op: 'set', path: 'track/' + c.h, data: { st: 'cancelled', stAt: TP.now() }, merge: true }))));
@@ -551,6 +554,7 @@
   async function remove(mid) {
     const m = find(mid);
     if (!m) return;
+    if (TP.period.workLocked(m.factoryId, m.driverId, m.day)) return TP.toast(TP.period.LOCKED_MSG, 'warn');
     // an exported trip is never deleted (the accounts already have it) — cancel it instead
     if (TP.isLocked(m.day) && ['done', 'active'].includes(m.status)) return TP.toast('المشوار ده اتصدّر للحسابات — الغيه بدل ما تحذفه', 'warn');
     if (!(await TP.confirm('حذف المشوار', `"${m.title}" هيتحذف نهائياً هو وأسعاره ولينكات عملائه.`, 'حذف', true))) return;

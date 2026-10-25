@@ -76,6 +76,9 @@
       </div>`, async () => {
       const from = U.val('rFrom');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) { TP.toast('اختار تاريخ البداية'); return false; }
+      // a closed month keeps its prices: a new price can only start after it (agreed 26 Oct)
+      const lk = col === 'factoryRates' || col === 'airportRates' ? TP.period.lockOf('f_' + id) : col === 'driverRates' ? TP.period.lockOf('a_' + id) : '';
+      if (lk && from <= lk) { TP.toast(`لحد ${TP.period.fmt(lk)} مقفول — السعر الجديد يبدأ من ${TP.period.fmt(TP.ops.addDays(lk, 1))} أو بعده (أو افتح القفل الأول)`, 'warn'); return false; }
       const entry = { from, setAt: Date.now(), setBy: S.person.name };
       for (const [k, label] of fields) {
         const v = U.money('r_' + k);

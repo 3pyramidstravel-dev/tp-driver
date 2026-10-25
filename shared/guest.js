@@ -296,8 +296,10 @@
     const cs = (m.customers || []).filter(c => c.name);
     const firsts = cs.map(c => salute(c, 'en')).filter(Boolean);
     const join = firsts.length <= 1 ? (firsts[0] || '') : firsts.slice(0, -1).join(', ') + ' & ' + firsts[firsts.length - 1];
-    const text = join || (key === 'arrive' ? 'The guest' : 'Guest');
-    return stepMessage(m, { lang: 'en' }, key, drv, car, { text, many: firsts.length > 1 });
+    if (join || key === 'arrive') return stepMessage(m, { lang: 'en' }, key, drv, car, { text: join || 'The guest', many: firsts.length > 1 });
+    // no name on the trip (agreed 26 Oct): "Hello," — not "Hello Guest"
+    return stepMessage(m, { lang: 'en' }, key, drv, car, { text: '', many: false })
+      .replace(/^Hello ,/, 'Hello,').replace(/^, we are/, 'We are').replace(/, \./, '.');
   }
   TP.guest = { messages, compose, stepMessage, groupMessage, rideCard };
 })(window.TP = window.TP || {});

@@ -446,6 +446,18 @@ service cloud.firestore {
         || can('reports.finance') || can('prices.view') || can('overtime.approve') || can('month.close');
     }
 
+    // ---------- فترات الحساب (agreed 26 Oct): a closed month of a factory / a driver's account is locked ----------
+    // system/periods.lock = { 'f_<factory>': day, 'd_<driver>': day, 'a_<driver>': day } — closed up to that day
+    function periodsPath() { return /databases/$(database)/documents/system/periods; }
+    function plocks() { return exists(periodsPath()) ? get(periodsPath()).data.get('lock', {}) : {}; }
+    // a day / trip of a closed factory month (or of a driver with his own, closed, period)
+    function workLocked(d) {
+      let L = plocks();
+      return d.day <= L.get('f_' + d.get('factoryId', ''), '') || d.day <= L.get('d_' + d.get('driverId', ''), '');
+    }
+    // a driver's advance / deduction / expense / day pay of a closed month
+    function acctLocked(did, day) { return day != '' && day <= plocks().get('a_' + did, ''); }
+
     match /days/{did} {
       // the driver of the line — unless a substitute was set for that day, then only the substitute
       function worksLine(d) {
@@ -475,7 +487,7 @@ service cloud.firestore {
         || (isDriver() && resource.data.driverId == me().personId)
         || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
       allow create: if
-        (can('times.correct') && (!('ot' in request.resource.data) || can('overtime.approve')))
+        (can('times.correct') && (!('ot' in request.resource.data) || can('overtime.approve')) && !workLocked(request.resource.data))
         || (isDriver()
             && request.resource.data.driverId == me().personId
             && request.resource.data.keys().hasOnly(['lineId', 'factoryId', 'driverId', 'day', 'month', 'events', 'lastKey', 'updatedAt', 'picked', 'noshow'])
@@ -488,9 +500,10 @@ service cloud.firestore {
             && linePressOk(request.resource.data, {}));
       allow update: if
         // operations (times.correct) record / correct with a reason; overtime only with overtime.approve
-        (can('times.correct') && (!('ot' in changed()) || can('overtime.approve')))
-        // finance approves, edits or cancels overtime
-        || (can('overtime.approve') && changed().hasOnly(['ot', 'updatedAt', 'lateFix']))
+        (((can('times.correct') && (!('ot' in changed()) || can('overtime.approve')))
+          // finance approves, edits or cancels overtime
+          || (can('overtime.approve') && changed().hasOnly(['ot', 'updatedAt', 'lateFix'])))
+         && !workLocked(resource.data) && !workLocked(request.resource.data))
         // the driver adds one press, or asks for overtime once
         || (isDriver() && resource.data.driverId == me().personId
             && request.resource.data.driverId == me().personId
@@ -498,7 +511,7 @@ service cloud.firestore {
             && (('events' in changed()) ? linePressOk(request.resource.data, resource.data.events) : !('lastKey' in changed()))
             && (!('ot' in changed()) || (!('ot' in resource.data) && otRequestOk(request.resource.data, resource.data)))
             && ridersOk(request.resource.data, resource.data));
-      allow delete: if can('times.correct');
+      allow delete: if can('times.correct') && !workLocked(resource.data);
     }
 
     // ---------- missions (one-off trips) — prices live in separate documents ----------
@@ -515,11 +528,13 @@ service cloud.firestore {
         || can('reports.attendance') || can('prices.view') || can('reports.finance') || can('airport.manage') || can('month.close')
         || (isDriver() && resource.data.driverId == me().personId)
         || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
-      allow create, delete: if can('missions.manage');
-      allow update: if can('missions.manage')
+      allow create: if can('missions.manage') && !workLocked(request.resource.data);
+      allow delete: if can('missions.manage') && !workLocked(resource.data);
+      allow update: if ((can('missions.manage')
         || (can('times.correct') && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt']))
         // the wake-up supervisor hands the trip to a substitute
-        || (can('wake.supervise') && changed().hasOnly(['driverId', 'subFrom', 'updatedAt', 'ack']) && (!('ack' in changed()) || !('ack' in request.resource.data)))
+        || (can('wake.supervise') && changed().hasOnly(['driverId', 'subFrom', 'updatedAt', 'ack']) && (!('ack' in changed()) || !('ack' in request.resource.data))))
+          && !workLocked(resource.data) && !workLocked(request.resource.data))
         || (isDriver() && resource.data.driverId == me().personId
             && resource.data.status in ['assigned', 'active', 'done']
             && changed().hasOnly(['events', 'lastKey', 'status', 'updatedAt', 'picked', 'noshow', 'cashGot', 'ack'])
@@ -533,17 +548,22 @@ service cloud.firestore {
             && (!('ack' in changed()) || (!('ack' in resource.data)
                 && request.resource.data.ack.keys().hasOnly(['at', 'sv']) && request.resource.data.ack.sv == request.time)));
     }
+    // a trip's prices follow the trip's closed month
+    function msnLocked(mid) {
+      let p = /databases/$(database)/documents/missions/$(mid);
+      return exists(p) && (workLocked(get(p).data) || acctLocked(get(p).data.get('driverId', ''), get(p).data.day));
+    }
     match /missionDriver/{mid} {
       allow read: if can('prices.view')
         || (isDriver() && resource.data.driverId == me().personId && me().get('driverKind', '') != 'tourism');
-      allow create, update: if can('prices.edit');
-      allow delete: if can('prices.edit') || can('missions.manage');
+      allow create, update: if can('prices.edit') && !msnLocked(mid);
+      allow delete: if (can('prices.edit') || can('missions.manage')) && !msnLocked(mid);
     }
     match /missionFactory/{mid} {
       allow read: if can('prices.view')
         || (isActive() && me().kind == 'hr' && resource.data.factoryId == me().factoryId);
-      allow create, update: if can('prices.edit');
-      allow delete: if can('prices.edit') || can('missions.manage');
+      allow create, update: if can('prices.edit') && !msnLocked(mid);
+      allow delete: if (can('prices.edit') || can('missions.manage')) && !msnLocked(mid);
     }
 
     // ---------- advances & deductions (management only; the driver sees his own) ----------
@@ -555,8 +575,10 @@ service cloud.firestore {
         && request.resource.data.amount is number && request.resource.data.amount > 0
         && request.resource.data.reason is string && request.resource.data.reason.size() > 0
         && request.resource.data.day is string
-        && request.resource.data.month == monthOf(request.resource.data.day);
-      allow delete: if can('advances.manage');
+        && request.resource.data.month == monthOf(request.resource.data.day)
+        && !acctLocked(request.resource.data.driverId, request.resource.data.day)
+        && (resource == null || !acctLocked(resource.data.driverId, resource.data.day));
+      allow delete: if can('advances.manage') && !acctLocked(resource.data.driverId, resource.data.day);
     }
 
     // ---------- days off / cancelled days ----------
@@ -590,8 +612,10 @@ service cloud.firestore {
       allow read: if can('prices.view')
         || (isDriver() && resource.data.driverId == me().personId && me().get('driverKind', '') != 'tourism');
       allow create, update: if can('prices.edit')
-        && request.resource.data.amount is number && request.resource.data.amount >= 0;
-      allow delete: if can('prices.edit');
+        && request.resource.data.amount is number && request.resource.data.amount >= 0
+        && !acctLocked(request.resource.data.get('driverId', ''), request.resource.data.get('day', ''))
+        && (resource == null || !acctLocked(resource.data.get('driverId', ''), resource.data.get('day', '')));
+      allow delete: if can('prices.edit') && !acctLocked(resource.data.get('driverId', ''), resource.data.get('day', ''));
     }
     // the wake-up plan of a day — written by the cloud alarm (service account);
     // supervisors record "استلمت / صحي / بديل", anyone involved may ask for a rebuild
@@ -795,7 +819,8 @@ service cloud.firestore {
       allow create: if isDriver() && expOk(request.resource.data);
       allow update: if (can('missions.manage') || can('advances.manage'))
         && changed().hasOnly(['status', 'decidedBy', 'decidedAt', 'decisionNote'])
-        && request.resource.data.status in ['approved', 'rejected', 'pending'];
+        && request.resource.data.status in ['approved', 'rejected', 'pending']
+        && !acctLocked(resource.data.driverId, resource.data.day);
       allow delete: if false;
     }
     match /system/flightUsage {
@@ -838,6 +863,16 @@ service cloud.firestore {
       allow read: if can('reports.finance') || can('month.close');
       allow create: if (can('reports.finance') || can('month.close')) && request.resource.data.at == request.time;
       allow update, delete: if false;
+    }
+    // فترات الحساب: everyone signed in reads the dates; only the top (all) changes them, closes and opens
+    // the cloud alarm's heartbeat (written by it every 10 minutes; the watchdog rings when it is old)
+    match /system/beat {
+      allow read: if can('all');
+      allow write: if false;
+    }
+    match /system/periods {
+      allow read: if isActive();
+      allow write: if can('all');
     }
     match /system/lock {
       allow read: if isStaff();

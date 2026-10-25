@@ -260,6 +260,12 @@
     return out;
   };
   ops.ADJ_TYPES = { advance: 'سلفة', deduction: 'خصم' };
+  /** the dates of a driver's month (one line per factory when he worked in more than one) + closed */
+  ops.periodHtml = function (k) {
+    const esc = TP.esc, name = l => l.name && TP.q && TP.q.company ? ((TP.q.company(l.name) || {}).name || '') : '';
+    const many = k.labels.length > 1;
+    return `<p class="small" style="margin:-4px 0 10px">${TP.icon('calendar', 15)} ${k.labels.map(l => `${many && name(l) ? esc(name(l)) + ': ' : ''}<b>${esc(l.text)}</b>`).join(' · ')}${k.locked ? ` <span class="st st-off">${TP.icon('lock', 13)} مقفول</span>` : ''}</p>`;
+  };
 
   /** Statement as HTML (same look in the driver app and the Control Tower). money=false → counts only. */
   ops.statementHtml = function (d, money) {
@@ -284,5 +290,106 @@
     if (d.rows.length) h += `<details class="history" style="margin-top:14px"><summary>تفاصيل الأيام (${d.rows.length})</summary><table class="stmt"><tbody>${d.rows.map(r => `<tr><td><bdi dir="ltr">${esc(r.day)}</bdi> — ${esc(ops.partName(r.part))}${r.waitMin ? ` · انتظار ${r.waitMin} د` : ''}${r.otTier ? ' · سهرة' : ''}${money && r.noRate ? ' <span class="badge-s far">بدون سعر</span>' : ''}${money && r.manual ? ' <span class="badge-s staff">مبلغ شامل</span>' : ''}</td><td>${money ? esc(TP.money(r.total)) : ''}</td></tr>`).join('')}</tbody></table></details>`;
     if (d.missionRows.length) h += `<details class="history" style="margin-top:8px"><summary>تفاصيل المشاوير (${d.missionRows.length})</summary><table class="stmt"><tbody>${d.missionRows.map(r => `<tr><td><bdi dir="ltr">${esc(r.day)}</bdi> — ${esc(r.title || 'مشوار')}</td><td>${money ? (r.amount === null ? '<span class="muted">لسه</span>' : esc(TP.money(r.amount))) : ''}</td></tr>`).join('')}</tbody></table></details>`;
     return h;
+  };
+
+  /* ==========================================================================
+     فترات الحساب (agreed 26 Oct): every factory has its own month — from a date to a date
+     (Mondelēz 26 → 25, ALPLA 27 → 26, the rest from the 1st to the last day). The line drivers
+     follow the factory they work in; a driver can have his own period; the tourism drivers are
+     salaried staff — always the calendar month. Closing a factory's month locks everything of it.
+
+     system/periods = {
+       def: 0,                         end day of the general period (0 = the month's last day)
+       f: { factoryId: 25 },           a factory's end day (none = the general one)
+       d: { driverId: 20 },            a driver with his own period
+       x: { 'f_id': { 'YYYY-MM': ['from', 'to'] } },   dates set by hand for one month
+       lock: { 'f_id' | 'd_id' | 'a_id': 'YYYY-MM-DD' },  locked up to that day (f = the factory's work,
+                                        d = a driver's own-period work, a = a driver's account: advances, expenses, day pay)
+       closed: { key: { 'YYYY-MM': { by, at } } }
+     }
+     Keys: 'f_<factory>', 'd_<driver>', 'def' (general), 'cal' (calendar month — the tourism drivers).
+     ========================================================================== */
+  const pad2 = n => String(n).padStart(2, '0');
+  const daysIn = M => { const [y, m] = M.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+  const P = TP.period = {
+    doc: {},
+    set(d) { P.doc = d || {}; },
+    /** end day of a key (0 = last day of the month) */
+    endDay(key) {
+      const c = P.doc || {};
+      if (key === 'cal') return 0;
+      if (key && key.startsWith('f_')) { const v = (c.f || {})[key.slice(2)]; if (v !== undefined && v !== null) return Number(v) || 0; }
+      if (key && key.startsWith('d_')) { const v = (c.d || {})[key.slice(2)]; if (v !== undefined && v !== null) return Number(v) || 0; }
+      return Number(c.def) || 0;
+    },
+    manual(key, M) { const x = ((P.doc || {}).x || {})[key]; const r = x && x[M]; return Array.isArray(r) && r.length === 2 ? r : null; },
+    to(key, M) { const r = P.manual(key, M); if (r) return r[1]; const e = P.endDay(key), n = daysIn(M); return M + '-' + pad2(e && e < n ? e : n); },
+    from(key, M) { const r = P.manual(key, M); if (r) return r[0]; return ops.addDays(P.to(key, ops.addMonths(M, -1)), 1); },
+    range(key, M) { return { from: P.from(key, M), to: P.to(key, M), manual: !!P.manual(key, M) }; },
+    has: (key, M, day) => !!day && day >= P.from(key, M) && day <= P.to(key, M),
+    /** the month (label) a day falls in for a key */
+    monthOf(key, day) { let M = ops.monthOf(day); for (let i = 0; i < 3; i++) { if (day < P.from(key, M)) M = ops.addMonths(M, -1); else if (day > P.to(key, M)) M = ops.addMonths(M, 1); else break; } return M; },
+    /** a driver with his own period */
+    own: did => (((P.doc || {}).d) || {})[did] !== undefined && (((P.doc || {}).d) || {})[did] !== null,
+    /**
+     * The key a driver's account follows: tourism → calendar; own period → his; else the factory of most of
+     * his lines (lines = the lines he drives); no line → the general period.
+     */
+    homeKey(person, lines) {
+      if (!person) return 'def';
+      if (person.driverKind === 'tourism') return 'cal';
+      if (P.own(person.id)) return 'd_' + person.id;
+      const n = {};
+      (lines || []).filter(l => l && l.driverId === person.id && l.active !== false && l.factoryId).forEach(l => { n[l.factoryId] = (n[l.factoryId] || 0) + 1; });
+      const best = Object.keys(n).sort((a, b) => n[b] - n[a] || (a < b ? -1 : 1))[0];
+      return best ? 'f_' + best : 'def';
+    },
+    /** the key one piece of a driver's work follows in HIS account (a day or a trip of a factory) */
+    workKey(person, factoryId, home) {
+      if (person && person.driverKind === 'tourism') return 'cal';
+      if (person && P.own(person.id)) return 'd_' + person.id;
+      return factoryId ? 'f_' + factoryId : (home || 'def');
+    },
+    /** every key a month can touch (to know which calendar months to read) */
+    keys() { const c = P.doc || {}; return ['def', 'cal'].concat(Object.keys(c.f || {}).map(k => 'f_' + k), Object.keys(c.d || {}).map(k => 'd_' + k), Object.keys(c.x || {})); },
+    /** the calendar months (the documents' "month" field) that hold the days of label M, for the keys given (all by default) */
+    months(M, keys) {
+      let a = null, b = null;
+      (keys || P.keys()).forEach(k => { const f = P.from(k, M), t = P.to(k, M); if (!a || f < a) a = f; if (!b || t > b) b = t; });
+      const out = []; for (let m = ops.monthOf(a); m <= ops.monthOf(b) && out.length < 6; m = ops.addMonths(m, 1)) out.push(m);
+      return { months: out, from: a, to: b };
+    },
+    lockOf: key => (((P.doc || {}).lock) || {})[key] || '',
+    /** a day / trip of a factory (and of a driver with his own period) is closed */
+    workLocked: (fid, did, day) => !!day && ((!!fid && day <= P.lockOf('f_' + fid)) || (!!did && day <= P.lockOf('d_' + did))),
+    /** a driver's advance / expense / day pay of that day is closed */
+    acctLocked: (did, day) => !!day && !!did && day <= P.lockOf('a_' + did),
+    closedInfo: (key, M) => ((((P.doc || {}).closed) || {})[key] || {})[M] || null,
+    fmt: day => { const [y, m, d] = String(day || '').split('-'); return d ? `${Number(d)}/${Number(m)}/${y}` : '—'; },
+    label(key, M) { const r = P.range(key, M); return `من ${P.fmt(r.from)} لـ ${P.fmt(r.to)}`; },
+    /**
+     * A driver's account of label month M: which calendar months to read, and what belongs to it.
+     * The result's pick(lists) filters {days, missions, adjustments, payDays(map), payMissions(map)}.
+     */
+    forDriver(person, lines, M) {
+      const home = P.homeKey(person, lines);
+      const keys = person && person.driverKind === 'tourism' ? ['cal'] : P.keys().concat([home]);
+      const span = P.months(M, keys);
+      const wk = fid => P.workKey(person, fid, home);
+      return {
+        home, months: span.months,
+        pick(L) {
+          const used = {};
+          const days = (L.days || []).filter(d => { const k = wk(d.factoryId); if (!P.has(k, M, d.day)) return false; used[k] = 1; return true; });
+          const missions = (L.missions || []).filter(m => { const k = wk(m.factoryId); if (!P.has(k, M, m.day)) return false; if (m.status === 'done') used[k] = 1; return true; });
+          const adjustments = (L.adjustments || []).filter(a => P.has(home, M, a.day));
+          const keep = (map, ids) => { const o = {}; ids.forEach(id => { if (map && map[id] !== undefined) o[id] = map[id]; }); return o; };
+          if (!Object.keys(used).length) used[home] = 1;
+          const labels = Object.keys(used).map(k => ({ key: k, name: k.startsWith('f_') ? k.slice(2) : '', text: P.label(k, M) }));
+          return { days, missions, adjustments, dayPay: keep(L.dayPay, days.map(d => d.id)), missionPay: keep(L.missionPay, missions.map(m => m.id)), labels, locked: !!person && P.acctLocked(person.id, P.to(home, M)) };
+        }
+      };
+    },
+    LOCKED_MSG: 'الفترة دي اتقفلت — لازم تتفتح الأول من "كشوف المصانع" (التقارير)'
   };
 })(window.TP = window.TP || {});

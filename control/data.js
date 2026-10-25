@@ -8,7 +8,7 @@
   const S = TP.session;
   const D = TP.D = {
     people: [], devices: [], codes: [], requests: [], companies: [], lines: [], vehicles: [], cards: [],
-    factoryRequests: [], expensesPending: [], lock: null, flightUsage: null,
+    factoryRequests: [], expensesPending: [], lock: null, periods: {}, flightUsage: null,
     todayDays: [], pendingOT: [], incidents: [], dayOff: [], todayKey: '', driverCodes: [],
     wakePlans: {}, wakeAcks: [], wakeWatch: null,
     factoryRates: {}, driverRates: {}, airportRates: {}, settings: Object.assign({}, TP.DEFAULT_SETTINGS), audit: [],
@@ -50,6 +50,8 @@
       if (can('missions.manage') || can('lines.manage') || can('airport.manage')) sub('factoryRequests', 'requests', { where: [['status', '==', 'pending']] }, l => l.sort((a, b) => ((TP.toDate(a.at) || 0) - (TP.toDate(b.at) || 0))));
       if (can('missions.manage') || can('advances.manage')) sub('expensesPending', 'expenses', { where: [['status', '==', 'pending']] }, l => l.sort((a, b) => (a.at || 0) - (b.at || 0)));
       unsubs.push(TP.fb.onDoc('system/lock', d => { D.lock = d; emit('lock'); }, () => emit('lock')));
+      // فترات الحساب (each factory's month, from a date to a date) and what is closed
+      unsubs.push(TP.fb.onDoc('system/periods', d => { TP.period.set(d); D.periods = d || {}; emit('periods'); }, () => emit('periods')));
       unsubs.push(TP.fb.onDoc('system/flightUsage', d => { D.flightUsage = d; emit('flightUsage'); }, () => {}));
       if (can('devices.manage')) {
         // only the open ones (used codes and finished requests stay in the database, unread)
@@ -71,6 +73,7 @@
       if (can('salary.manage')) sub('salaryBase', 'salaryBase', null, toMap);
       // the database's use of today's free quota (the cloud alarm writes it every 15 minutes) — the general manager
       if (can('all')) unsubs.push(TP.fb.onDoc('system/usage', d => { D.usage = d; emit('usage'); }, () => emit('usage')));
+      if (can('all')) unsubs.push(TP.fb.onDoc('system/beat', d => { D.beat = d; emit('beat'); }, () => {}));
       unsubs.push(TP.fb.onDoc('system/settings', s => { D.settings = Object.assign({}, TP.DEFAULT_SETTINGS, s || {}); emit('settings'); }, () => emit('settings')));
       /* phase 2 — the working day */
       const today = D.todayKey = TP.dayKey();

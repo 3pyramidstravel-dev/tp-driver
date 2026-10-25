@@ -118,6 +118,9 @@
     if (gIn.length) h += `<a class="banner warn alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">${esc(gIn[0].name)} دخل بحساب جوجل على جهاز جديد (${esc(TP.ago(gIn[0].approvedAtMs))})${gIn.length > 1 ? ' — و' + (gIn.length - 1) + ' تانيين' : ''}</span><b>الأجهزة</b></a>`;
     const rec = S.can('all') ? (D.devices || []).filter(d => d.approvedBy === 'recovery' && d.id !== S.uid && TP.now() - (d.approvedAtMs || 0) < 3 * 86400000) : [];
     if (rec.length) h += `<a class="banner danger alert-link" href="#/devices">${TP.icon('lock')}<span class="grow">جهاز اتفتح على حساب المدير العام بمفتاح الاسترجاع (${esc(TP.ago(rec[0].approvedAtMs))}) — لو مش إنت، شيله فوراً وغيّر المفتاح</span><b>الأجهزة</b></a>`;
+    // the alarm that watches the alarm: the cloud alarm writes system/beat every 10 minutes — older than 25 = it stopped
+    const bt = S.can('all') && D.beat && Number(D.beat.at);
+    if (bt && TP.now() - bt > 25 * 60000) h += `<div class="banner danger">${TP.icon('alarm')}<span class="grow">المنبه السحابي واقف من ${esc(TP.ago(bt))} — الصحيان والتنبيهات مش شغالين لحد ما يرجع. بلّغ المسؤول الفني.</span></div>`;
     const u = S.can('all') && D.usage;
     if (u && u.pct >= 80 && TP.now() < (u.resetAt || 0)) h += `<a class="banner danger alert-link" href="#/">${TP.icon('chart')}<span class="grow">استهلاك قاعدة البيانات النهارده وصل ${u.pct}% من الحد المجاني — بيتجدد الساعة 10 الصبح</span><b>التفاصيل</b></a>`;
     if (S.pinStillDefault()) h = `<a class="banner danger alert-link" href="#/account">${TP.icon('lock')}<span class="grow">رقمك السري لسه 1234 — غيّره دلوقتي. لحد ما تغيّره: الموظفين والأجهزة والأسعار والسلف والإعدادات مقفولة</span><b>غيّره</b></a>` + h;
@@ -151,8 +154,9 @@
   TP.rerender = () => scheduleRender();
 
   let cardTimer = null, cardsSeen = false;
+  setInterval(() => { if (S.ready && S.can('all')) renderAlerts(); }, 120000);   // the heartbeat's age moves with the clock
   document.addEventListener('tp:data', e => {
-    if (['incidents', 'pendingOT', 'wake', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet', 'devices'].includes(e.detail)) { renderAlerts(); renderNav(); }
+    if (['incidents', 'pendingOT', 'wake', 'beat', 'wakeAcks', 'factoryRequests', 'expensesPending', 'fleet', 'devices'].includes(e.detail)) { renderAlerts(); renderNav(); }
     if (e.detail === 'settings' && current && NAV.find(n => n.id === current && n.finance) && !TP.financeOn(TP.D.settings)) { go(); return; }
     // driver cards (what customers see) follow names, codes and cars
     // (the cards' own changes only on their first load — never an echo of our own write)

@@ -599,6 +599,7 @@
     root.querySelectorAll('[data-ot]').forEach(b => b.onclick = () => askOvertime(b.dataset.ot));
     const wr = root.querySelector('#wReady'); if (wr) wr.onclick = () => markReady();
     const wc = root.querySelector('#wChange'); if (wc) wc.onclick = () => changeWake();
+    const wph = root.querySelector('#wPhone'); if (wph) wph.onclick = () => phoneAlarm();
     const sh = root.querySelector('#soundHow'); if (sh) sh.onclick = soundGuide;
     if (TP.install) TP.install.bind(root);
     if (TP.loud) TP.loud.bind(root);
@@ -839,8 +840,11 @@
   /* ---------- حسابي ---------- */
   async function loadAccount(month) {
     st.acct = { month, data: null, loading: true, error: '' }; render();
-    const w = [['driverId', '==', me()], ['month', '==', month]];
     try {
+      // فترات الحساب: the month follows his factory's dates (Mondelēz 26 → 25…); tourism = the calendar month
+      TP.period.set(await TP.fb.get('system/periods').catch(() => null));
+      const per = TP.period.forDriver(S.person, st.linesMain, month);
+      const w = [['driverId', '==', me()], per.months.length > 1 ? ['month', 'in', per.months] : ['month', '==', per.months[0] || month]];
       const [days, missions, pay, rates, adj, dpay] = await Promise.all([
         TP.fb.list('days', { where: w }), TP.fb.list('missions', { where: w }),
         seesMoney() ? TP.fb.list('missionDriver', { where: w }) : [],
@@ -851,18 +855,25 @@
       const missionPay = {}; pay.forEach(x => { missionPay[x.id] = x.amount; });
       const dayPay = {}; dpay.forEach(x => { dayPay[x.id] = x.amount; });
       if (st.acct.month !== month) return;
-      st.acct.data = O.statement({ days, missions, missionPay, rateHistory: (rates && rates.history) || [], adjustments: adj, dayPay, manualDays: kind() === 'external' });
+      const k = per.pick({ days, missions, adjustments: adj, dayPay, missionPay });
+      st.acct.data = O.statement({ days: k.days, missions: k.missions, missionPay: k.missionPay, rateHistory: (rates && rates.history) || [], adjustments: k.adjustments, dayPay: k.dayPay, manualDays: kind() === 'external' });
+      st.acct.per = k;
     } catch (e) { console.error(e); st.acct.error = TP.errorText(e); }
     st.acct.loading = false; render();
   }
   function renderAccount() {
-    const root = TP.$('#tab-account'), M = O.monthOf(TP.dayKey(TP.now()));
-    if (!st.acct.month) { loadAccount(M); return; }
+    const root = TP.$('#tab-account'), M = TP.period.monthOf(TP.period.homeKey(S.person, st.linesMain), TP.dayKey(TP.now()));
+    if (!st.acct.month) {
+      // the month he is in now by his factory's dates (after the 25th a Mondelēz driver is already in the next one)
+      st.acct.month = M; st.acct.loading = true;
+      TP.fb.get('system/periods').catch(() => null).then(d => { TP.period.set(d); loadAccount(TP.period.monthOf(TP.period.homeKey(S.person, st.linesMain), TP.dayKey(TP.now()))); });
+      root.innerHTML = '<section class="glass card"><div class="spinner"></div></section>'; return;
+    }
     const months = [M, O.addMonths(M, -1), O.addMonths(M, -2)], a = st.acct, d = a.data, money = seesMoney();
     let body = '';
     if (a.loading) body = '<div class="spinner"></div>';
     else if (a.error) body = `<div class="banner danger">${esc(a.error)}</div>`;
-    else if (d) body = O.statementHtml(d, money);
+    else if (d) body = (a.per ? O.periodHtml(a.per) : '') + O.statementHtml(d, money);
     root.innerHTML = `<section class="glass card"><div class="dv-h"><div><h2>حسابي</h2><div class="sub">${esc(O.monthName(a.month))}</div></div><button type="button" class="icon-btn" id="acRefresh" title="تحديث">${TP.icon('refresh', 18)}</button></div>
       <div class="month-pick">${months.map(m => `<button type="button" class="chip ${m === a.month ? 'active' : ''}" data-month="${m}">${esc(O.monthName(m))}</button>`).join('')}</div>${body}</section>`;
     root.querySelectorAll('[data-month]').forEach(b => b.onclick = () => loadAccount(b.dataset.month));
@@ -913,6 +924,7 @@
       <div class="small">${esc(w.job.label)} الساعة <b>${esc(WK().hm12(w.job.at))}</b> — المنبه قبلها بـ ${w.lead >= 60 ? Math.round(w.lead / 6) / 10 + ' ساعة' : w.lead + ' دقيقة'}</div>
       ${pushHtml}
       ${tomorrow && evening && !ready ? `<button type="button" class="act" id="wReady">${TP.icon('check', 28)}<span><b>جاهز لبكره</b><small>اتأكد إن الموبايل مشحون والتنبيهات شغالة</small></span></button>` : ''}
+      ${!awake && w.wakeAt > TP.now() && /Android/i.test(navigator.userAgent || '') ? `<button type="button" class="btn btn-ghost btn-block" id="wPhone">${TP.icon('alarm', 18)}حطه كمان في منبه الموبايل</button>` : ''}
       ${kind() === 'line' && !awake ? `<button type="button" class="btn btn-ghost btn-block" id="wChange">${TP.icon('clock', 18)}غيّر ميعاد صحياني</button>` : ''}
     </section>`;
   }
@@ -933,6 +945,23 @@
     p.catch(() => {}).finally(() => st.inflight.delete('awake' + w.day));
     st.acks[w.day] = Object.assign({}, st.acks[w.day] || {}, { awakeAt: TP.now(), method });
     checkWake();
+  }
+  /** the phone's own alarm clock as a second alarm (agreed 26 Oct): Android opens its clock with the time filled in;
+   *  if nothing opens, the steps to set it by hand */
+  function phoneAlarm() {
+    const w = myWake(); if (!w) return;
+    const [h, m] = WK().hm(w.wakeAt).split(':').map(Number);
+    const msg = encodeURIComponent('شغل ' + (w.job.label || 'Three Pyramids'));
+    const url = `intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${h};i.android.intent.extra.alarm.MINUTES=${m};S.android.intent.extra.alarm.MESSAGE=${msg};end`;
+    let left = false;
+    const away = () => { if (document.hidden) left = true; };
+    document.addEventListener('visibilitychange', away);
+    try { location.href = url; } catch (e) { /* no clock app answered */ }
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', away);
+      if (left || document.hidden) return;
+      TP.openModal('منبه الموبايل', `<ol class="modal-text" style="padding-inline-start:20px;line-height:2"><li>افتح تطبيق <b>الساعة</b> في الموبايل</li><li>دوس <b>+</b> واعمل منبه الساعة <b>${esc(WK().hm12(w.wakeAt))}</b></li><li>دوس <b>حفظ</b></li></ol><p class="muted small">ده منبه زيادة للأمان — منبه البرنامج بيفضل شغال زي ما هو.</p>`, null, { noSave: true });
+    }, 1500);
   }
   function changeWake() {
     const w = myWake(); if (!w) return;
