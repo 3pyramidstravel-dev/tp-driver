@@ -40,6 +40,8 @@
       }
       if (!db) db = F.getFirestore(app);
       fb.loaded = true;
+      // the chairman's wording from "تعديل التطبيق" — every page follows it live; on any problem the original texts stay
+      setTimeout(() => { try { fb.onDoc('apptexts/main', d => { if (TP.i18n && TP.i18n.setOver(d && d.over)) window.dispatchEvent(new Event('tp-texts')); }, () => {}); } catch (e) { /* originals stay */ } }, 0);
       return fb;
     })();
     loading.catch(() => { loading = null; });

@@ -23,6 +23,8 @@
   /* ---------- the guest's language: chosen by the staff for this trip, or by him on the page ---------- */
   const lang = () => (I.ok(st.lang) ? st.lang : (st.doc && I.ok(st.doc.lang) ? st.doc.lang : 'ar'));
   const t = (k, v) => I.t(lang(), k, v);
+  // new wording saved in "تعديل التطبيق" shows at once
+  window.addEventListener('tp-texts', () => { try { render(); } catch (e) { /* next update redraws */ } });
   function applyLang() {
     const L = I.info(lang());
     document.documentElement.lang = L.id; document.documentElement.dir = L.dir;

@@ -689,6 +689,18 @@ service cloud.firestore {
       allow list: if false;
       allow write: if can('settings.edit');
     }
+
+    // "تعديل التطبيق" (8 Nov): the wording of the app's messages — everyone reads it (the guests' page too),
+    // only the chairman (رئيس مجلس الإدارة) writes it; never deleted, so the history inside it stays
+    function isChairman() { return isStaff() && get(personPath(me().personId)).data.get('role', '') == 'chairman'; }
+    match /apptexts/{doc} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if doc == 'main' && isChairman()
+        && request.resource.data.over is map && request.resource.data.over.size() <= 200
+        && request.resource.data.by == request.auth.uid && request.resource.data.at == request.time;
+      allow delete: if false;
+    }
     // ---- customer links ----
     // The link is c/#TOKEN. Only the customer and the staff who send it know the token (custLinks/{h});
     // lines, trips, drivers and HR only know h = sha256(token).

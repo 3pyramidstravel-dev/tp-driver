@@ -676,7 +676,7 @@
     const rider = o.rider;
     const chip = skip ? '<span class="st st-off">قال مش راكب</span>' : rider && rider.s === 'noshow' ? '<span class="st st-danger">مجاش</span>' : rider && rider.s === 'picked' ? '<span class="st st-ok">ركب</span>'
       : seen ? '<span class="st st-ok">شاف الرسالة ✓</span>' : today && t.st === 'arrived' ? '<span class="st st-warn">لسه مشافش</span>' : '';
-    const msg = o.arrived ? `أنا وصلت 🚗 ومستنيك عند ${o.where || ''}.` : 'أنا في الطريق ليك 🚗.';
+    const msg = o.arrived ? TP.i18n.t('ar', 'lineArrived', { where: o.where || '' }) : TP.i18n.t('ar', 'lineOnWay');
     // trips and airports: always English, VIP (the GM's design) — lines stay as they are
     const wa = !c.phone ? '' : o.m && TP.vipDriverMsg ? TP.waLink(c.phone, TP.vipDriverMsg(o.m, S.person, o.arrived, c)) : TP.waLink(c.phone, `${msg}\nالسواق ${S.person.name}${S.person.code ? ' — كود ' + S.person.code : ''} من Three Pyramids Travel\nتابع العربية من اللينك اللي وصلك من الشركة.`);
     const noPush = c.h && t && !t.fcm;

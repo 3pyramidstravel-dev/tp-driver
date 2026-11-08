@@ -14,7 +14,8 @@
     'line.create': 'إضافة خط', 'line.update': 'تعديل خط', 'line.delete': 'حذف خط',
     'vehicle.create': 'إضافة عربية', 'vehicle.update': 'تعديل عربية', 'vehicle.delete': 'حذف عربية',
     'price.factoryRates': 'سعر مصنع', 'price.driverRates': 'أجر سواق', 'price.airportRates': 'سعر مطار',
-    'settings.update': 'تعديل الإعدادات'
+    'settings.update': 'تعديل الإعدادات',
+    'texts.update': 'تعديل رسالة'
   };
 
   TP.views.audit = {

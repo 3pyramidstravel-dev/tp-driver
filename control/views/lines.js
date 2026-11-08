@@ -220,7 +220,7 @@
     const l = TP.q.line(lid); if (!l) return;
     const { link, reg } = await regLink(l, rotate);
     const url = regUrl(link.token), seats = seatsOf(l), open = reg.open !== false;
-    const msg = `أهلاً بحضراتكم 🌹\nده لينك تسجيل ركاب *${l.name}* — Three Pyramids Travel.\nكل واحد يفتحه، ويكتب اسمه ورقمه، ويحدد مكان بيته — وهيوصله لينك متابعة عربيته على طول:\n${url}`;
+    const msg = TP.i18n.t('ar', 'lineInvite', { line: l.name, url });
     TP.openModal('تسجيل ركاب ' + l.name, `
       <div class="banner ${seats && open ? 'info' : 'warn'}" style="margin-bottom:10px">${TP.icon('users')}<span class="grow">${!open ? 'التسجيل مقفول' : seats ? `الأماكن الفاضية: <b>${seats}</b> من ${maxCust()} — اللينك بيقفل لوحده لما تكمل` : 'العربية مكتملة — اللينك مش هيقبل حد'}</span></div>
       <p class="muted small" style="margin-bottom:8px">ابعته مرة واحدة لجروب الخط أو للأشخاص دول بس. كل واحد يتسجل بيتضاف للخط هنا لوحده (لازم الصفحة دي تكون مفتوحة على أي جهاز للإدارة)، ومكانه بيبقى نقطة ركوبه.</p>

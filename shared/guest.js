@@ -150,12 +150,13 @@
     if (m.cls === 'c') return ['*Driver Information*', '', `Your driver *${name}*${id} ${arrived ? 'has arrived and is waiting for you' + (from ? ' at ' + from : '') : 'is on his way to you'}.`,
       !arrived && from ? `*From* → ${from}` : null, !arrived && to ? `*To* → ${to}` : null, !arrived && time ? `*Pickup Time* → ${time}` : null].filter(x => x !== null).join('\n');
     const h = cairoHour(), gn = guest ? salute(guest, 'en') : '', hi = (h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening') + (gn ? ', ' + gn : '') + ',';
-    const head = ['✦ *THREE PYRAMIDS TRAVEL* ✦', '_Private Chauffeur Service_', ''];
+    const tv = (k, v) => I().t('en', k, v);
+    const head = [tv('vipHead'), ''];
     const body = arrived
-      ? [hi, `Your private chauffeur, *${name}*${id}, has arrived and is waiting for you${from ? ' at ' + from : ''} 🚗`]
-      : [hi, `Your private chauffeur, *${name}*${id}, is on his way to you 🚗`, '',
+      ? [hi, tv('vipArrived', { d: name, id, at: from ? ' at ' + from : '' })]
+      : [hi, tv('vipOnWay', { d: name, id }), '',
         from && to ? `📍 ${from} → ${to}` : to ? `📍 To ${to}` : from ? `📍 From ${from}` : null, time ? `🕕 Arriving at ${time} (Cairo time)` : null];
-    return head.concat(body.filter(x => x !== null), ['', 'We wish you a pleasant journey.']).join('\n').replace(/\n{3,}/g, '\n\n');
+    return head.concat(body.filter(x => x !== null), ['', tv('vipClose')]).join('\n').replace(/\n{3,}/g, '\n\n');
   };
 
   /** The job title in English, from the role in "الموظفين". */

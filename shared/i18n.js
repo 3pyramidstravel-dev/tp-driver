@@ -102,7 +102,15 @@
     msgArrived: ['السواق {d} وصل ومستنيك 🚗{c}.', "Hello {n},\nYour captain *{d}* has arrived and is waiting for you.{c}", "Hallo {n},\nIhr Fahrer *{d}* ist angekommen und wartet auf Sie.{c}", "Bonjour {n},\nVotre chauffeur *{d}* est arrivé et vous attend.{c}", "Здравствуйте, {n}!\nВаш водитель *{d}* приехал и ждёт вас.{c}", "{n}，您好！\n您的司机 *{d}* 已到达，正在等您。{c}", "{n}님, 안녕하세요.\n기사 {d}님이 도착하여 기다리고 있습니다.{c}"],
     carTag: [' — العربية {c}', "\nCar: {c}", "\nFahrzeug: {c}", "\nVoiture : {c}", "\nАвтомобиль: {c}", "\n车辆：{c}", "\n차량: {c}"],
     msgDelay: ['رحلتك {f} متأخرة — السواق {d} عارف وهيستناك. مش محتاج تعمل حاجة.', "Hello {n},\nYour flight {f} is delayed. Your captain *{d}* is aware and will be waiting for you on arrival.", "Hallo {n},\nIhr Flug {f} hat Verspätung. Ihr Fahrer *{d}* ist informiert und erwartet Sie bei der Ankunft.", "Bonjour {n},\nVotre vol {f} est retardé. Votre chauffeur *{d}* est informé et vous attendra à l’arrivée.", "Здравствуйте, {n}!\nВаш рейс {f} задерживается. Водитель *{d}* в курсе и встретит вас по прилёте.", "{n}，您好！\n您的航班 {f} 延误。司机 *{d}* 已知悉，将在您抵达时等候。", "{n}님, 안녕하세요.\n고객님의 항공편 {f}이(가) 지연되었습니다. 기사 {d}님이 알고 있으며 도착하실 때 기다리겠습니다."],
-    termTag: [' (صالة {t})', ' (Terminal {t})', ' (Terminal {t})', ' (Terminal {t})', ' (терминал {t})', '（{t} 号航站楼）', ' ({t} 터미널)']
+    termTag: [' (صالة {t})', ' (Terminal {t})', ' (Terminal {t})', ' (Terminal {t})', ' (терминал {t})', '（{t} 号航站楼）', ' ({t} 터미널)'],
+    // ---- added 8 Nov for "تعديل التطبيق" (the texts that were written inside the screens) — same words as before ----
+    lineInvite: ['أهلاً بحضراتكم 🌹\nده لينك تسجيل ركاب *{line}* — Three Pyramids Travel.\nكل واحد يفتحه، ويكتب اسمه ورقمه، ويحدد مكان بيته — وهيوصله لينك متابعة عربيته على طول:\n{url}'],
+    lineOnWay: ['أنا في الطريق ليك 🚗.'],
+    lineArrived: ['أنا وصلت 🚗 ومستنيك عند {where}.'],
+    vipHead: ['✦ *THREE PYRAMIDS TRAVEL* ✦\n_Private Chauffeur Service_'],
+    vipOnWay: ['Your private chauffeur, *{d}*{id}, is on his way to you 🚗'],
+    vipArrived: ['Your private chauffeur, *{d}*{id}, has arrived and is waiting for you{at} 🚗'],
+    vipClose: ['We wish you a pleasant journey.']
   };
   const STATUS = {
     Expected: 'ontime', Scheduled: 'ontime', CheckIn: 'checkin', Boarding: 'boarding', GateClosed: 'gate', Departed: 'departed', EnRoute: 'air', Approaching: 'approaching',
@@ -124,7 +132,21 @@
     unknown: ['مش معروف', 'Unknown', 'Unbekannt', 'Inconnu', 'Неизвестно', '未知', '알 수 없음']
   };
   const idx = l => Math.max(0, LANGS.findIndex(x => x.id === l));
+  // the chairman's edits ({ key: { ar, en, … } }) — only real texts for known keys are kept
+  let OV = {};
   const I = {
+    /** The original texts (read-only copy, for the "تعديل التطبيق" page). */
+    defaults: () => JSON.parse(JSON.stringify(T)),
+    /** Takes the saved edits; anything malformed is ignored, so a bad save can never stop the app. Returns true if something changed. */
+    setOver(map) {
+      const next = {};
+      if (map && typeof map === 'object') Object.keys(map).forEach(k => {
+        const v = map[k]; if (!T[k] || !v || typeof v !== 'object') return;
+        const e = {}; LANGS.forEach(L => { if (typeof v[L.id] === 'string' && v[L.id].trim() && v[L.id].length <= 2000) e[L.id] = v[L.id]; });
+        if (Object.keys(e).length) next[k] = e;
+      });
+      const changed = JSON.stringify(next) !== JSON.stringify(OV); OV = next; return changed;
+    },
     LANGS,
     ok: l => LANGS.some(x => x.id === l),
     /** how we address a customer: "أستاذ محمد" / "أستاذة هبة", "Mr. John Smith"… (sex: 'm' | 'f' | '') */
@@ -141,7 +163,10 @@
     /** text in a language, with {n}-style values */
     t(l, key, vars) {
       const row = T[key]; if (!row) return key;
-      let s = row[idx(l)] || row[0];
+      // the chairman's own wording ("تعديل التطبيق") comes first; an empty or missing one falls back to the original
+      // a one-language text (e.g. the English VIP lines) keeps its edit in the first slot
+      const o = OV[key], li = row.length === 1 ? 'ar' : LANGS[idx(l)].id, own = o && typeof o[li] === 'string' && o[li].trim() ? o[li] : '';
+      let s = own || row[idx(l)] || row[0];
       Object.keys(vars || {}).forEach(k => { s = s.split('{' + k + '}').join(String(vars[k] ?? '')); });
       return s;
     },
