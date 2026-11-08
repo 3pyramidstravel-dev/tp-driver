@@ -1387,15 +1387,19 @@ async function itLogin(ctx, st) {
   // only a refused password waits (3 wrong tries lock the account behind a picture test)
   if (st.loginWrong && st.loginFailAt && ctx.now - st.loginFailAt < 30 * 60000) throw new Error('login-wait');
   const r = await ctx.f(`${ITRACK}LoginService?method=login&username=${encodeURIComponent(u)}&passwd=${md5(pw)}&logintype=webcustomer&_t=${ctx.now}&tzOffset=7200`, { method: 'POST', headers: { 'content-type': 'application/json' } });
-  const d = await itJson(r).catch(() => ({}));
+  const raw = await r.text();
+  let d = {}; try { const m = raw.trim().match(/^[\w$]+\(([\s\S]*)\)\s*;?$/); d = JSON.parse(m ? m[1] : raw); } catch (e) { d = {}; }
+  // what came back, without any secret: the body's keys, the cookie names, the first characters of a non-JSON page
+  const diag = '[keys:' + Object.keys(d).join(',').slice(0, 120) + ' cookies:' + ((r.headers.get('set-cookie') || '').match(/(?:^|,\s*)([\w-]+)=/g) || []).map(x => x.replace(/[,=\s]/g, '')).join(',') + (Object.keys(d).length ? '' : ' body:' + raw.slice(0, 60).replace(/\s+/g, ' ')) + ']';
   // the platform hands the session back as a cookie ("token=…"), not in the reply's body
   const ck = (typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie().join('; ') : '') || r.headers.get('set-cookie') || '';
   const cm = ck.match(/(?:^|[;,\s])token=([^;,\s]+)/);
-  const tok = (cm && decodeURIComponent(cm[1])) || d.token || (d.data && d.data.token) || (d.record && d.record.token);
+  const deep = x => { if (!x || typeof x !== 'object') return ''; for (const k of Object.keys(x)) { if (/^(token|access_?token)$/i.test(k) && typeof x[k] === 'string' && x[k]) return x[k]; const v = deep(x[k]); if (v) return v; } return ''; };
+  const tok = (cm && decodeURIComponent(cm[1])) || deep(d);
   const cid = d.id || d.customerid || (d.data && (d.data.id || d.data.customerid)) || (d.record && (d.record.id || d.record.customerid));
   if (!(d.errorcode === 0 || d.errorcode === '0') || !tok) {
     await patch(ctx, 'system/itrack', { loginFailAt: ctx.now, loginWrong: d.errorcode !== undefined && String(d.errorcode) !== '0' }, ['loginFailAt', 'loginWrong']);
-    await patch(ctx, 'system/itrackInfo', { error: 'login: ' + (d.errorcode !== undefined && String(d.errorcode) !== '0' ? 'code ' + d.errorcode + (d.errormsg ? ' ' + d.errormsg : '') : 'no-token ' + r.status), errAt: ctx.now }, ['error', 'errAt']);
+    await patch(ctx, 'system/itrackInfo', { error: 'login: ' + (d.errorcode !== undefined && String(d.errorcode) !== '0' ? 'code ' + d.errorcode + (d.errormsg ? ' ' + d.errormsg : '') : 'no-token ' + r.status + ' ' + diag), errAt: ctx.now }, ['error', 'errAt']);
     throw new Error('login-failed');
   }
   st.token = tok; st.cid = String(cid || st.cid || ''); st.tokenAt = ctx.now;

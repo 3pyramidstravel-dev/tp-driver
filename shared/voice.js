@@ -29,23 +29,38 @@
     return ar.find(v => named(v) && eg(v)) || ar.find(named) || ar.find(v => eg(v) && !bad(v)) || ar.find(v => !bad(v)) || ar[0];
   }
 
-  /** Speaks a text now (any earlier one stops). force: speak even if switched off (the chairman's "اسمع"). */
+  /** Speaks a text now (any earlier one stops). force: speak even if switched off (the chairman's "اسمع").
+   *  Phones are fussy (Chrome on Android goes silent with some voices, or right after cancel()): speak
+   *  after a short pause, and if the chosen voice does not start within 1.5 s, say it again with the
+   *  phone's own Arabic voice. */
   function speak(text, opt) {
     opt = opt || {};
     const c = Object.assign(cfg(), opt.cfg || {});
     if (!SS || !text || (!c.on && !opt.force)) return false;
     try {
       if (!voices.length) loadVoices();
-      const st = STYLES[c.style] || STYLES.hype, v = pick(c.gender);
-      const u = new SpeechSynthesisUtterance(String(text).slice(0, 400));
-      u.lang = (v && v.lang) || 'ar-EG';
-      if (v) u.voice = v;
-      u.volume = 1;                                                                 // the loudest the app may ask for
-      u.rate = st.rate;
-      // a named voice already has its own pitch; an unnamed one is nudged toward the chosen gender
-      const known = v && (FEMALE.test(v.name + ' ' + v.voiceURI) || MALE.test(v.name + ' ' + v.voiceURI));
-      u.pitch = Math.max(0.5, Math.min(2, st.pitch * (known ? 1 : (c.gender === 'm' ? 0.8 : 1.2))));
-      SS.cancel(); SS.speak(u);
+      const st = STYLES[c.style] || STYLES.hype, v = pick(c.gender), msg = String(text).slice(0, 400);
+      const make = withVoice => {
+        const u = new SpeechSynthesisUtterance(msg);
+        u.lang = (withVoice && v && v.lang) || 'ar-EG';
+        if (withVoice && v) u.voice = v;
+        u.volume = 1;                                                               // the loudest the app may ask for
+        u.rate = st.rate;
+        const known = withVoice && v && (FEMALE.test(v.name + ' ' + v.voiceURI) || MALE.test(v.name + ' ' + v.voiceURI));
+        u.pitch = Math.max(0.5, Math.min(2, st.pitch * (known ? 1 : (c.gender === 'm' ? 0.8 : 1.2))));
+        return u;
+      };
+      const go = withVoice => {
+        const u = make(withVoice); let started = false;
+        u.onstart = () => { started = true; };
+        u.onerror = () => { if (!started && withVoice) go(false); };
+        try { SS.resume(); } catch (e) { /* ignore */ }
+        SS.speak(u);
+        if (withVoice) setTimeout(() => { if (!started && !SS.speaking) { try { SS.cancel(); } catch (e) { /* ignore */ } go(false); } }, 1500);
+      };
+      const busy = SS.speaking || SS.pending;
+      if (busy) SS.cancel();
+      if (busy) setTimeout(() => go(!!v), 120); else go(!!v);    // straight away inside a tap (iPhone needs that)
       return true;
     } catch (e) { return false; }
   }
@@ -53,5 +68,5 @@
   const say = (key, vars, opt) => speak(TP.i18n ? TP.i18n.t('ar', key, vars) : '', opt);
 
   TP.voice = { speak, say, pick, cfg, stop: () => { try { SS && SS.cancel(); } catch (e) { /* ignore */ } },
-    available: () => !!SS, voices: () => voices.filter(v => /^ar/i.test(v.lang || '')), STYLES };
+    available: () => !!SS, voices: () => voices.filter(v => /^ar/i.test(v.lang || '')), hasArabic: () => { if (!voices.length) loadVoices(); return voices.some(v => /^ar/i.test(v.lang || '')); }, STYLES };
 })(window.TP = window.TP || {});
