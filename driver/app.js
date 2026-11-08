@@ -1030,6 +1030,8 @@
   }
   /* the spoken encouragement (agreed 8 Nov): the chairman's words and voice, the driver's first name */
   const say = key => !!(TP.voice && S.person && TP.voice.say(key, { n: (S.person.name || '').trim().split(/\s+/)[0] || '' }));
+  // a phone with no Arabic voice reads the Arabic with a foreign voice (or stays silent) — tell the driver once
+  setTimeout(() => { try { if (TP.voice && TP.voice.available() && TP.voice.cfg().on && !TP.voice.hasArabic()) TP.toast('🔊 صوت التنبيهات مش متظبط على الموبايل ده — اطلب من الإدارة تظبطهولك (الصوت العربي)', 'warn'); } catch (e) { /* ignore */ } }, 6000);
   const soonSaid = new Set();
   /** "فاضل ربع ساعة" once per trip, 15 minutes before its time */
   function checkSoon() {

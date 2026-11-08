@@ -97,7 +97,12 @@
     } catch (e) { console.error(e); TP.toast('مقدرتش أحفظ — جرّب تاني', 'warn'); }
     finally { st.busy = false; render(); }
   }
-  const hear = (text, v) => { if (!TP.voice || !TP.voice.available()) return TP.toast('المتصفح ده مش بيدعم الصوت — جرّب من Chrome', 'warn'); TP.voice.speak(fill(text, { n: VOICE_NAME }), { force: true, cfg: v || vcfg() }); };
+  const hear = (text, v) => { if (!TP.voice || !TP.voice.available()) return TP.toast('المتصفح ده مش بيدعم الصوت — جرّب من Chrome', 'warn'); TP.voice.speak(fill(text, { n: VOICE_NAME }), { force: true, cfg: v || vcfg(), report: r => {
+      // what this phone did — so a silent or unclear voice is explained on the spot
+      if (r.ok && r.ar) return;
+      if (r.ok && !r.ar) return TP.toast('⚠️ الموبايل ده مفيهوش صوت عربي — بيقرا بصوت أجنبي فمش واضح. ثبّت الصوت العربي من إعدادات "تحويل النص إلى كلام"', 'warn');
+      TP.toast(r.ar ? '⚠️ الصوت مطلعش (' + r.err + ') — علّي صوت الوسائط وجرّب تاني' : '⚠️ الموبايل ده مفيهوش صوت عربي متسطّب — ثبّته من إعدادات "تحويل النص إلى كلام" وجرّب تاني', 'warn');
+    } }); };
   /* ---------- المراقبة الذكية: on/off + which tracker is which driver ---------- */
   const watchCfg = () => Object.assign({ on: false, map: {} }, (st.doc || {}).watch || {});
   let infoSub = null;

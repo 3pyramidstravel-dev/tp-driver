@@ -16,6 +16,7 @@
   const loadVoices = () => { try { voices = SS ? SS.getVoices() : []; } catch (e) { voices = []; } };
   if (SS) { loadVoices(); try { SS.addEventListener ? SS.addEventListener('voiceschanged', loadVoices) : (SS.onvoiceschanged = loadVoices); } catch (e) { /* old browser */ } }
 
+  const hasAr = () => { if (!voices.length) loadVoices(); return voices.some(v => /^ar/i.test(v.lang || '')); };
   const cfg = () => Object.assign({ on: true, gender: 'f', style: 'hype' }, (TP.appTexts && TP.appTexts.voice) || {});
 
   /** The best Arabic voice for the chosen gender (Egyptian first); null → the phone's default Arabic. */
@@ -52,11 +53,11 @@
       };
       const go = withVoice => {
         const u = make(withVoice); let started = false;
-        u.onstart = () => { started = true; };
-        u.onerror = () => { if (!started && withVoice) go(false); };
+        u.onstart = () => { started = true; if (opt.report) opt.report({ ok: true, voice: (withVoice && v && v.name) || '', ar: hasAr() }); };
+        u.onerror = e => { if (!started && withVoice) return go(false); if (!started && opt.report) opt.report({ ok: false, err: (e && e.error) || 'error', ar: hasAr() }); };
         try { SS.resume(); } catch (e) { /* ignore */ }
         SS.speak(u);
-        if (withVoice) setTimeout(() => { if (!started && !SS.speaking) { try { SS.cancel(); } catch (e) { /* ignore */ } go(false); } }, 1500);
+        setTimeout(() => { if (started || SS.speaking) return; if (withVoice) { try { SS.cancel(); } catch (e) { /* ignore */ } go(false); } else if (opt.report) opt.report({ ok: false, err: 'silent', ar: hasAr() }); }, withVoice ? 1500 : 3000);
       };
       const busy = SS.speaking || SS.pending;
       if (busy) SS.cancel();
