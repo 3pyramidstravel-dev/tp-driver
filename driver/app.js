@@ -186,14 +186,14 @@
       } else if (s.key === 'fe_dep') {
         fire = d > rad + margin;
       }
-      if (fire) recordLine(line, en.day, s, true);
+      if (fire && autoOn('lines')) recordLine(line, en.day, s, true);   // the chairman may switch this to the driver's own press (8 Nov)
     });
     // trips: reaching the customer and the destination are recorded by themselves too
     allMissions().filter(m => m.status === 'active').forEach(m => {
       const steps = O.missionSteps(m), next = steps[O.nextIndex(steps, m.events || {})];
       // "اتحركت بالعميل" forgotten: reaching the destination still records "وصلت الوجهة" by itself
       const tgt = next && next.key === 'depart' ? steps.find(x => x.key === 'arrive') : next;
-      if (tgt && (tgt.key === 'pickup' || tgt.key === 'arrive') && tgt.loc && isFinite(tgt.loc.lat) && O.dist(fix, tgt.loc) <= rad) recordMission(m, tgt, true);
+      if (autoOn('trips') && tgt && (tgt.key === 'pickup' || tgt.key === 'arrive') && tgt.loc && isFinite(tgt.loc.lat) && O.dist(fix, tgt.loc) <= rad) recordMission(m, tgt, true);
     });
   }
   function updateDistances() {
@@ -222,6 +222,8 @@
   }
   const stepsOf = (line, day, ev) => O.steps(line, st.companies[line.factoryId], skipSet(line, day), ev);
 
+  /** "التسجيل التلقائي" (تعديل التطبيق, 8 Nov): GPS records by itself unless the chairman chose "من خلال السواق" */
+  const autoOn = kind => { const a = (TP.appTexts && TP.appTexts.auto) || {}; return a[kind] !== false; };
   async function recordLine(line, day, step, auto) {
     const id = O.dayId(line.id, day), flight = id + '/' + step.key;
     const doc = getDay(id);
