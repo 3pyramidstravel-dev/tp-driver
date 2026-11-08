@@ -110,7 +110,13 @@
     vipHead: ['✦ *THREE PYRAMIDS TRAVEL* ✦\n_Private Chauffeur Service_'],
     vipOnWay: ['Your private chauffeur, *{d}*{id}, is on his way to you 🚗'],
     vipArrived: ['Your private chauffeur, *{d}*{id}, has arrived and is waiting for you{at} 🚗'],
-    vipClose: ['We wish you a pleasant journey.']
+    vipClose: ['We wish you a pleasant journey.'],
+    // the driver's spoken encouragement (agreed 8 Nov) — {n} is his first name
+    vNew: ['يا كابتن {n}، عندك مشوار جديد. اقبل المشوار من فضلك.'],
+    vSoon: ['يا كابتن {n}، فاضل ربع ساعة على ميعاد المشوار. يلا بينا.'],
+    vAccepted: ['تمام يا بطل، ربنا معاك.'],
+    vDone: ['عاش يا كابتن {n}، شغل محترم. تسلم إيدك.'],
+    vMorning: ['صباح الخير يا كابتن {n}، يوم موفق إن شاء الله.']
   };
   const STATUS = {
     Expected: 'ontime', Scheduled: 'ontime', CheckIn: 'checkin', Boarding: 'boarding', GateClosed: 'gate', Departed: 'departed', EnRoute: 'air', Approaching: 'approaching',

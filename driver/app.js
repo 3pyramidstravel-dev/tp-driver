@@ -370,6 +370,7 @@
       const p = TP.fb.update('missions/' + m.id, patch);
       track(p, (auto ? 'اتسجل تلقائي: ' : 'اتسجل: ') + step.label);
       onMissionStep(m, step);
+      if (step.key === 'done' && !auto) say('vDone');                                  // "عاش يا كابتن" (agreed 8 Nov)
       // the messages: pressed by hand, or "وصلت الوجهة" recorded by GPS (agreed 18 Oct — the group hears it either way); later if driving
       if ((!auto && ['start', 'pickup'].includes(step.key)) || step.key === 'arrive') { if (moving()) offerOut({ kind: 'trip', missionId: m.id, stepKey: step.key }, true); else tellCustomers(m, step); }
       if (!auto && ['depart', 'done'].includes(step.key)) tellCustomers(m, step);      // "we are on our way" / "mission completed" (agreed)
@@ -942,6 +943,7 @@
     stopRing();
     const p = TP.fb.set('wakeAcks/' + w.day + '_' + me(), { driverId: me(), day: w.day, awakeAt: TP.now(), awakeSv: TP.fb.ts(), method }, true);
     track(p, method === 'pressed' ? 'صباح الفل ☀️ يوم موفق' : '');
+    if (method === 'pressed') say('vMorning');
     p.catch(() => {}).finally(() => st.inflight.delete('awake' + w.day));
     st.acks[w.day] = Object.assign({}, st.acks[w.day] || {}, { awakeAt: TP.now(), method });
     checkWake();
@@ -1021,6 +1023,18 @@
     return allMissions().filter(m => m.status === 'assigned' && !m.ack && !acked.has(m.id) && m.driverId === me() && m.day >= today)
       .sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || '')));
   }
+  /* the spoken encouragement (agreed 8 Nov): the chairman's words and voice, the driver's first name */
+  const say = key => !!(TP.voice && S.person && TP.voice.say(key, { n: (S.person.name || '').trim().split(/\s+/)[0] || '' }));
+  const soonSaid = new Set();
+  /** "فاضل ربع ساعة" once per trip, 15 minutes before its time */
+  function checkSoon() {
+    const now = TP.now(), today = TP.dayKey(now);
+    allMissions().forEach(m => {
+      if (m.day !== today || !/^\d{2}:\d{2}$/.test(m.time || '') || soonSaid.has(m.id) || m.status === 'done' || m.status === 'cancelled' || (m.events && m.events.start)) return;
+      const left = O.cairoMs(m.day, m.time) - now;
+      if (left <= 15 * 60000 && left > 13 * 60000) { soonSaid.add(m.id); say('vSoon'); }
+    });
+  }
   function stopNewRing() { clearInterval(newTimer); newTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) { /* ignore */ } }
   function checkNew() {
     const ov = TP.$('#newOv'); if (!ov || !S.ready || !S.person) return;
@@ -1036,12 +1050,14 @@
       ov.hidden = false;
       TP.$('#ackBtn', ov).onclick = () => ackNew(list);
     }
-    if (!newTimer) { beep(); newTimer = setInterval(beep, 2000); }
+    // the ring + the spoken call by name every 12 seconds until he presses "استلمت" (agreed 8 Nov)
+    if (!newTimer) { let i = 0; const spoke = say('vNew'); if (!spoke) beep(); newTimer = setInterval(() => { i++; if (i % 6 === 0 && say('vNew')) return; if (!spoke || i % 6 > 2) beep(); }, 2000); }
   }
   function ackNew(list) {
     const ov = TP.$('#newOv');
     list.forEach(m => acked.add(m.id));
     stopNewRing(); ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = '';
+    say('vAccepted');
     track(Promise.all(list.map(m => TP.fb.update('missions/' + m.id, { ack: { at: TP.now(), sv: TP.fb.ts() }, updatedAt: TP.fb.ts() }))), list.length > 1 ? 'استلمت المشاوير ✓' : 'استلمت المشوار ✓');
     st.tab = 'missions'; render();
   }
@@ -1054,7 +1070,7 @@
   });
   document.addEventListener('tp:push-state', () => render());
   document.addEventListener('tp:install', () => render());
-  setInterval(() => { if (S.ready) { checkWake(); checkNew(); } }, 10000);
+  setInterval(() => { if (S.ready) { checkWake(); checkNew(); checkSoon(); } }, 10000);
 
   /* ---------- SOS & reports ---------- */
   function openSos() {
