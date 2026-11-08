@@ -1384,14 +1384,18 @@ const itJson = async r => { const t = (await r.text()).trim(); const m = t.match
 async function itLogin(ctx, st) {
   const u = ctx.env.ITRACK_USER, pw = ctx.env.ITRACK_PASS;
   if (!u || !pw) throw new Error('no-login');
-  if (st.loginFailAt && ctx.now - st.loginFailAt < 30 * 60000) throw new Error('login-wait');
+  // only a refused password waits (3 wrong tries lock the account behind a picture test)
+  if (st.loginWrong && st.loginFailAt && ctx.now - st.loginFailAt < 30 * 60000) throw new Error('login-wait');
   const r = await ctx.f(`${ITRACK}LoginService?method=login&username=${encodeURIComponent(u)}&passwd=${md5(pw)}&logintype=webcustomer&_t=${ctx.now}&tzOffset=7200`, { method: 'POST', headers: { 'content-type': 'application/json' } });
   const d = await itJson(r).catch(() => ({}));
-  const tok = d.token || (d.data && d.data.token) || (d.record && d.record.token);
+  // the platform hands the session back as a cookie ("token=…"), not in the reply's body
+  const ck = (typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie().join('; ') : '') || r.headers.get('set-cookie') || '';
+  const cm = ck.match(/(?:^|[;,\s])token=([^;,\s]+)/);
+  const tok = (cm && decodeURIComponent(cm[1])) || d.token || (d.data && d.data.token) || (d.record && d.record.token);
   const cid = d.id || d.customerid || (d.data && (d.data.id || d.data.customerid)) || (d.record && (d.record.id || d.record.customerid));
   if (!(d.errorcode === 0 || d.errorcode === '0') || !tok) {
-    await patch(ctx, 'system/itrack', { loginFailAt: ctx.now }, ['loginFailAt']);
-    await patch(ctx, 'system/itrackInfo', { error: 'login: ' + (d.errormsg || d.errorcode || r.status), errAt: ctx.now }, ['error', 'errAt']);
+    await patch(ctx, 'system/itrack', { loginFailAt: ctx.now, loginWrong: d.errorcode !== undefined && String(d.errorcode) !== '0' }, ['loginFailAt', 'loginWrong']);
+    await patch(ctx, 'system/itrackInfo', { error: 'login: ' + (d.errorcode !== undefined && String(d.errorcode) !== '0' ? 'code ' + d.errorcode + (d.errormsg ? ' ' + d.errormsg : '') : 'no-token ' + r.status), errAt: ctx.now }, ['error', 'errAt']);
     throw new Error('login-failed');
   }
   st.token = tok; st.cid = String(cid || st.cid || ''); st.tokenAt = ctx.now;

@@ -117,7 +117,7 @@
     const w = watchCfg(), info = st.info || {}, devs = info.devices || {}, drivers = TP.q.drivers().filter(d => d.active !== false);
     const seen = info.seenAt ? TP.ago(info.seenAt) : '';
     const health = !w.on ? '<span class="muted">مقفولة</span>'
-      : info.error ? `<span style="color:var(--danger,#b3261e)">⚠️ ${esc(/لسه متحطش/.test(info.error) ? 'لسه متحطش اسم الدخول والباسورد بتوع iTrack' : /^login/.test(info.error) ? 'اسم الدخول أو الباسورد بتوع iTrack غلط' : info.error)}</span>`
+      : info.error ? `<span style="color:var(--danger,#b3261e)">⚠️ ${esc(/لسه متحطش/.test(info.error) ? 'لسه متحطش اسم الدخول والباسورد بتوع iTrack' : /^login: code/.test(info.error) ? 'اسم الدخول أو الباسورد بتوع iTrack غلط (' + info.error.slice(7) + ')' : 'مشكلة في الدخول على iTrack (' + info.error.slice(0, 80) + ')')}</span>`
       : seen ? `<span style="color:var(--ok,#1e7b4f)">✓ شغالة — آخر قراءة ${esc(seen)} · ${info.cars || 0} عربية</span>` : '<span class="muted">مستني أول قراءة (خلال دقيقتين)…</span>';
     const ids = Object.keys(devs);
     return `<div class="gm"><div class="gm-h"><b>المراقبة الذكية</b></div>
