@@ -62,6 +62,8 @@
     on(TP.fb.onCol('dayOff', { where: [['day', '>=', today]] }, l => { st.dayOff = l; queue(); }, warn('dayOff')));
     st.acks = {};
     [today, O.addDays(today, 1)].forEach(d => on(TP.fb.onCol('wakeAcks', { where: [['driverId', '==', me()], ['day', '==', d]] }, l => { st.acks[d] = l[0] || null; queue(); }, warn('wakeAcks'))));
+    on(TP.fb.onCol('watch', { where: [['driverId', '==', me()], ['state', '==', 'asked']] }, l => { st.watchAsk = l; checkWatch(); }, warn('watch')));
+    on(TP.fb.onDoc('watchAcks/' + me(), d => { st.watchAck = d || null; st.watchAckLoaded = true; checkWatch(); }, warn('watchAck')));
     on(TP.fb.onCol('incidents', { where: [['driverId', '==', me()], ['status', '==', 'open']] }, l => { st.myIncidents = l; queue(); }, warn('incidents')));
     on(TP.fb.onCol('expenses', { where: [['driverId', '==', me()], ['month', '==', M]] }, l => { st.myExpenses = l.sort((a, b) => (b.at || 0) - (a.at || 0)); queue(); }, warn('expenses')));
   }
@@ -530,6 +532,7 @@
     renderStatus();
     renderOut();
     checkNew();
+    checkWatch();
     TP.$$('.dv-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === st.tab));
     // "عربيتي" (trip order, custody, fuel, salary) only for a driver who has it
     const car = !!(TP.dvCar && TP.dvCar.available()), carBtn = TP.$('.dv-nav [data-tab="car"]');
@@ -1037,6 +1040,43 @@
       if (left <= 15 * 60000 && left > 13 * 60000) { soonSaid.add(m.id); say('vSoon'); }
     });
   }
+  /* ---------- المراقبة الذكية (agreed 9 Nov) ----------
+     the fixed notice, the one-time "فهمت", and the "بلّغت الشركة إني هتحرك" screen when the cloud saw
+     the car move outside the work order (the managers get the report pressed or not) */
+  let watchTimer = null;
+  const watchOn = () => !!(TP.appTexts && TP.appTexts.watch && TP.appTexts.watch.on === true);
+  function checkWatch() {
+    const bar = TP.$('#watchBar'), ov = TP.$('#watchOv'); if (!bar || !ov || !S.ready || !S.person) return;
+    const on = watchOn(); bar.hidden = !on;
+    const ask = on ? (st.watchAsk || []).sort((a, b) => (b.at || 0) - (a.at || 0))[0] : null;
+    const intro = on && st.watchAckLoaded && !st.watchAck && !st.watchAckSent;
+    const key = ask ? 'ask:' + ask.id : intro ? 'intro' : '';
+    if (!key) { if (!ov.hidden) { ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = ''; } clearInterval(watchTimer); watchTimer = null; return; }
+    if (ov.dataset.key === key && !ov.hidden) return;
+    ov.dataset.key = key; clearInterval(watchTimer); watchTimer = null;
+    if (ask) {
+      ov.innerHTML = `<div class="sun">🛰️</div><h1>نظام المراقبة الذكي</h1>
+        <p>العربية بتتحرك دلوقتي بره أمر الشغل.<br>بلّغ الشركة حالاً — الإدارة هتعرف في الحالتين.</p>
+        <button type="button" class="big" id="watchBtn">بلّغت الشركة إني هتحرك</button>`;
+      ov.hidden = false;
+      say('vWatch'); watchTimer = setInterval(() => say('vWatch'), 15000);
+      TP.$('#watchBtn', ov).onclick = () => {
+        clearInterval(watchTimer); watchTimer = null; ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = '';
+        st.watchAsk = (st.watchAsk || []).filter(x => x.id !== ask.id);
+        track(TP.fb.update('watch/' + ask.id, { state: 'acked', ackAt: TP.now() }), 'اتبلّغت الإدارة ✓');
+      };
+    } else {
+      ov.innerHTML = `<div class="sun">🛰️</div><h1>المراقبة الذكية</h1>
+        <p>عربيتك دلوقتي تحت المراقبة الذكية 24 ساعة.<br>أي حركة بره أمر الشغل بتتسجل وبتوصل للإدارة على طول.<br><b>ممنوع قفل التطبيق.</b></p>
+        <button type="button" class="big" id="watchOk">فهمت</button>`;
+      ov.hidden = false; say('vWatchIntro');
+      TP.$('#watchOk', ov).onclick = () => {
+        st.watchAckSent = true; ov.hidden = true; ov.innerHTML = ''; ov.dataset.key = '';
+        track(TP.fb.set('watchAcks/' + me(), { at: TP.now(), sv: TP.fb.ts() }), 'تمام ✓');
+      };
+    }
+  }
+  window.addEventListener('tp-texts', () => checkWatch());
   function stopNewRing() { clearInterval(newTimer); newTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) { /* ignore */ } }
   function checkNew() {
     const ov = TP.$('#newOv'); if (!ov || !S.ready || !S.person) return;
@@ -1068,6 +1108,7 @@
     const d = (e.detail && e.detail.data) || {};
     if (d.type === 'wake') checkWake(true);
     else if (d.type === 'mission') checkNew();
+    else if (d.type === 'watch') checkWatch();
     else if (e.detail && e.detail.notification && e.detail.notification.title) TP.toast(e.detail.notification.title);
   });
   document.addEventListener('tp:push-state', () => render());

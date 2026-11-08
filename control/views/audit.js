@@ -15,7 +15,8 @@
     'vehicle.create': 'إضافة عربية', 'vehicle.update': 'تعديل عربية', 'vehicle.delete': 'حذف عربية',
     'price.factoryRates': 'سعر مصنع', 'price.driverRates': 'أجر سواق', 'price.airportRates': 'سعر مطار',
     'settings.update': 'تعديل الإعدادات',
-    'texts.update': 'تعديل رسالة'
+    'texts.update': 'تعديل رسالة',
+    'watch.decide': 'قرار محضر'
   };
 
   TP.views.audit = {

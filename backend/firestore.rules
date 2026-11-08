@@ -657,6 +657,26 @@ service cloud.firestore {
         && (!('readyAt' in changed()) || (!('readyAt' in resource.data) && nearNow(request.resource.data.readyAt) && request.resource.data.readySv == request.time))
         && (!('awakeAt' in changed()) || (!('awakeAt' in resource.data) && nearNow(request.resource.data.awakeAt) && awakeDayOk(request.resource.data) && request.resource.data.awakeSv == request.time));
     }
+    // المراقبة الذكية (9 Nov): the tracker session is the cloud alarm's alone; its status is for the managers
+    match /system/itrack { allow read, write: if false; }
+    match /system/itrackInfo {
+      allow read: if can('tracking.view') || isChairman();
+      allow write: if false;
+    }
+    // the cases ("المحاضر"): the alarm opens them; the driver presses "بلّغت" on his own; the managers decide
+    match /watch/{wid} {
+      allow read: if can('tracking.view') || isChairman() || (isDriver() && resource.data.driverId == me().personId);
+      allow create, delete: if false;
+      allow update: if (isDriver() && resource.data.driverId == me().personId && resource.data.state == 'asked'
+            && request.resource.data.state == 'acked' && changed().hasOnly(['state', 'ackAt']))
+        || ((can('tracking.view') || isChairman()) && changed().hasOnly(['decision', 'decisionNote', 'decidedBy', 'decidedAt']));
+    }
+    // the driver's "فهمت" to the monitoring notice (once, his own)
+    match /watchAcks/{pid} {
+      allow read: if can('tracking.view') || isChairman() || (isDriver() && pid == me().personId);
+      allow create: if isDriver() && pid == me().personId && request.resource.data.keys().hasOnly(['at', 'sv']) && request.resource.data.sv == request.time;
+      allow update, delete: if false;
+    }
     match /system/wakeWatch {
       allow read: if can('wake.supervise') || can('tracking.view');
       allow write: if false;

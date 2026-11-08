@@ -554,7 +554,10 @@
     vSoon: ['يا كابتن {n}، فاضل ربع ساعة على ميعاد المشوار. يلا بينا.'],
     vAccepted: ['تمام يا بطل، ربنا معاك.'],
     vDone: ['عاش يا كابتن {n}، شغل محترم. تسلم إيدك.'],
-    vMorning: ['صباح الخير يا كابتن {n}، يوم موفق إن شاء الله.']
+    vMorning: ['صباح الخير يا كابتن {n}، يوم موفق إن شاء الله.'],
+    // المراقبة الذكية (agreed 9 Nov)
+    vWatch: ['يا كابتن {n}، نظام المراقبة الذكي رصد إن العربية بتتحرك دلوقتي بره أمر الشغل. دوس على الزرار وبلّغ الشركة، لأني هبلّغ الإدارة.'],
+    vWatchIntro: ['يا كابتن {n}، عربيتك دلوقتي تحت المراقبة الذكية أربعة وعشرين ساعة. أي حركة بره أمر الشغل بتتسجل وبتوصل للإدارة على طول. ممنوع قفل التطبيق.']
   };
   const STATUS = {
     Expected: 'ontime', Scheduled: 'ontime', CheckIn: 'checkin', Boarding: 'boarding', GateClosed: 'gate', Departed: 'departed', EnRoute: 'air', Approaching: 'approaching',
@@ -763,7 +766,7 @@ async function batchGet(ctx, paths) {
    Each person who installed the ntfy app has a secret topic (ntfy/{personId}). An urgent push to one of his
    phones also goes to his topic at the highest priority — the ntfy app rings like an alarm, even on silent. */
 const NTFY_URL = 'https://ntfy.sh/';
-const LOUD = new Set(['wake', 'sup', 'mgmt', 'mission', 'noack', 'night']);
+const LOUD = new Set(['wake', 'sup', 'mgmt', 'mission', 'noack', 'night', 'watch']);
 let ntfyCache = null;
 async function ntfyMap(ctx) {
   if (ctx.ntfy) return ctx.ntfy;
@@ -997,7 +1000,7 @@ async function writePlan(ctx, day, plan, prev, s) {
 async function recipients(ctx) {
   if (ctx.rcpt) return ctx.rcpt;
   const [people, devices] = await Promise.all([
-    query(ctx, 'people', ['name', 'type', 'role', 'perms', 'active', 'vehicleId', 'licenseExpiry']),
+    query(ctx, 'people', ['name', 'code', 'type', 'role', 'perms', 'active', 'vehicleId', 'licenseExpiry']),
     query(ctx, 'devices', ['personId', 'fcm', 'active'])
   ]);
   const tokens = pid => devices.filter(d => d.personId === pid && d.active === true && d.fcm).map(d => d.fcm);
@@ -1340,6 +1343,150 @@ async function usageJob(ctx) {
 }
 
 /* ---------------- one run (every minute) ---------------- */
+
+/* ======================================================================
+   المراقبة الذكية (agreed 9 Nov): the cars' own trackers (iTrack) are read
+   every 2 minutes. A car that moves outside its driver's work today
+   (no trip, no line in its hours) → the driver is asked by voice to press
+   "بلّغت الشركة إني هتحرك"; pressed or not within 5 minutes, a محضر goes to
+   the managers. On/off and which tracker is which driver: "تعديل التطبيق".
+   The login lives in the Worker's secrets ITRACK_USER / ITRACK_PASS (set by
+   the chairman himself). Nothing here can stop the rest of the alarm.
+   ====================================================================== */
+const ITRACK = 'https://www.itrack.top/';
+const WATCH_ASK_MIN = 5;          // minutes the driver has to press
+const WATCH_QUIET_MIN = 60;       // one case per car per hour at most
+/* a small MD5 (the platform logs in with the password's MD5) */
+function md5(str) {
+  const b = new TextEncoder().encode(str), n = ((b.length + 8) >> 6) + 1, w = new Uint32Array(n * 16);
+  for (let i = 0; i < b.length; i++) w[i >> 2] |= b[i] << ((i % 4) * 8);
+  w[b.length >> 2] |= 0x80 << ((b.length % 4) * 8); w[n * 16 - 2] = b.length * 8;
+  const K = [], S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
+  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  for (let o = 0; o < w.length; o += 16) {
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; } else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; } else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      const t = D; D = C; C = B;
+      const x = (A + F + K[i] + w[o + g]) >>> 0;
+      B = (B + ((x << S[i]) | (x >>> (32 - S[i])))) >>> 0; A = t;
+    }
+    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+  }
+  return [a0, b0, c0, d0].map(v => Array.from({ length: 4 }, (_, i) => ((v >>> (i * 8)) & 255).toString(16).padStart(2, '0')).join('')).join('');
+}
+const km = (a, b) => { const R = 6371, r = x => x * Math.PI / 180, dLa = r(b.lat - a.lat), dLo = r(b.lng - a.lng); const h = Math.sin(dLa / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+const itJson = async r => { const t = (await r.text()).trim(); const m = t.match(/^[\w$]+\(([\s\S]*)\)\s*;?$/); return JSON.parse(m ? m[1] : t); };
+/** The platform's session: kept in system/itrack; a failed login waits 30 minutes (3 wrong tries lock it with a picture test). */
+async function itLogin(ctx, st) {
+  const u = ctx.env.ITRACK_USER, pw = ctx.env.ITRACK_PASS;
+  if (!u || !pw) throw new Error('no-login');
+  if (st.loginFailAt && ctx.now - st.loginFailAt < 30 * 60000) throw new Error('login-wait');
+  const r = await ctx.f(`${ITRACK}LoginService?method=login&username=${encodeURIComponent(u)}&passwd=${md5(pw)}&logintype=webcustomer&_t=${ctx.now}&tzOffset=7200`, { method: 'POST', headers: { 'content-type': 'application/json' } });
+  const d = await itJson(r).catch(() => ({}));
+  const tok = d.token || (d.data && d.data.token) || (d.record && d.record.token);
+  const cid = d.id || d.customerid || (d.data && (d.data.id || d.data.customerid)) || (d.record && (d.record.id || d.record.customerid));
+  if (!(d.errorcode === 0 || d.errorcode === '0') || !tok) {
+    await patch(ctx, 'system/itrack', { loginFailAt: ctx.now }, ['loginFailAt']);
+    await patch(ctx, 'system/itrackInfo', { error: 'login: ' + (d.errormsg || d.errorcode || r.status), errAt: ctx.now }, ['error', 'errAt']);
+    throw new Error('login-failed');
+  }
+  st.token = tok; st.cid = String(cid || st.cid || ''); st.tokenAt = ctx.now;
+  await patch(ctx, 'system/itrack', { token: tok, cid: st.cid, tokenAt: ctx.now, loginFailAt: 0 }, ['token', 'cid', 'tokenAt', 'loginFailAt']);
+}
+async function itGet(ctx, st, path) {
+  for (let i = 0; i < 2; i++) {
+    if (!st.token) await itLogin(ctx, st);
+    const r = await ctx.f(`${ITRACK}${path}&customerid=${st.cid}&token=${encodeURIComponent(st.token)}&_t=${ctx.now}`);
+    const d = await itJson(r);
+    if (String(d.errorcode) === '10002') { st.token = ''; continue; }      // the session ended → log in again once
+    return d;
+  }
+  throw new Error('token');
+}
+/** The car's driver works now? (a trip of today in its hours, or one of his lines in its hours) */
+async function atWork(ctx, pid) {
+  const now = ctx.now, today = W.dayKey(now), y = W.addDays(today, -1);
+  const eq = (f, v) => ({ fieldFilter: { field: { fieldPath: f }, op: 'EQUAL', value: { stringValue: String(v) } } });
+  const and = (...f) => ({ compositeFilter: { op: 'AND', filters: f } });
+  const ms = await query(ctx, 'missions', ['day', 'time', 'status'], and(eq('driverId', pid), inDays([y, today])), 20);
+  for (const m of ms) {
+    if (m.status === 'active') return true;
+    if (m.status !== 'assigned' || m.day !== today) continue;
+    const t = /^\d{2}:\d{2}$/.test(m.time || '') ? W.cairoMs(m.day, m.time) : 0;
+    if (!t || (now >= t - 3 * 3600000 && now <= t + 8 * 3600000)) return true;   // no time written → his day's work
+  }
+  const ls = (await query(ctx, 'lines', ['morningTime', 'eveningTime', 'active', 'subDriverId', 'subDay'], eq('driverId', pid), 10))
+    .concat((await query(ctx, 'lines', ['morningTime', 'eveningTime', 'active', 'subDay'], eq('subDriverId', pid), 10)).filter(l => l.subDay === today));
+  for (const l of ls) {
+    if (l.active === false) continue;
+    if (l.subDriverId && l.subDriverId !== pid && l.subDay === today) continue;        // someone else drives it today
+    const win = (hm, before, after) => /^\d{2}:\d{2}$/.test(hm || '') && now >= W.cairoMs(today, hm) - before && now <= W.cairoMs(today, hm) + after;
+    if (win(l.morningTime, 2.5 * 3600000, 3 * 3600000) || win(l.eveningTime, 1.5 * 3600000, 3.5 * 3600000)) return true;
+  }
+  return false;
+}
+export async function watchJob(ctx) {
+  const cfgDoc = (await getDoc(ctx, 'apptexts/main')) || {}, cfg = cfgDoc.watch || {};
+  if (cfg.on !== true) return;
+  // system/itrack keeps the session (nobody reads it); system/itrackInfo is what the Control Tower shows
+  const st = (await getDoc(ctx, 'system/itrack')) || {}, info = (await getDoc(ctx, 'system/itrackInfo')) || {};
+  const iu = {}, im = [];
+  const iset = (k, v) => { iu[k] = v; im.push(k); };
+  const map = cfg.map || {}, open = st.open || {}, last = st.last || {};
+  const upd = {}, mask = [];
+  const set = (k, v) => { upd[k] = v; mask.push(k); };
+  // 1) the devices' names (every 6 hours) — for "تعديل التطبيق" to match each tracker to a driver
+  if (!info.devAt || ctx.now - info.devAt > 6 * 3600000) {
+    const d = await itGet(ctx, st, 'LocationService?method=customerDeviceAndGpsone&maptype=osm&lang=en-us');
+    const list = {}, walk = x => { if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === 'object') { const id = x.deviceid || x.deviceId; const nm = x.devicename || x.deviceName || x.name; if (id && nm && typeof nm === 'string') list[String(id)] = nm.slice(0, 60); Object.values(x).forEach(v => { if (v && typeof v === 'object') walk(v); }); } };
+    walk(d);
+    if (Object.keys(list).length) { iset('devices', list); iset('devAt', ctx.now); info.devices = list; }
+  }
+  // 2) where every car is now
+  const mon = await itGet(ctx, st, 'LocationService?method=monitor&maptype=osm&version=2&lang=en-us&fromweb=1&timezone=7200');
+  const recs = (mon && mon.records) || [], R = await recipients(ctx), newLast = {};
+  for (const r of recs) {
+    const id = String(r.deviceid || ''); if (!id) continue;
+    const p = { lat: Number(r.lat), lng: Number(r.lng), sp: Number(r.speed) || 0, acc: Number(r.accstatus) || 0, gt: Number(r.gpstime) || 0 };
+    newLast[id] = p;
+    const prev = last[id], moved = prev && isFinite(prev.lat) ? km(prev, p) : 0;
+    const moving = p.gt > ctx.now - 10 * 60000 && (p.sp >= 10 || (p.acc === 1 && moved >= 0.3));
+    const pid = map[id];
+    if (!moving || !pid || ctx.full) continue;
+    if (open[id] && ctx.now - open[id] < WATCH_QUIET_MIN * 60000) continue;
+    if (await atWork(ctx, pid)) continue;
+    // 3) a movement outside the work order → ask the driver, the report follows
+    const drv = R.people.find(x => x.id === pid) || {}, cid = 'w' + ctx.now.toString(36) + id.slice(-4);
+    const fields = { driverId: pid, driverName: drv.name || '', code: drv.code || '', deviceId: id, car: (info.devices || {})[id] || '', lat: p.lat, lng: p.lng, speed: p.sp,
+      at: ctx.now, dueAt: ctx.now + WATCH_ASK_MIN * 60000, state: 'asked', day: W.dayKey(ctx.now), decision: '' };
+    await patch(ctx, 'watch/' + cid, fields, Object.keys(fields));
+    open[id] = ctx.now; set('open', open);
+    await tell(ctx, [pid], 'driver/', { type: 'watch', tag: 'watch-' + cid, loud: true,
+      title: '🛰️ نظام المراقبة الذكي', body: 'العربية بتتحرك بره أمر الشغل — افتح التطبيق ودوس "بلّغت الشركة إني هتحرك". ممنوع قفل التطبيق.' });
+  }
+  set('last', newLast);
+  await patch(ctx, 'system/itrack', upd, mask);
+  iset('seenAt', ctx.now); iset('cars', recs.length); iset('error', '');
+  await patch(ctx, 'system/itrackInfo', iu, im);
+  // 4) the reports: pressed, or not pressed in time
+  const due = await query(ctx, 'watch', ['driverId', 'driverName', 'code', 'car', 'state', 'dueAt', 'ackAt', 'lat', 'lng', 'at'], { fieldFilter: { field: { fieldPath: 'state' }, op: 'IN', value: { arrayValue: { values: [{ stringValue: 'asked' }, { stringValue: 'acked' }] } } } }, 20);
+  const top = R.people.filter(x => x.type === 'staff' && x.role === 'chairman').map(x => x.id);
+  for (const w of due) {
+    if (ctx.full) break;
+    const late = w.state === 'asked' && ctx.now >= w.dueAt;
+    if (w.state !== 'acked' && !late) continue;
+    const who = (w.code ? w.code + ' ' : '') + (w.driverName || 'سواق');
+    const ok = await tell(ctx, R.ops.concat(R.gm, top), 'control/#/watch', { type: 'mgmt', tag: 'watchr-' + w.id, loud: late,
+      title: late ? `🚨 محضر: ${who} اتحرك بره أمر الشغل ومبلّغش` : `🛰️ محضر: ${who} اتحرك بره أمر الشغل وبلّغ`,
+      body: `${w.car || ''} — الساعة ${W.hm12(w.at)}. افتح المحاضر للخريطة والقرار.` });
+    if (ok) await patch(ctx, 'watch/' + w.id, { state: late ? 'noreply' : 'reported', reportedAt: ctx.now }, ['state', 'reportedAt'], true);
+  }
+}
+
 export async function run(env, now, f) {
   const raw = f || ((u, o) => fetch(u, o));
   const ctx = { env, now, reads: 0, writes: 0, sent: 0, calls: 0, full: false, log: [], pushed: [] };
@@ -1417,6 +1564,15 @@ export async function run(env, now, f) {
   if (!ctx.full) { try { await customerAnswers(ctx); await customerPushes(ctx); } catch (e) { ctx.log.push('customers: ' + e.message); } }
   // 2c) a new trip the driver did not take yet: ring again (every minute, up to 10 minutes), then tell the managers
   if (!ctx.full && ctx.calls <= REQ_LIMIT - 8) { try { await ringJob(ctx); } catch (e) { ctx.log.push('ring: ' + e.message); } }
+
+  // 2d) المراقبة الذكية: the cars' trackers, every 2 minutes (only when switched on in "تعديل التطبيق")
+  if (!ctx.full && ctx.calls <= REQ_LIMIT - 16 && minute % 2 === 1) {
+    try { await watchJob(ctx); ctx.log.push('watch'); } catch (e) {
+      ctx.log.push('watch: ' + e.message);
+      if (!/no-login|login-wait|login-failed/.test(e.message)) { try { await patch(ctx, 'system/itrackInfo', { error: String(e.message).slice(0, 200), errAt: now }, ['error', 'errAt']); } catch (e2) { /* ignore */ } }
+      else if (e.message === 'no-login') { try { await patch(ctx, 'system/itrackInfo', { error: 'login: لسه متحطش اسم الدخول والباسورد', errAt: now }, ['error', 'errAt']); } catch (e2) { /* ignore */ } }
+    }
+  }
 
   // 3) late record (for "تحت المتابعة")
   if (lateMarks.length && ctx.calls <= REQ_LIMIT - 2) {

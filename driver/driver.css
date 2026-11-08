@@ -150,3 +150,9 @@ body { min-height: 100vh; background: linear-gradient(180deg, rgba(60,18,12,.45)
 .dv-out[hidden] { display: none; }
 .gm-pre { white-space: pre-wrap; background: rgba(0,0,0,.04); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.7; }
 .gm-acts { display: grid; gap: 8px; }
+
+/* المراقبة الذكية (9 Nov): the fixed notice and the "بلّغت الشركة" screen */
+.dv-watch { position: sticky; top: 0; z-index: 30; margin: 0; padding: 9px 14px; text-align: center; font-weight: 900; font-size: 15px; color: #fff3cf;
+  background: linear-gradient(90deg, #3a0d12, #6b1a22 50%, #3a0d12); border-bottom: 1px solid rgba(212,162,76,.55); letter-spacing: .2px; }
+.watch-ov { z-index: 260; background: radial-gradient(circle at 50% 30%, #4a1219, #1c0508 75%); }
+.watch-ov .sun { font-size: 76px; }

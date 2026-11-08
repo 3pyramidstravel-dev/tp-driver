@@ -21,6 +21,8 @@
       msgDone: 'المهمة خلصت — شكراً', msgDelay: 'الطيارة متأخرة والسواق عارف', carTag: 'سطر العربية جوه الرسالة', termTag: 'رقم الصالة جوه الرسالة' } },
     { id: 'vip', name: 'رسالة الـ VIP (إنجليزي)', hint: 'رسالة السواق الفخمة لضيوف المشاوير والمطار', keys: {
       vipHead: 'رأس الرسالة (اسم الشركة)', vipOnWay: 'السواق في الطريق', vipArrived: 'السواق وصل ومستني', vipClose: 'سطر الختام' } },
+    { id: 'watch', name: '🛰️ المراقبة الذكية', hint: 'أجهزة التتبع (iTrack) بتتقري كل دقيقتين — أي حركة بره أمر الشغل: السواق بيتسأل بالصوت، والمحضر بيوصلك', keys: {
+      vWatch: 'لما العربية تتحرك بره أمر الشغل (بتتكرر لحد ما يدوس)', vWatchIntro: 'التعريف بالمراقبة (أول مرة)' } },
     { id: 'auto', name: '📍 التسجيل التلقائي', hint: 'الـ GPS يسجل خطوات السواق لوحده، ولا السواق يدوس بإيده', keys: {} },
     { id: 'voice', name: '🔊 الرسايل الصوتية للسواق', hint: 'الموبايل بينادي السواق باسمه بصوت عالي — اختار الصوت والطابع، ودوس "اسمع" تجرب', keys: {
       vNew: 'مشوار جديد (بتتكرر لحد ما يستلم)', vSoon: 'فاضل ربع ساعة على المشوار', vAccepted: 'بعد ما يستلم المشوار', vDone: 'بعد ما يخلّص المشوار', vMorning: 'صباح الخير (بعد ما يصحى)' } },
@@ -96,6 +98,36 @@
     finally { st.busy = false; render(); }
   }
   const hear = (text, v) => { if (!TP.voice || !TP.voice.available()) return TP.toast('المتصفح ده مش بيدعم الصوت — جرّب من Chrome', 'warn'); TP.voice.speak(fill(text, { n: VOICE_NAME }), { force: true, cfg: v || vcfg() }); };
+  /* ---------- المراقبة الذكية: on/off + which tracker is which driver ---------- */
+  const watchCfg = () => Object.assign({ on: false, map: {} }, (st.doc || {}).watch || {});
+  let infoSub = null;
+  async function saveWatch(w) {
+    if (st.busy) return; st.busy = true;
+    try {
+      const cur = (await TP.fb.get(PATH)) || { over: {}, log: [] }, p = TP.session.person || {};
+      await TP.fb.set(PATH, Object.assign({}, cur, { over: cur.over || {}, log: cur.log || [], watch: w, by: TP.fb.user().uid, byName: p.name || '', at: TP.fb.ts() }));
+      st.doc = Object.assign({}, cur, { watch: w }); TP.appTexts = Object.assign({}, TP.appTexts || {}, { watch: w });
+      TP.audit('texts.update', 'المراقبة الذكية', (w.on ? 'شغالة' : 'مقفولة') + ' — ' + Object.keys(w.map || {}).length + ' عربية مربوطة');
+      TP.toast('اتحفظ ✓');
+    } catch (e) { console.error(e); TP.toast('مقدرتش أحفظ — جرّب تاني', 'warn'); }
+    finally { st.busy = false; render(); }
+  }
+  function watchPanel() {
+    if (!infoSub) infoSub = TP.fb.onDoc('system/itrackInfo', d => { st.info = d || {}; render(); }, () => { st.info = {}; });
+    const w = watchCfg(), info = st.info || {}, devs = info.devices || {}, drivers = TP.q.drivers().filter(d => d.active !== false);
+    const seen = info.seenAt ? TP.ago(info.seenAt) : '';
+    const health = !w.on ? '<span class="muted">مقفولة</span>'
+      : info.error ? `<span style="color:var(--danger,#b3261e)">⚠️ ${esc(/لسه متحطش/.test(info.error) ? 'لسه متحطش اسم الدخول والباسورد بتوع iTrack' : /^login/.test(info.error) ? 'اسم الدخول أو الباسورد بتوع iTrack غلط' : info.error)}</span>`
+      : seen ? `<span style="color:var(--ok,#1e7b4f)">✓ شغالة — آخر قراءة ${esc(seen)} · ${info.cars || 0} عربية</span>` : '<span class="muted">مستني أول قراءة (خلال دقيقتين)…</span>';
+    const ids = Object.keys(devs);
+    return `<div class="gm"><div class="gm-h"><b>المراقبة الذكية</b></div>
+      <div class="chips" style="margin-top:8px"><button type="button" class="chip ${w.on ? 'active' : ''}" data-won="1">🟢 On</button><button type="button" class="chip ${!w.on ? 'active' : ''}" data-won="0">⚪ Off</button></div>
+      <p class="small" style="margin-top:8px">${health}</p></div>
+      <div class="gm"><div class="gm-h"><b>كل جهاز تتبع مع سواقه</b></div>
+      ${ids.length ? ids.map(id => `<label class="fld" style="margin-top:8px">${esc(devs[id])}<select class="input" data-wmap="${esc(id)}"><option value="">— مش مربوط —</option>${drivers.map(d => `<option value="${esc(d.id)}" ${w.map[id] === d.id ? 'selected' : ''}>${esc(TP.driverLabel(d))}</option>`).join('')}</select></label>`).join('')
+        : '<p class="muted small" style="margin-top:6px">أسماء العربيات هتظهر هنا أول ما المراقبة تشتغل وتقرا iTrack.</p>'}
+      <p class="muted small" style="margin-top:8px">العربية اللي مش مربوطة بسواق مش بتتراقب.</p></div>`;
+  }
   const autoCfg = () => Object.assign({ lines: true, trips: true }, (st.doc || {}).auto || {});
   async function saveAuto(a) {
     if (st.busy) return; st.busy = true;
@@ -196,7 +228,7 @@
       <div class="toolbar">${U.filterBox('txQ', 'دوّر على رسالة أو كلمة', st.q)}</div>
       <div class="chips" style="margin:10px 0">${GROUPS.map(x => `<button type="button" class="chip ${!q && st.grp === x.id ? 'active' : ''}" data-tg="${x.id}">${esc(x.name)}${inGrp(x).length ? ` <small>${inGrp(x).length}</small>` : ''}</button>`).join('')}<button type="button" class="chip ${!q && st.grp === 'log' ? 'active' : ''}" data-tg="log">${TP.icon('history', 14)} سجل التعديلات <small>${log.length}</small></button></div>
       ${!q && g ? `<p class="muted small" style="margin-bottom:10px">${esc(g.hint)}</p>` : ''}
-      ${!q && st.grp === 'voice' ? voicePanel() : ''}${!q && st.grp === 'auto' ? autoPanel() : ''}
+      ${!q && st.grp === 'voice' ? voicePanel() : ''}${!q && st.grp === 'watch' ? watchPanel() : ''}${!q && st.grp === 'auto' ? autoPanel() : ''}
       ${!q && st.grp === 'log' ? (log.length ? log.map((x, i) => `<div class="gm"><div class="gm-h"><b>${esc(labelOf(x.k))}</b><span class="muted small">${esc((I().info(x.l) || {}).name || x.l)} · ${esc(x.by)} · ${esc(TP.fmtDateTime(x.at))}</span>${x.was !== undefined && defs()[x.k] ? `<button type="button" class="btn btn-ghost btn-sm" data-tback="${i}">↺ رجّع اللي قبله</button>` : ''}</div>
           <p class="gm-t small" dir="auto"><b>بقت:</b> ${x.now ? TP.waPreview(x.now) : '<i>النص الأصلي</i>'}</p><p class="gm-t small muted" dir="auto"><b>كانت:</b> ${x.was ? TP.waPreview(x.was) : '<i>النص الأصلي</i>'}</p></div>`).join('') : '<p class="muted">لسه مفيش تعديلات.</p>')
         : shown.length ? shown.map(card).join('') : st.grp === 'auto' && !q ? '' : '<p class="muted">مفيش نتيجة.</p>'}
@@ -206,6 +238,8 @@
     TP.$$('[data-tg]', root).forEach(b => b.onclick = () => { st.grp = b.dataset.tg; st.q = ''; render(); });
     TP.$$('[data-tedit]', root).forEach(b => b.onclick = () => openEdit(b.dataset.tedit));
     TP.$$('[data-vset]', root).forEach(b => b.onclick = () => { const v = vcfg(); v[b.dataset.vset] = b.dataset.vval; hear(TP.i18n.t('ar', 'vDone'), v); saveVoice(v); });
+    TP.$$('[data-won]', root).forEach(b => b.onclick = () => saveWatch(Object.assign(watchCfg(), { on: b.dataset.won === '1' })));
+    TP.$$('[data-wmap]', root).forEach(el => el.onchange = () => { const w = watchCfg(), m = Object.assign({}, w.map); if (el.value) m[el.dataset.wmap] = el.value; else delete m[el.dataset.wmap]; saveWatch(Object.assign(w, { map: m })); });
     TP.$$('[data-auto]', root).forEach(b => b.onclick = () => { const a = autoCfg(); a[b.dataset.auto] = b.dataset.aval === '1'; saveAuto(a); });
     const von = root.querySelector('#vOn'); if (von) von.onchange = () => saveVoice(Object.assign(vcfg(), { on: von.checked }));
     const vh = root.querySelector('#vHear'); if (vh) vh.onclick = () => hear(TP.i18n.t('ar', 'vNew'));

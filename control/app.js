@@ -31,11 +31,12 @@
     { sep: true },
     { id: 'settings', label: 'الإعدادات', icon: 'settings', any: ['settings.edit'], eyebrow: 'SETTINGS' },
     { id: 'audit', label: 'سجل العمليات', icon: 'history', any: ['audit.view'], eyebrow: 'AUDIT TRAIL' },
+    { id: 'watch', label: 'المحاضر', icon: 'shield', any: ['tracking.view'], orChair: true, eyebrow: 'SMART MONITORING' },
     { id: 'texts', label: 'تعديل التطبيق', icon: 'edit', chairman: true, eyebrow: 'APP WORDING · CHAIRMAN ONLY' },
     { id: 'account', label: 'حسابي', icon: 'user', eyebrow: 'MY ACCOUNT' }
   ];
   // prices & statements show only while the accounts are on (settings) — the data stays protected either way
-  const allowed = n => (!n.any || n.any.some(p => S.can(p))) && (!n.finance || TP.financeOn(TP.D.settings))
+  const allowed = n => (!n.any || n.any.some(p => S.can(p)) || (n.orChair && (S.person || {}).role === 'chairman')) && (!n.finance || TP.financeOn(TP.D.settings))
     && (!n.chairman || ((S.person || {}).role === 'chairman'));   // تعديل التطبيق: the chairman only
 
   TP.views = TP.views || {};
