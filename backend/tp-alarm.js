@@ -1386,7 +1386,8 @@ const km = (a, b) => { const R = 6371, r = x => x * Math.PI / 180, dLa = r(b.lat
 const itJson = async r => { const t = (await r.text()).trim(); const m = t.match(/^[\w$]+\(([\s\S]*)\)\s*;?$/); return JSON.parse(m ? m[1] : t); };
 /** The platform's session: kept in system/itrack; a failed login waits 30 minutes (3 wrong tries lock it with a picture test). */
 async function itLogin(ctx, st) {
-  const u = ctx.env.ITRACK_USER, pw = ctx.env.ITRACK_PASS;
+  // trimmed like the platform's own login page does ($.trim on both fields) — a pasted space or line break is not part of it
+  const u = String(ctx.env.ITRACK_USER || '').trim(), pw = String(ctx.env.ITRACK_PASS || '').trim();
   if (!u || !pw) throw new Error('no-login');
   // only a refused password waits (3 wrong tries lock the account behind a picture test)
   if (st.loginWrong && st.loginFailAt && ctx.now - st.loginFailAt < 30 * 60000) throw new Error('login-wait');
