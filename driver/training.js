@@ -113,6 +113,17 @@
 
   // behind = 2+ phrases not marked, or lessons not done 3 days after starting
   const behind = () => !!(doc && doc.intro && ((phraseCount() - learned().length) >= 2 || (!doc.lessonsDone && TP.now() - (doc.start || TP.now()) > 3 * DAY)));
+  // Karim's daily word to the captains — one per day, in turn (agreed 19 Nov)
+  const CHEER = [
+    'يا كابتن، انت وش ثري بيراميدز قدام أكبر شركات العالم. كل ضيف بيوصل مبسوط هو نجاح لينا كلنا.',
+    'إحنا شغالين بقوة السنة دي علشان 2027 تبقى سنة نجاح مبهر، وانت جزء أساسي من النجاح ده.',
+    'الضيف ممكن ينسى العربية، لكن عمره ما هينسى الكابتن اللي استقبله بابتسامة. شكراً على مجهودك.',
+    'كل مشوار بتعمله بأمان والتزام بيكبّر اسم الشركة، وبيكبّر اسمك معاها.',
+    'السنة الجاية إحنا داخلين على مصانع وشركات جديدة، ومحتاجين أحسن كباتن في مصر. وانت منهم.',
+    'تعبك مش بيضيع يا كابتن. الإدارة شايفة كل مجهود بتعمله، وفخورة بيك.',
+    'خطوة صغيرة كل يوم، جملة إنجليزي جديدة وعربية نضيفة ومعاد مظبوط، هي اللي بتعمل الفرق الكبير.'
+  ];
+  const cheer = () => CHEER[Math.floor(TP.now() / DAY) % CHEER.length];
   const WARN = 'يا كابتن، أنا لاحظت إنك مش ملتزم بالتدريب. لو فضل الوضع كده، هضطر أبلّغ مستر أحمد سمير ومدير التشغيل محمد أيمن إنك مش مهتم بالتدريب.';
   function home() {
     if (!doc.intro) return intro();
@@ -120,7 +131,9 @@
         <div class="tr-row"><button type="button" class="btn btn-ghost" data-warnsay>🔊 اسمع</button></div></section>` : '';
     const n = phraseCount(), ph = PHRASES[n - 1], got = learned().includes(n - 1);
     const lessonsDone = !!doc.lessonsDone, q = doc.quiz || {};
-    return warn + `<section class="glass card">
+    const word = `<section class="glass card"><b>💪 كريم:</b> ${esc(cheer())}
+        <div class="tr-row"><button type="button" class="btn btn-ghost" data-cheer>🔊 اسمع</button></div></section>`;
+    return warn + word + `<section class="glass card">
         <div class="small muted">🗣️ كريم: ${got ? 'برافو عليك، استنى الجملة الجاية' : 'صباح الخير يا كابتن، جملة النهارده هتنفعك مع الضيوف 👇'}</div>
         <div class="small muted">جملة اليومين — رقم ${n} من ${PHRASES.length}</div>
         <div class="tr-ph">${esc(ph[0])}</div><div class="tr-pr">${esc(ph[1])}</div><div class="tr-mn">${esc(ph[2])}</div>
@@ -215,6 +228,7 @@
   function bind() {
     const on = (sel, fn) => TP.$$(sel, root).forEach(b => b.onclick = () => fn(b));
     on('[data-intro]', () => { save({ intro: true, start: (doc && doc.start) || TP.now() }); ui.view = 'home'; draw(); });
+    on('[data-cheer]', () => { if (TP.voice) TP.voice.speak(cheer()); });
     on('[data-warnsay]', () => { if (TP.voice) TP.voice.speak(WARN); });
     on('[data-karim]', () => { if (TP.voice) TP.voice.speak(KARIM()); });
     on('[data-say]', b => speak(PHRASES[+b.dataset.say][0]));
