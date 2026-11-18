@@ -540,11 +540,16 @@
     // "حسابي" is pay per trip / shift — a tourism driver has a monthly salary (in "عربيتي")
     const acct = S.person.driverKind !== 'tourism', acctBtn = TP.$('.dv-nav [data-tab="account"]');
     if (acctBtn) acctBtn.hidden = !acct;
-    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${2 + (car ? 1 : 0) + (acct ? 1 : 0)}, 1fr)`;
+    // "التدريب" — tourism captains only (training.js)
+    const train = !!(TP.dvTrain && TP.dvTrain.available()), trBtn = TP.$('.dv-nav [data-tab="train"]');
+    if (trBtn) trBtn.hidden = !train;
+    const tb = TP.$('#tBadge'); if (tb) tb.hidden = !(train && TP.dvTrain.newPhrase());
+    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${2 + (car ? 1 : 0) + (acct ? 1 : 0) + (train ? 1 : 0)}, 1fr)`;
     if (st.tab === 'car' && !car) st.tab = 'today';
     if (st.tab === 'account' && !acct) st.tab = 'today';
-    ['today', 'missions', 'account', 'car'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
-    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else renderAccount();
+    if (st.tab === 'train' && !train) st.tab = 'today';
+    ['today', 'missions', 'account', 'car', 'train'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
+    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else if (st.tab === 'train') TP.dvTrain.render(TP.$('#tab-train')); else renderAccount();
     const openM = allMissions().filter(m => (m.status === 'assigned' || m.status === 'active') && m.day <= TP.dayKey(TP.now())).length;
     const b = TP.$('#mBadge'); b.hidden = !openM; b.textContent = openM;
     TP.hydrateIcons(TP.$('#app'));

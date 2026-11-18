@@ -671,6 +671,13 @@ service cloud.firestore {
             && request.resource.data.state == 'acked' && changed().hasOnly(['state', 'ackAt']))
         || ((can('tracking.view') || isChairman()) && changed().hasOnly(['decision', 'decisionNote', 'decidedBy', 'decidedAt']));
     }
+    // التدريب — a tourism captain's own progress (agreed 19 Nov); managers read it
+    match /training/{pid} {
+      allow read: if can('drivers.manage') || can('tracking.view') || isChairman() || (isDriver() && pid == me().personId);
+      allow create, update: if isDriver() && pid == me().personId
+        && request.resource.data.keys().hasOnly(['name', 'code', 'at', 'intro', 'start', 'learned', 'lessonsDone', 'quiz']);
+      allow delete: if false;
+    }
     // the driver's "فهمت" to the monitoring notice (once, his own)
     match /watchAcks/{pid} {
       allow read: if can('tracking.view') || isChairman() || (isDriver() && pid == me().personId);

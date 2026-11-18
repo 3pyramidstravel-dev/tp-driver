@@ -22,6 +22,7 @@
     { id: 'factories', label: 'المصانع', icon: 'factory', any: ['factories.manage'], eyebrow: 'CLIENTS' },
     { id: 'lines', label: 'الخطوط', icon: 'route', any: ['lines.manage'], eyebrow: 'FIXED LINES' },
     { id: 'drivers', label: 'السواقين', icon: 'steering', any: ['drivers.manage'], eyebrow: 'DRIVERS' },
+    { id: 'training', label: 'تدريب الكباتن', icon: 'check', any: ['drivers.manage', 'tracking.view'], orChair: true, eyebrow: 'CAPTAIN TRAINING · KARIM' },
     { id: 'vehicles', label: 'العربيات', icon: 'car', any: ['vehicles.manage'], eyebrow: 'FLEET' },
     { id: 'fleet', label: 'أمر الشغل والعهدة', icon: 'steering', any: ['fleet.manage', 'salary.manage'], eyebrow: 'TRIP ORDERS · CUSTODY · FUEL', badge: () => S.can('fleet.manage') ? TP.D.fleet.filter(c => c.req).length : 0 },
     { id: 'prices', label: 'الأسعار', icon: 'money', any: ['prices.view', 'airport.prices'], eyebrow: 'PRICING', finance: true },
