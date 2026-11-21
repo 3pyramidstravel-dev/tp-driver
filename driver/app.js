@@ -597,6 +597,7 @@
     html += S.googleBar({ dismiss: false });
     if (TP.loud) html += TP.loud.bar({ dismiss: false, text: 'خلّي منبه الصحيان والمشاوير يرن بصوت عالي زي المنبه — مرة واحدة' });
     html += wakeCard();
+    if (TP.dvKarim && TP.dvKarim.available()) html += `<section class="glass card"><b>🤖 كريم:</b> ${new Date().getHours() < 12 ? 'صباح الخير' : 'مساء الخير'} يا كابتن ${esc((S.person.name || '').split(' ')[0])}، أنا معاك أي وقت.<div style="margin-top:8px"><button type="button" class="btn btn-primary" data-talkk>💬 اضغط هنا وكلّمني</button></div></section>`;
     // tourism / trips drivers: make the new-trip notification ring like a call (one-time phone setting)
     if (kind() !== 'line' && !TP.store.get('tp-soundset', false)) html += `<section class="glass card"><div class="wake-row">${TP.icon('bell', 26)}<div style="flex:1"><b>خلّي تنبيه المشوار يرن زي المكالمة</b><div class="small muted">مرة واحدة بس — علشان متفوتكش أي رحلة</div></div><button type="button" class="btn btn-primary btn-sm" id="soundHow">إزاي؟</button></div></section>`;
     html += `<div class="banner info" style="justify-content:space-between"><b>${esc(TP.fmtDay(TP.now()))}</b><span class="muted small">خلي التطبيق مفتوح وإنت شغال</span></div>`;
@@ -605,6 +606,7 @@
     }
     entries.forEach(en => { html += lineCard(en, today); });
     root.innerHTML = html;
+    root.querySelectorAll('[data-talkk]').forEach(b => b.onclick = () => { const k = TP.$('.dv-nav [data-tab="karim"]'); if (k) k.click(); });
     root.querySelectorAll('[data-press]').forEach(b => b.onclick = () => {
       const [lid, day, key] = b.dataset.press.split('|');
       const en = todayEntries().find(x => x.line.id === lid && x.day === day); if (!en) return;

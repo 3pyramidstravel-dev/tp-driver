@@ -168,11 +168,11 @@
   function home() {
     if (!doc.intro) return intro();
     const warn = behind() ? `<section class="glass card" style="border:1px solid #c83c3c"><b>⚠️ كريم:</b> ${esc(WARN)}
-        <div class="tr-row"><button type="button" class="btn btn-ghost" data-warnsay>🔊 اسمع</button></div></section>` : '';
+        <div class="tr-row"><button type="button" class="btn btn-ghost" data-warnsay>🔊 اسمع</button><button type="button" class="btn btn-primary" data-talk>💬 أنا معاك أي وقت… اضغط هنا وكلّمني</button></div></section>` : '';
     const n = phraseCount(), ph = PHRASES[n - 1], got = learned().includes(n - 1);
     const lessonsDone = !!doc.lessonsDone, q = doc.quiz || {};
     const word = `<section class="glass card"><b>💪 كريم:</b> ${esc(cheer())}
-        <div class="tr-row"><button type="button" class="btn btn-ghost" data-cheer>🔊 اسمع</button></div></section>`;
+        <div class="tr-row"><button type="button" class="btn btn-ghost" data-cheer>🔊 اسمع</button><button type="button" class="btn btn-primary" data-talk>💬 أنا معاك أي وقت… اضغط هنا وكلّمني</button></div></section>`;
     return warn + word + `<section class="glass card">
         <div class="small muted">🗣️ كريم: ${got ? 'برافو عليك، استنى الجملة الجاية' : 'صباح الخير يا كابتن، جملة النهارده هتنفعك مع الضيوف 👇'}</div>
         <div class="small muted">جملة اليومين — رقم ${n} من ${PHRASES.length}</div>
@@ -268,6 +268,7 @@
   function bind() {
     const on = (sel, fn) => TP.$$(sel, root).forEach(b => b.onclick = () => fn(b));
     on('[data-intro]', () => { save({ intro: true, start: (doc && doc.start) || TP.now() }); ui.view = 'home'; draw(); });
+    root.querySelectorAll('[data-talk]').forEach(b => b.onclick = () => { const k = document.querySelector('.dv-nav [data-tab="karim"]'); if (k) k.click(); });
     on('[data-cheer]', () => { if (TP.voice) TP.voice.speak(cheer()); });
     on('[data-warnsay]', () => { if (TP.voice) TP.voice.speak(WARN); });
     on('[data-karim]', () => { if (TP.voice) TP.voice.speak(KARIM()); });
