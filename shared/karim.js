@@ -33,8 +33,9 @@
   const speak = t => { if (TP.voice) TP.voice.speak(String(t || ''), { force: true }); };
 
   async function loadCfg() {
-    if (cfg) return cfg;
-    try { cfg = (await TP.fb.get('karimCfg/main')) || {}; } catch (e) { cfg = {}; }
+    if (cfg && cfg.key) return cfg;
+    try { cfg = (await TP.fb.get('karimCfg/main')) || {}; } catch (e) { console.warn('karim cfg', e && e.code); cfg = {}; }
+    if (!cfg.key) TP.toast('كريم مش لاقي مفتاح Gemini — اتأكد إنه محفوظ في إعدادات كريم', 'warn');
     return cfg;
   }
   async function loadNotes() {
@@ -96,6 +97,7 @@
         if (t) return t;
       } catch (e) { clearTimeout(tm); console.warn('karim ai', m, e && e.name); }
     }
+    TP.toast('كريم مش قادر يوصل لجوجل دلوقتي — جرّب كمان دقيقة', 'warn');
     return null;
   }
   TP.karimGem = gem;
@@ -171,6 +173,86 @@
   }
   let voiceTurn = false;
 
+
+  // 📞 مكالمة صوتية مع كريم: يسمعك → يفهم ويرد → يتكلم بصوته → يسمعك تاني… لحد ما تقفل.
+  const call = { on: false, stream: null, rec: null, el: null };
+  function callUi(state) {
+    if (!call.el) return;
+    const t = { listen: '🎙️ كريم بيسمعك… اتكلم', think: '🤔 كريم بيفكر…', speak: '🔊 كريم بيتكلم…' }[state] || '';
+    call.el.querySelector('.kc-cs').textContent = t;
+    call.el.querySelector('.kc-pulse').className = 'kc-pulse ' + state;
+  }
+  async function startCall() {
+    if (call.on) return;
+    try { call.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch (e) { TP.toast('اسمح للتطبيق يستخدم المايك علشان تكلّم كريم', 'warn'); return; }
+    const c = await loadCfg(); if (!c.key) { endCall(); return; }
+    call.on = true;
+    call.el = document.createElement('div');
+    call.el.className = 'kc-call';
+    call.el.innerHTML = `<div class="kc-av big">🤖</div><b style="font-size:20px">كريم</b><div class="kc-pulse"></div><div class="kc-cs"></div><button class="btn btn-primary kc-end" type="button">📴 إنهاء المكالمة</button>`;
+    document.body.appendChild(call.el);
+    call.el.querySelector('.kc-end').onclick = endCall;
+    try { if (TP.gvoice) await TP.gvoice.sayWait(isOwner() ? 'أهلاً يا أستاذ أحمد، أنا معاك، اتفضل.' : 'أهلاً يا ' + (first() || 'صاحبي') + '، أنا معاك، قول اللي في نفسك.'); } catch (e) { /* ignore */ }
+    loop();
+  }
+  function endCall() {
+    call.on = false;
+    try { if (call.rec && call.rec.state !== 'inactive') call.rec.stop(); } catch (e) { /* ignore */ }
+    try { call.stream && call.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+    try { TP.gvoice && TP.gvoice.stop(); } catch (e) { /* ignore */ }
+    if (call.el) call.el.remove(); call.el = null; call.stream = null;
+  }
+  // records one sentence: starts when you speak, stops after ~1.3 s of silence (max 30 s)
+  function hearOnce() {
+    return new Promise(resolve => {
+      const AC = window.AudioContext || window.webkitAudioContext, ac = new AC(), an = ac.createAnalyser();
+      ac.createMediaStreamSource(call.stream).connect(an); an.fftSize = 1024;
+      const data = new Uint8Array(an.fftSize), chunks = [];
+      const rec = call.rec = new MediaRecorder(call.stream);
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = () => { ac.close(); resolve(spoke ? new Blob(chunks, { type: rec.mimeType || 'audio/webm' }) : null); };
+      let spoke = false, quietSince = 0; const t0 = Date.now();
+      rec.start(250);
+      const tick = () => {
+        if (!call.on) { if (rec.state !== 'inactive') rec.stop(); return; }
+        an.getByteTimeDomainData(data); let peak = 0; for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+        const now = Date.now();
+        if (peak > 14) { spoke = true; quietSince = 0; } else if (spoke && !quietSince) quietSince = now;
+        if ((spoke && quietSince && now - quietSince > 1300) || now - t0 > 30000 || (!spoke && now - t0 > 12000)) { if (rec.state !== 'inactive') rec.stop(); return; }
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+  }
+  async function loop() {
+    while (call.on) {
+      callUi('listen');
+      const blob = await hearOnce();
+      if (!call.on) break;
+      if (!blob || blob.size < 3000) continue;
+      callUi('think');
+      const c = await loadCfg();
+      const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+      const history = ((doc && doc.msgs) || []).slice(-16).filter(m => m.f !== 'a').map(m => ({ role: m.f === 'c' ? 'user' : 'model', parts: [{ text: m.t }] }));
+      const raw = await gem({ systemInstruction: { parts: [{ text: system() + '\nدي مكالمة صوتية: ردك هيتقال بصوت، فخليه قصير (جملة أو اتنين أو تلاتة)، طبيعي زي الكلام، من غير رموز أو نقط مرقمة.' }] },
+        contents: history.concat({ role: 'user', parts: [{ inlineData: { mimeType: (blob.type || 'audio/webm').split(';')[0], data: b64 } }, { text: 'ده تسجيل صوتي من الشخص. رجّع JSON بس: {"heard":"الكلام اللي اتقال بالظبط","reply":"ردك عليه"}' }] }),
+        generationConfig: { temperature: 0.8, maxOutputTokens: 2048, responseMimeType: 'application/json' } }, c);
+      if (!call.on) break;
+      let heard = '', reply = '';
+      try { const j = JSON.parse(raw); heard = (j.heard || '').trim(); reply = (j.reply || '').trim(); } catch (e) { reply = ''; }
+      if (!reply) { callUi('speak'); await TP.gvoice.sayWait('معلش مسمعتكش كويس، قول تاني.'); continue; }
+      let flag = !!(doc && doc.flag);
+      if (/\[FLAG\]/i.test(reply)) { flag = true; reply = reply.replace(/\[FLAG\]/gi, '').trim(); }
+      const d0 = doc || {}, n = d0.day === today() ? (d0.n || 0) : 0;
+      const msgs = (d0.msgs || []).concat({ f: 'c', t: '🎤 ' + (heard || '…'), at: TP.now() }, { f: 'k', t: reply, at: TP.now() }).slice(-KEEP);
+      save({ name: P().name || '', code: P().code || ROLE_NAMES[P().role] || '', day: today(), n: n + 1, flag, msgs, at: TP.now(), unread: !isOwner() }).catch(() => {});
+      draw();
+      callUi('speak');
+      await TP.gvoice.sayWait(reply);
+    }
+  }
+
   async function addNote(text) {
     text = (text || '').trim().slice(0, 500); if (!text) return;
     try {
@@ -195,6 +277,13 @@
     .kc-in textarea{flex:1;min-height:44px;max-height:120px;border-radius:12px;padding:10px;font:inherit;font-size:15px;resize:none}
     .kc-typing{opacity:.7;font-size:13px;margin:4px 0}
     .kc-in .rec{background:#c83c3c;color:#fff}
+    .kc-call{position:fixed;inset:0;z-index:9999;background:radial-gradient(circle at 50% 35%,#7a1428,#2a050d);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:20px}
+    .kc-av.big{width:110px;height:110px;font-size:56px}
+    .kc-cs{font-size:18px;min-height:28px}
+    .kc-pulse{width:90px;height:90px;border-radius:50%;border:3px solid #c9a24a;opacity:.8}
+    .kc-pulse.listen{animation:kcp 1.2s infinite}.kc-pulse.speak{animation:kcp .6s infinite;background:rgba(201,162,74,.25)}.kc-pulse.think{animation:kcp 2s infinite;opacity:.4}
+    @keyframes kcp{0%{transform:scale(.85)}50%{transform:scale(1.1)}100%{transform:scale(.85)}}
+    .kc-end{background:#c83c3c!important;font-size:18px;padding:14px 28px}
     .kc-opt{display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0}
   </style>`;
 
@@ -209,7 +298,7 @@
     const notice = isOwner() ? '' : `<div class="kc-note">🔒 الإدارة بتقدر تشوف المحادثة دي. ما تكتبش أرقام سرية أو بيانات بنكية.</div>`;
     const keep = root.querySelector('textarea.kc-t'); const draft = keep ? keep.value : '';
     root.innerHTML = css + `<div class="kc-wrap card">
-      <div class="kc-head"><div class="kc-av">🤖</div><div><b>كريم</b><div class="small muted">مدير الذكاء الاصطناعي الافتراضي للشركة</div></div></div>
+      <div class="kc-head"><div class="kc-av">🤖</div><div style="flex:1"><b>كريم</b><div class="small muted">مدير الذكاء الاصطناعي الافتراضي للشركة</div></div><button class="btn btn-primary" type="button" id="kcCall">📞 كلّمه بالصوت</button></div>
       ${notice}
       <label class="kc-opt"><input type="checkbox" id="kcAuto" ${autoSpeak ? 'checked' : ''}> 🔊 خلّي كريم يتكلم بصوت على طول</label>
       <div class="kc-list">
@@ -225,6 +314,7 @@
     const ta = root.querySelector('textarea.kc-t'); ta.value = draft;
     root.querySelector('#kcSend').onclick = () => { const v = ta.value; ta.value = ''; send(v); };
     root.querySelector('#kcMic').onclick = e => startRec(e.currentTarget);
+    root.querySelector('#kcCall').onclick = startCall;
     root.querySelector('#kcAuto').onchange = e => { autoSpeak = e.target.checked; try { localStorage.setItem('karimVoice', autoSpeak ? '1' : '0'); } catch (x) { /* ignore */ } if (autoSpeak) speak('تمام، هتكلم معاك بصوت'); };
     root.querySelectorAll('[data-say]').forEach(b => b.onclick = () => { const i = Number(b.dataset.say); speak(i < 0 ? hello.replace(/<[^>]+>/g, '') : (msgs[i] || {}).t); });
     const ns = root.querySelector('#kcNoteSave'); if (ns) ns.onclick = () => { const t = root.querySelector('#kcNote'); addNote(t.value); t.value = ''; };

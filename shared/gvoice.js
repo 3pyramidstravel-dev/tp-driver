@@ -14,7 +14,7 @@
   const mem = {}, pending = {};
   let actx = null, playing = null, cfgP = null;
 
-  const cfg = () => cfgP || (cfgP = TP.fb.get('karimCfg/main').then(c => c || {}).catch(() => ({})));
+  const cfg = () => cfgP || (cfgP = TP.fb.get('karimCfg/main').then(c => { if (!c || !c.key) cfgP = null; return c || {}; }).catch(() => { cfgP = null; return {}; }));
   function hash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 'v1_' + (h >>> 0).toString(36) + '_' + s.length; }
   function ctx() {
     try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { /* ignore */ }
@@ -24,12 +24,12 @@
   document.addEventListener('pointerdown', ctx, { passive: true });
 
   function stop() { try { if (playing) playing.stop(); } catch (e) { /* ignore */ } playing = null; try { phone.speak && TP.voice.stopPhone && TP.voice.stopPhone(); } catch (e) { /* ignore */ } }
-  function play(b64) {
-    const a = ctx(); if (!a) return false;
+  function play(b64, onEnd) {
+    const a = ctx(); if (!a) { if (onEnd) onEnd(); return false; }
     const bin = atob(b64), n = bin.length >> 1, buf = a.createBuffer(1, n, 24000), ch = buf.getChannelData(0);
     for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v > 32767) v -= 65536; ch[i] = v / 32768; }
     stop();
-    const src = a.createBufferSource(); src.buffer = buf; src.connect(a.destination); src.start(); playing = src;
+    const src = a.createBufferSource(); src.buffer = buf; src.connect(a.destination); src.onended = () => { if (onEnd) onEnd(); }; src.start(); playing = src;
     return true;
   }
 
@@ -81,5 +81,12 @@
   TP.voice.say = (key, vars, opt) => speak(TP.i18n ? TP.i18n.t('ar', key, vars) : '', Object.assign({ urgent: true }, opt || {}));
   TP.voice.natural = speak;
   TP.voice.stopAll = stop;
-  TP.gvoice = { speak, make };
+  /** sayWait(text): speaks with the natural voice and resolves when it has finished (for the voice call). */
+  async function sayWait(text) {
+    text = String(text || '').replace(/[*_#>]/g, '').trim().slice(0, 900); if (!text) return;
+    const b = await make(text, 'ar');
+    if (!b) return;
+    await new Promise(r => { if (!play(b, r)) r(); });
+  }
+  TP.gvoice = { speak, make, sayWait, stop };
 })(window.TP = window.TP || {});
