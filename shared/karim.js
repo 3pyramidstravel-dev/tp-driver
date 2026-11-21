@@ -85,19 +85,27 @@
   // Gemini text models change names over time: try a short list, first that answers wins (20 s each).
   const MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
   async function gem(body, c) {
-    const list = c.model && !/2\.5/.test(c.model) ? [c.model].concat(MODELS.filter(m => m !== c.model)) : MODELS;
+    let good = null; try { good = localStorage.getItem('kGood'); } catch (e) {}
+    let list = c.model && !/2\.5/.test(c.model) ? [c.model].concat(MODELS.filter(m => m !== c.model)) : MODELS.slice();
+    if (good && list.includes(good)) list = [good].concat(list.filter(m => m !== good));
+    const fast = JSON.parse(JSON.stringify(body));
+    fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingLevel: 'low' } });
+    let last = '';
     for (const m of list) {
-      const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 20000);
-      try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        clearTimeout(tm);
-        if (!r.ok) { console.warn('karim ai', m, r.status); continue; }
-        const j = await r.json();
-        const t = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
-        if (t) return t;
-      } catch (e) { clearTimeout(tm); console.warn('karim ai', m, e && e.name); }
+      for (const b of [fast, body]) {
+        const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 25000);
+        try {
+          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+          clearTimeout(tm);
+          if (!r.ok) { last = 'HTTP ' + r.status; console.warn('karim ai', m, r.status); if (r.status === 400 && b === fast) continue; break; }
+          const j = await r.json();
+          const t = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
+          if (t) { try { localStorage.setItem('kGood', m); } catch (e) {} return t; }
+          last = 'empty'; break;
+        } catch (e) { clearTimeout(tm); last = (e && e.name) || 'net'; console.warn('karim ai', m, last); break; }
+      }
     }
-    TP.toast('كريم مش قادر يوصل لجوجل دلوقتي — جرّب كمان دقيقة', 'warn');
+    TP.toast('كريم مش قادر يوصل لجوجل (' + last + ') — اتأكد من النت وجرّب تاني', 'warn');
     return null;
   }
   TP.karimGem = gem;
