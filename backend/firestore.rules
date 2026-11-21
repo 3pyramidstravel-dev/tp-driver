@@ -678,6 +678,20 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['name', 'code', 'at', 'intro', 'start', 'learned', 'lessonsDone', 'quiz']);
       allow delete: if false;
     }
+    // "كلّم كريم": the captain's chat with Karim (agreed 21 Nov). The captain writes his own doc;
+    // only the chairman reads it and replies (from: 'a').
+    match /karimChat/{pid} {
+      allow read: if isChairman() || (isDriver() && pid == me().personId);
+      allow create, update: if (isDriver() && pid == me().personId || isChairman())
+        && request.resource.data.keys().hasOnly(['name', 'code', 'at', 'msgs', 'unread', 'flag', 'day', 'n', 'seen'])
+        && request.resource.data.msgs is list && request.resource.data.msgs.size() <= 80;
+      allow delete: if false;
+    }
+    // Karim's settings (Gemini key + model), set by the chairman; read by signed-in app users
+    match /karimCfg/{doc} {
+      allow read: if isActive();
+      allow write: if isChairman();
+    }
     // the driver's "فهمت" to the monitoring notice (once, his own)
     match /watchAcks/{pid} {
       allow read: if can('tracking.view') || isChairman() || (isDriver() && pid == me().personId);

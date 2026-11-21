@@ -544,12 +544,18 @@
     const train = !!(TP.dvTrain && TP.dvTrain.available()), trBtn = TP.$('.dv-nav [data-tab="train"]');
     if (trBtn) trBtn.hidden = !train;
     const tb = TP.$('#tBadge'); if (tb) tb.hidden = !(train && TP.dvTrain.newPhrase());
-    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${2 + (car ? 1 : 0) + (acct ? 1 : 0) + (train ? 1 : 0)}, 1fr)`;
+    // "كلّم كريم" — tourism captains only (karim.js)
+    const kc = !!(TP.dvKarim && TP.dvKarim.available()), kcBtn = TP.$('.dv-nav [data-tab="karim"]');
+    if (kcBtn) kcBtn.hidden = !kc;
+    if (kc) TP.dvKarim.start();
+    const kb = TP.$('#kBadge'); if (kb) kb.hidden = !(kc && TP.dvKarim.hasReply());
+    TP.$('.dv-nav').style.gridTemplateColumns = `repeat(${2 + (car ? 1 : 0) + (acct ? 1 : 0) + (train ? 1 : 0) + (kc ? 1 : 0)}, 1fr)`;
     if (st.tab === 'car' && !car) st.tab = 'today';
     if (st.tab === 'account' && !acct) st.tab = 'today';
     if (st.tab === 'train' && !train) st.tab = 'today';
-    ['today', 'missions', 'account', 'car', 'train'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
-    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else if (st.tab === 'train') TP.dvTrain.render(TP.$('#tab-train')); else renderAccount();
+    if (st.tab === 'karim' && !kc) st.tab = 'today';
+    ['today', 'missions', 'account', 'car', 'train', 'karim'].forEach(t => { const el = TP.$('#tab-' + t); if (el) el.hidden = st.tab !== t; });
+    if (st.tab === 'today') renderToday(); else if (st.tab === 'missions') renderMissions(); else if (st.tab === 'car') renderCar(); else if (st.tab === 'train') TP.dvTrain.render(TP.$('#tab-train')); else if (st.tab === 'karim') TP.dvKarim.render(TP.$('#tab-karim')); else renderAccount();
     const openM = allMissions().filter(m => (m.status === 'assigned' || m.status === 'active') && m.day <= TP.dayKey(TP.now())).length;
     const b = TP.$('#mBadge'); b.hidden = !openM; b.textContent = openM;
     TP.hydrateIcons(TP.$('#app'));
