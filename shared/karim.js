@@ -119,7 +119,8 @@
 
   async function save(d) {
     doc = d;
-    try { await TP.fb.set(path(), d); }
+    const clean = Object.assign({}, d); delete clean.id;
+    try { await TP.fb.set(path(), clean); }
     catch (e) { console.warn('karim save', e && e.code); TP.toast('مقدرتش أبعت — اتأكد من النت', 'warn'); throw e; }
   }
 
