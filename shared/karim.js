@@ -33,7 +33,6 @@
   // Karim's voice: a real male voice from Gemini TTS (free key, voice "Charon"); if that fails,
   // the phone's own voice, asked for a man's voice (most phones have only a woman's Arabic voice).
   let actx = null, playing = null; const tts = {};
-  function phoneVoice(t) { if (TP.voice) TP.voice.speak(t, { force: true, cfg: { gender: 'm', style: 'calm', on: true } }); }
   function playPcm(b64) {
     actx = actx || new (window.AudioContext || window.webkitAudioContext)();
     const bin = atob(b64), n = bin.length >> 1, buf = actx.createBuffer(1, n, 24000), ch = buf.getChannelData(0);
@@ -47,20 +46,21 @@
     try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { /* ignore */ }
     if (tts[t]) { try { playPcm(tts[t]); return; } catch (e) { /* fall through */ } }
     const c = await loadCfg();
-    if (c.key && c.voice !== false) {
+    if (!c.key) { TP.toast('صوت كريم محتاج مفتاح Gemini في إعدادات كريم', 'warn'); return; }
+    const models = c.ttsModel ? [c.ttsModel] : ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
+    for (const m of models) {
       try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.ttsModel || 'gemini-2.5-flash-preview-tts')}:generateContent?key=${encodeURIComponent(c.key)}`, {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'اقرأ بصوت راجل مصري هادي وواثق ومحترم، باللهجة المصرية: ' + t }] }],
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'Say in a warm, calm, confident Egyptian Arabic male voice, natural like a real person talking: ' + t }] }],
             generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.ttsVoice || 'Charon' } } } } })
         });
-        if (r.ok) {
-          const j = await r.json(), part = ((((j.candidates || [])[0] || {}).content || {}).parts || []).find(p => p.inlineData && p.inlineData.data);
-          if (part) { tts[t] = part.inlineData.data; playPcm(tts[t]); return; }
-        } else console.warn('karim tts', r.status);
-      } catch (e) { console.warn('karim tts', e); }
+        if (!r.ok) { console.warn('karim tts', m, r.status); continue; }
+        const j = await r.json(), part = ((((j.candidates || [])[0] || {}).content || {}).parts || []).find(p => p.inlineData && p.inlineData.data);
+        if (part) { tts[t] = part.inlineData.data; playPcm(tts[t]); return; }
+      } catch (e) { console.warn('karim tts', m, e); }
     }
-    phoneVoice(t);
+    TP.toast('صوت كريم مش متاح دلوقتي، جرّب كمان شوية', 'warn');
   }
 
   async function loadCfg() {
