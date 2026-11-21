@@ -140,7 +140,7 @@
     const d0 = doc || {};
     const n = d0.day === today() ? (d0.n || 0) : 0;
     if (n >= MAX_DAY && !isOwner()) { TP.toast('كفاية النهارده 🙏 كمّل كلامك بكرة، وأستاذ أحمد شايف رسايلك'); return; }
-    const msgs = (d0.msgs || []).concat({ f: 'c', t: text, at: TP.now() });
+    const msgs = (d0.msgs || []).concat({ f: 'c', t: text, at: TP.now() }).slice(-KEEP);
     const base = { name: P().name || '', code: P().code || ROLE_NAMES[P().role] || '', day: today(), n: n + 1, flag: !!d0.flag };
     busy = true; doc = Object.assign({}, d0, base, { msgs, at: TP.now(), unread: !isOwner() }); draw(true);
     try { await save(doc); } catch (e) { busy = false; draw(); return; }
