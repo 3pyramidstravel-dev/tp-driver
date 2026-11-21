@@ -30,7 +30,38 @@
 
   let autoSpeak = false;
   try { autoSpeak = localStorage.getItem('karimVoice') === '1'; } catch (e) { /* private mode */ }
-  const speak = t => { if (TP.voice) TP.voice.speak(String(t || '').replace(/[*_#>]/g, ''), { force: true }); };
+  // Karim's voice: a real male voice from Gemini TTS (free key, voice "Charon"); if that fails,
+  // the phone's own voice, asked for a man's voice (most phones have only a woman's Arabic voice).
+  let actx = null, playing = null; const tts = {};
+  function phoneVoice(t) { if (TP.voice) TP.voice.speak(t, { force: true, cfg: { gender: 'm', style: 'calm', on: true } }); }
+  function playPcm(b64) {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const bin = atob(b64), n = bin.length >> 1, buf = actx.createBuffer(1, n, 24000), ch = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v > 32767) v -= 65536; ch[i] = v / 32768; }
+    try { if (playing) playing.stop(); } catch (e) { /* ignore */ }
+    const src = actx.createBufferSource(); src.buffer = buf; src.connect(actx.destination); src.start(); playing = src;
+  }
+  async function speak(t) {
+    t = String(t || '').replace(/[*_#>]/g, '').slice(0, 600); if (!t) return;
+    try { if (TP.voice) TP.voice.stop(); } catch (e) { /* ignore */ }
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { /* ignore */ }
+    if (tts[t]) { try { playPcm(tts[t]); return; } catch (e) { /* fall through */ } }
+    const c = await loadCfg();
+    if (c.key && c.voice !== false) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.ttsModel || 'gemini-2.5-flash-preview-tts')}:generateContent?key=${encodeURIComponent(c.key)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'اقرأ بصوت راجل مصري هادي وواثق ومحترم، باللهجة المصرية: ' + t }] }],
+            generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.ttsVoice || 'Charon' } } } } })
+        });
+        if (r.ok) {
+          const j = await r.json(), part = ((((j.candidates || [])[0] || {}).content || {}).parts || []).find(p => p.inlineData && p.inlineData.data);
+          if (part) { tts[t] = part.inlineData.data; playPcm(tts[t]); return; }
+        } else console.warn('karim tts', r.status);
+      } catch (e) { console.warn('karim tts', e); }
+    }
+    phoneVoice(t);
+  }
 
   async function loadCfg() {
     if (cfg) return cfg;
@@ -115,6 +146,7 @@
   async function send(text) {
     text = (text || '').trim().slice(0, 1500);
     if (!text || busy) return;
+    if (autoSpeak) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) { /* ignore */ } }
     const d0 = doc || {};
     const n = d0.day === today() ? (d0.n || 0) : 0;
     if (n >= MAX_DAY && !isOwner()) { TP.toast('كفاية النهارده 🙏 كمّل كلامك بكرة، وأستاذ أحمد شايف رسايلك'); return; }
