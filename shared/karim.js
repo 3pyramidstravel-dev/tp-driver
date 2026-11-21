@@ -83,17 +83,17 @@
 
 
   // Gemini text models change names over time: try a short list, first that answers wins (20 s each).
-  const MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  const MODELS = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];
   async function gem(body, c) {
     let good = null; try { good = localStorage.getItem('kGood'); } catch (e) {}
-    let list = c.model && !/2\.5/.test(c.model) ? [c.model].concat(MODELS.filter(m => m !== c.model)) : MODELS.slice();
+    let list = MODELS.slice();
     if (good && list.includes(good)) list = [good].concat(list.filter(m => m !== good));
     const fast = JSON.parse(JSON.stringify(body));
     fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingLevel: 'low' } });
     let last = '';
     for (const m of list) {
       for (const b of [fast, body]) {
-        const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 25000);
+        const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 15000);
         try {
           const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
           clearTimeout(tm);
