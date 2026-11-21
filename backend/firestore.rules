@@ -697,6 +697,13 @@ service cloud.firestore {
       allow delete: if isChairman() || (can('tracking.view') && resource.data.byId == me().personId);
       allow update: if false;
     }
+    // natural-voice cache: each spoken sentence made once by Gemini, shared by every phone
+    match /ttsCache/{tid} {
+      allow read: if isActive();
+      allow create: if isActive() && request.resource.data.keys().hasOnly(['d', 'at', 'n'])
+        && request.resource.data.d is string && request.resource.data.d.size() < 1000000;
+      allow update, delete: if false;
+    }
     // Karim's settings (Gemini key + model), set by the chairman; read by signed-in app users
     match /karimCfg/{doc} {
       allow read: if isActive();

@@ -88,6 +88,7 @@
   const learned = () => (doc && doc.learned) || [];
 
   function speak(text) {
+    if (TP.gvoice) { TP.gvoice.speak(text, { lang: 'en', force: true }); return; }
     const ss = window.speechSynthesis; if (!ss) { TP.toast('الموبايل ده مفيهوش صوت إنجليزي'); return; }
     try {
       ss.cancel();
@@ -269,9 +270,9 @@
     const on = (sel, fn) => TP.$$(sel, root).forEach(b => b.onclick = () => fn(b));
     on('[data-intro]', () => { save({ intro: true, start: (doc && doc.start) || TP.now() }); ui.view = 'home'; draw(); });
     root.querySelectorAll('[data-talk]').forEach(b => b.onclick = () => { const k = document.querySelector('.dv-nav [data-tab="karim"]'); if (k) k.click(); });
-    on('[data-cheer]', () => { if (TP.voice) TP.voice.speak(cheer()); });
-    on('[data-warnsay]', () => { if (TP.voice) TP.voice.speak(WARN); });
-    on('[data-karim]', () => { if (TP.voice) TP.voice.speak(KARIM()); });
+    on('[data-cheer]', () => { if (TP.voice) TP.voice.speak(cheer(), { force: true }); });
+    on('[data-warnsay]', () => { if (TP.voice) TP.voice.speak(WARN, { force: true }); });
+    on('[data-karim]', () => { if (TP.voice) TP.voice.speak(KARIM(), { force: true }); });
     on('[data-say]', b => speak(PHRASES[+b.dataset.say][0]));
     on('[data-got]', b => { const k = +b.dataset.got; if (!learned().includes(k)) save({ learned: learned().concat(k) }); TP.toast('برافو ✓'); draw(); });
     on('[data-go]', b => {

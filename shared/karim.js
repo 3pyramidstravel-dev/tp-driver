@@ -30,38 +30,7 @@
 
   let autoSpeak = false;
   try { autoSpeak = localStorage.getItem('karimVoice') === '1'; } catch (e) { /* private mode */ }
-  // Karim's voice: a real male voice from Gemini TTS (free key, voice "Charon"); if that fails,
-  // the phone's own voice, asked for a man's voice (most phones have only a woman's Arabic voice).
-  let actx = null, playing = null; const tts = {};
-  function playPcm(b64) {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    const bin = atob(b64), n = bin.length >> 1, buf = actx.createBuffer(1, n, 24000), ch = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v > 32767) v -= 65536; ch[i] = v / 32768; }
-    try { if (playing) playing.stop(); } catch (e) { /* ignore */ }
-    const src = actx.createBufferSource(); src.buffer = buf; src.connect(actx.destination); src.start(); playing = src;
-  }
-  async function speak(t) {
-    t = String(t || '').replace(/[*_#>]/g, '').slice(0, 600); if (!t) return;
-    try { if (TP.voice) TP.voice.stop(); } catch (e) { /* ignore */ }
-    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { /* ignore */ }
-    if (tts[t]) { try { playPcm(tts[t]); return; } catch (e) { /* fall through */ } }
-    const c = await loadCfg();
-    if (!c.key) { TP.toast('صوت كريم محتاج مفتاح Gemini في إعدادات كريم', 'warn'); return; }
-    const models = c.ttsModel ? [c.ttsModel] : ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
-    for (const m of models) {
-      try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'Say in a warm, calm, confident Egyptian Arabic male voice, natural like a real person talking: ' + t }] }],
-            generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.ttsVoice || 'Charon' } } } } })
-        });
-        if (!r.ok) { console.warn('karim tts', m, r.status); continue; }
-        const j = await r.json(), part = ((((j.candidates || [])[0] || {}).content || {}).parts || []).find(p => p.inlineData && p.inlineData.data);
-        if (part) { tts[t] = part.inlineData.data; playPcm(tts[t]); return; }
-      } catch (e) { console.warn('karim tts', m, e); }
-    }
-    TP.toast('صوت كريم مش متاح دلوقتي، جرّب كمان شوية', 'warn');
-  }
+  const speak = t => { if (TP.voice) TP.voice.speak(String(t || ''), { force: true }); };
 
   async function loadCfg() {
     if (cfg) return cfg;
@@ -147,7 +116,6 @@
   async function send(text) {
     text = (text || '').trim().slice(0, 1500);
     if (!text || busy) return;
-    if (autoSpeak) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) { /* ignore */ } }
     const d0 = doc || {};
     const n = d0.day === today() ? (d0.n || 0) : 0;
     if (n >= MAX_DAY && !isOwner()) { TP.toast('كفاية النهارده 🙏 كمّل كلامك بكرة، وأستاذ أحمد شايف رسايلك'); return; }
@@ -162,8 +130,41 @@
     const all = msgs.concat({ f: 'k', t: reply, at: TP.now() }).slice(-KEEP);
     try { await save(Object.assign({}, base, { msgs: all, at: TP.now(), unread: !isOwner(), flag })); } catch (e) { /* toast shown */ }
     busy = false; draw();
-    if (autoSpeak) speak(reply);
+    if (autoSpeak || voiceTurn) speak(reply);
+    voiceTurn = false;
   }
+
+
+  // 🎤 voice message: record, Gemini writes down what was said, then Karim answers (and speaks back)
+  let recorder = null, chunks = [];
+  async function startRec(btn) {
+    if (recorder) { recorder.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = []; recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const type = recorder.mimeType || 'audio/webm'; recorder = null; btn.textContent = '🎤'; btn.classList.remove('rec');
+        const blob = new Blob(chunks, { type }); if (blob.size < 2000) { TP.toast('التسجيل قصير أوي، جرّب تاني'); return; }
+        busy = true; draw(true);
+        const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+        const c = await loadCfg(); let text = null;
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model || 'gemini-2.5-flash')}:generateContent?key=${encodeURIComponent(c.key || '')}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ inlineData: { mimeType: type.split(';')[0], data: b64 } }, { text: 'اكتب بالظبط الكلام اللي اتقال في التسجيل ده باللغة اللي اتقال بيها (غالباً عربي مصري)، من غير أي إضافة أو تعليق. لو مفيش كلام واضح اكتب: ...' }] }], generationConfig: { temperature: 0 } })
+          });
+          if (res.ok) { const j = await res.json(); text = (((j.candidates || [])[0] || {}).content || {}).parts ? j.candidates[0].content.parts.map(p => p.text || '').join('').trim() : null; }
+        } catch (e) { console.warn('karim stt', e); }
+        busy = false;
+        if (!text || text === '...') { draw(); TP.toast('مقدرتش أسمع الرسالة كويس، جرّب تاني'); return; }
+        voiceTurn = true; send('🎤 ' + text);
+      };
+      recorder.start(); btn.textContent = '⏹️'; btn.classList.add('rec'); TP.toast('بيسجّل… اضغط تاني لما تخلص');
+    } catch (e) { TP.toast('اسمح للتطبيق يستخدم المايك علشان تبعت رسالة صوتية', 'warn'); }
+  }
+  let voiceTurn = false;
 
   async function addNote(text) {
     text = (text || '').trim().slice(0, 500); if (!text) return;
@@ -188,6 +189,7 @@
     .kc-in{display:flex;gap:8px;position:sticky;bottom:0;padding:10px 0;background:inherit}
     .kc-in textarea{flex:1;min-height:44px;max-height:120px;border-radius:12px;padding:10px;font:inherit;font-size:15px;resize:none}
     .kc-typing{opacity:.7;font-size:13px;margin:4px 0}
+    .kc-in .rec{background:#c83c3c;color:#fff}
     .kc-opt{display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0}
   </style>`;
 
@@ -210,13 +212,14 @@
         ${msgs.map((m, i) => `<div class="kc-m kc-${m.f}">${m.f === 'c' ? '' : `<div class="kc-who"><span>${m.f === 'a' ? 'أستاذ أحمد سمير' : 'كريم'}</span><button class="kc-say" data-say="${i}" title="اسمع">🔊</button></div>`}${esc(m.t)}</div>`).join('')}
         ${typing || busy ? '<div class="kc-typing">كريم بيكتب…</div>' : ''}
       </div>
-      <div class="kc-in"><textarea class="kc-t" placeholder="اكتب لكريم…" maxlength="1500"></textarea><button class="btn btn-primary" type="button" id="kcSend">إرسال</button></div>
+      <div class="kc-in"><button class="btn" type="button" id="kcMic" title="رسالة صوتية" style="font-size:20px">🎤</button><textarea class="kc-t" placeholder="اكتب لكريم… أو اضغط 🎤 واتكلم" maxlength="1500"></textarea><button class="btn btn-primary" type="button" id="kcSend">إرسال</button></div>
       ${isOps() ? `<div class="kc-note" style="margin-top:4px"><b>📣 رسالة للكباتن عن طريق كريم</b> (هيوصّلها في محادثاته معاهم لمدة أسبوع، باسمك)
         <textarea id="kcNote" rows="2" style="width:100%;margin-top:6px" placeholder="مثلاً: ذكّر الكباتن بفحص العربية قبل الطلوع"></textarea>
         <button class="btn" type="button" id="kcNoteSave" style="margin-top:6px">ابعت لكريم</button></div>` : ''}
     </div>`;
     const ta = root.querySelector('textarea.kc-t'); ta.value = draft;
     root.querySelector('#kcSend').onclick = () => { const v = ta.value; ta.value = ''; send(v); };
+    root.querySelector('#kcMic').onclick = e => startRec(e.currentTarget);
     root.querySelector('#kcAuto').onchange = e => { autoSpeak = e.target.checked; try { localStorage.setItem('karimVoice', autoSpeak ? '1' : '0'); } catch (x) { /* ignore */ } if (autoSpeak) speak('تمام، هتكلم معاك بصوت'); };
     root.querySelectorAll('[data-say]').forEach(b => b.onclick = () => { const i = Number(b.dataset.say); speak(i < 0 ? hello.replace(/<[^>]+>/g, '') : (msgs[i] || {}).t); });
     const ns = root.querySelector('#kcNoteSave'); if (ns) ns.onclick = () => { const t = root.querySelector('#kcNote'); addNote(t.value); t.value = ''; };
