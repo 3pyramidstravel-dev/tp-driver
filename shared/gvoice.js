@@ -33,12 +33,25 @@
     return true;
   }
 
+  const day = () => new Date(Date.now() - 8 * 3600e3).toISOString().slice(0, 10); // Google's free quota resets at midnight Pacific
+  const outToday = () => { try { return localStorage.getItem('ttsOut') === day(); } catch (e) { return false; } };
+  // short fixed messages are cut at commas/full stops so each piece (e.g. "يا كابتن سامي") is made once and reused forever
+  const pieces = t => t.length > 160 ? [t] : t.split(/(?<=[،,.!؟?])\s+/).map(x => x.trim()).filter(Boolean);
+  async function makeAll(text, lang) {
+    const parts = pieces(text), out = [];
+    for (const x of parts) { const b = await make(x, lang); if (!b) return null; out.push(b); }
+    return out;
+  }
+  function playAll(list, onEnd) { let i = 0; const next = () => { if (i >= list.length) { if (onEnd) onEnd(); return; } play(list[i++], next); }; next(); return true; }
+
   async function make(text, lang) {
+    let quota = 0;
     const id = hash((lang || 'ar') + '|' + text);
     if (mem[id]) return mem[id];
     if (pending[id]) return pending[id];
     pending[id] = (async () => {
       try { const d = await TP.fb.get('ttsCache/' + id); if (d && d.d) { mem[id] = d.d; return d.d; } } catch (e) { /* not cached / offline */ }
+      if (outToday()) return null;
       const c = await cfg(); if (!c.key || c.voice === false) return null;
       const say = lang === 'en' ? 'Say slowly and clearly in a warm, friendly male voice: ' : 'Say in a warm, calm, confident Egyptian Arabic male voice, natural like a real person talking: ';
       const models = c.ttsModel ? [c.ttsModel] : ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
@@ -48,7 +61,7 @@
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contents: [{ parts: [{ text: say + text }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.ttsVoice || 'Charon' } } } } })
           });
-          if (!r.ok) { console.warn('tts', m, r.status); continue; }
+          if (!r.ok) { console.warn('tts', m, r.status); if (r.status === 429) quota++; continue; }
           const j = await r.json(), part = ((((j.candidates || [])[0] || {}).content || {}).parts || []).find(p => p.inlineData && p.inlineData.data);
           if (!part) continue;
           mem[id] = part.inlineData.data;
@@ -56,6 +69,7 @@
           return mem[id];
         } catch (e) { console.warn('tts', m, e); }
       }
+      if (quota >= models.length) { try { localStorage.setItem('ttsOut', day()); } catch (e) { /* ignore */ } }
       return null;
     })();
     const out = await pending[id]; delete pending[id]; return out;
@@ -69,10 +83,10 @@
     let on = true; try { on = TP.voice.cfg().on; } catch (e) { /* default on */ }
     if (!on && !opt.force) return false;
     ctx();
-    const id = hash((opt.lang || 'ar') + '|' + text);
-    if (mem[id]) return play(mem[id]);
+    const ids = pieces(text).map(x => hash((opt.lang || 'ar') + '|' + x));
+    if (ids.every(i => mem[i])) return playAll(ids.map(i => mem[i]));
     let done = false;
-    const p = make(text, opt.lang).then(b => { if (b && !done) { done = true; play(b); } else if (!b && !done) { done = true; if (opt.lang !== 'en') phone.speak(text, Object.assign({}, opt, { force: true })); } });
+    const p = makeAll(text, opt.lang).then(b => { if (b && !done) { done = true; playAll(b); } else if (!b && !done) { done = true; if (opt.lang !== 'en') phone.speak(text, Object.assign({}, opt, { force: true })); } });
     if (opt.urgent) setTimeout(() => { if (!done) { done = true; phone.speak(text, Object.assign({}, opt, { force: true })); } }, 1200);
     return !!p;
   }
@@ -85,7 +99,7 @@
   async function sayWait(text) {
     text = String(text || '').replace(/[*_#>]/g, '').trim().slice(0, 900); if (!text) return;
     const b = await make(text, 'ar');
-    if (!b) return;
+    if (!b) { await new Promise(r => { try { phone.speak(text, { force: true, onend: r }); } catch (e) { r(); } setTimeout(r, Math.min(20000, 1500 + text.length * 70)); }); return; }
     await new Promise(r => { if (!play(b, r)) r(); });
   }
   TP.gvoice = { speak, make, sayWait, stop };
