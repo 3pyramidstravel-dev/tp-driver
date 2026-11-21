@@ -7,7 +7,7 @@
 (function (TP) {
   'use strict';
   const { esc } = TP;
-  const st = { list: null, unsub: null, open: null, cfg: null, summary: '', busy: false };
+  const st = { list: null, unsub: null, open: null, cfg: null, summary: '', busy: false, notes: null, nunsub: null };
   const today = () => new Date(TP.now()).toISOString().slice(0, 10);
 
   function sub() {
@@ -16,6 +16,7 @@
       st.list = l.sort((a, b) => (b.flag ? 1 : 0) - (a.flag ? 1 : 0) || (b.at || 0) - (a.at || 0));
       TP.rerender && TP.rerender();
     }, e => { console.warn('karimChat', e && e.code); st.list = []; TP.rerender && TP.rerender(); });
+    st.nunsub = TP.fb.onCol('karimNotes', {}, l => { st.notes = l.sort((a, b) => (b.at || 0) - (a.at || 0)); TP.rerender && TP.rerender(); }, () => { st.notes = []; });
     TP.fb.get('karimCfg/main').then(c => { st.cfg = c || {}; TP.rerender && TP.rerender(); }).catch(() => { st.cfg = {}; });
   }
 
@@ -61,6 +62,25 @@ ${txt}`);
     catch (e) { TP.toast('مقدرتش أحفظ', 'warn'); }
   }
 
+
+  const TO = { captains: 'الكباتن', staff: 'الإدارة', all: 'الكل' };
+  async function addNote(text, to, days) {
+    text = (text || '').trim().slice(0, 500); if (!text) { TP.toast('اكتب الرسالة الأول', 'warn'); return; }
+    try { await TP.fb.add('karimNotes', { text, to, by: 'أستاذ أحمد سمير', byId: (TP.session.person || {}).id || '', at: TP.now(), until: TP.now() + (Number(days) || 7) * 86400000 }); TP.toast('كريم هيوصّلها ✓', 'ok'); }
+    catch (e) { TP.toast('مقدرتش أحفظ', 'warn'); }
+  }
+  function notesCard() {
+    const act = (st.notes || []).filter(n => !n.until || n.until > TP.now());
+    return `<section class="card"><div class="card-head"><h3>📣 قول لكريم</h3></div>
+      <p class="small muted">اكتب أي رسالة أو تعليمات، وكريم هيوصّلها باسمك في محادثاته مع الناس.</p>
+      <textarea id="kN" rows="2" style="width:100%;margin:6px 0" placeholder="مثلاً: قول لكل الكباتن إن فيه مكافأة لأحسن كابتن الشهر ده"></textarea>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><select id="kTo"><option value="captains">للكباتن</option><option value="staff">للإدارة</option><option value="all">للكل</option></select>
+        <select id="kDays"><option value="1">يوم</option><option value="3">3 أيام</option><option value="7" selected>أسبوع</option><option value="30">شهر</option></select>
+        <button class="btn btn-primary" id="kNs">ابعت لكريم</button></div>
+      ${act.length ? act.map(n => `<div class="gm" style="margin-top:8px"><div class="gm-h"><b>${esc(TO[n.to] || n.to)} · من ${esc(n.by || '')}</b><button class="btn btn-ghost" data-nd="${esc(n.id)}">إلغاء</button></div><p class="small" style="margin:4px 0">${esc(n.text)}</p></div>`).join('') : ''}
+    </section>`;
+  }
+
   function render(root) {
     sub();
     if (!st.list) { root.innerHTML = '<section class="card"><p class="muted">بيحمّل…</p></section>'; return; }
@@ -72,6 +92,7 @@ ${txt}`);
       <div class="row" style="margin:10px 0"><button class="btn btn-primary" id="kSum" ${st.busy ? 'disabled' : ''}>${st.busy ? 'كريم بيكتب التقرير…' : '📋 تقرير النهارده وأفكار كريم'}</button></div>
       ${st.summary ? `<div class="gm" style="white-space:pre-wrap;line-height:1.7">${esc(st.summary)}</div>` : ''}
     </section>
+    ${notesCard()}
     <section class="card"><div class="card-head"><h3>المحادثات</h3></div>
       ${st.list.length ? st.list.map(c => {
         const last = (c.msgs || [])[(c.msgs || []).length - 1] || {};
@@ -91,6 +112,8 @@ ${txt}`);
     </section>`;
     const q = s => root.querySelector(s);
     q('#kSum').onclick = summarize;
+    q('#kNs').onclick = () => { addNote(q('#kN').value, q('#kTo').value, q('#kDays').value); q('#kN').value = ''; };
+    root.querySelectorAll('[data-nd]').forEach(b => b.onclick = () => TP.fb.remove('karimNotes/' + b.dataset.nd).catch(() => TP.toast('مقدرتش', 'warn')));
     root.querySelectorAll('.gm-h[data-k]').forEach(h => h.onclick = () => { st.open = st.open === h.dataset.k ? null : h.dataset.k; TP.rerender(); });
     if (q('#kRs')) q('#kRs').onclick = () => { const c = st.list.find(x => x.id === q('#kRs').dataset.k); if (c) reply(c, q('#kR').value); };
     q('#kSave').onclick = () => { const k = q('#kKey').value; if (!k && !hasKey) { TP.toast('الصق المفتاح الأول', 'warn'); return; } saveCfg(k || st.cfg.key, q('#kModel').value); };
@@ -98,4 +121,5 @@ ${txt}`);
 
   TP.views = TP.views || {};
   TP.views.karim = { render };
+  TP.views.karimchat = { render: root => TP.karim.render(root) };
 })(window.TP = window.TP || {});

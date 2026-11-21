@@ -681,11 +681,21 @@ service cloud.firestore {
     // "كلّم كريم": the captain's chat with Karim (agreed 21 Nov). The captain writes his own doc;
     // only the chairman reads it and replies (from: 'a').
     match /karimChat/{pid} {
-      allow read: if isChairman() || (isDriver() && pid == me().personId);
-      allow create, update: if (isDriver() && pid == me().personId || isChairman())
+      allow read: if isChairman() || (isActive() && pid == me().personId);
+      allow create, update: if (isActive() && pid == me().personId || isChairman())
         && request.resource.data.keys().hasOnly(['name', 'code', 'at', 'msgs', 'unread', 'flag', 'day', 'n', 'seen'])
         && request.resource.data.msgs is list && request.resource.data.msgs.size() <= 80;
       allow delete: if false;
+    }
+    // notes the management asks Karim to pass on (chairman: to anyone; operations: to the captains)
+    match /karimNotes/{nid} {
+      allow read: if isActive();
+      allow create: if (isChairman() || (can('tracking.view') && request.resource.data.to == 'captains'))
+        && request.resource.data.keys().hasOnly(['text', 'to', 'by', 'byId', 'at', 'until'])
+        && request.resource.data.text is string && request.resource.data.text.size() <= 500
+        && request.resource.data.to in ['captains', 'staff', 'all'];
+      allow delete: if isChairman() || (can('tracking.view') && resource.data.byId == me().personId);
+      allow update: if false;
     }
     // Karim's settings (Gemini key + model), set by the chairman; read by signed-in app users
     match /karimCfg/{doc} {
