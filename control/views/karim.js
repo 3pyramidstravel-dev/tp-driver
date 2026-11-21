@@ -23,15 +23,9 @@
   async function gemini(prompt) {
     const c = st.cfg || {};
     if (!c.key) { TP.toast('حط مفتاح Gemini في إعدادات كريم الأول', 'warn'); return null; }
-    try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model || 'gemini-2.5-flash')}:generateContent?key=${encodeURIComponent(c.key)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 1500 } })
-      });
-      if (!r.ok) { TP.toast('Gemini رفض الطلب (' + r.status + ')', 'warn'); return null; }
-      const j = await r.json();
-      return ((j.candidates || [])[0] || {}).content ? j.candidates[0].content.parts.map(p => p.text || '').join('').trim() : null;
-    } catch (e) { TP.toast('مقدرتش أوصل لـ Gemini', 'warn'); return null; }
+    const t = TP.karimGem ? await TP.karimGem({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 4096 } }, c) : null;
+    if (!t) TP.toast('Gemini مشغول دلوقتي، جرّب كمان دقيقة', 'warn');
+    return t;
   }
 
   async function summarize() {
@@ -58,7 +52,7 @@ ${txt}`);
   }
 
   async function saveCfg(key, model) {
-    try { await TP.fb.set('karimCfg/main', { key: key.trim(), model: (model || 'gemini-2.5-flash').trim(), on: true }, true); st.cfg = Object.assign({}, st.cfg, { key: key.trim(), model }); TP.toast('اتحفظ ✓', 'ok'); TP.rerender(); }
+    try { await TP.fb.set('karimCfg/main', { key: key.trim(), model: (model || 'gemini-3-flash-preview').trim(), on: true }, true); st.cfg = Object.assign({}, st.cfg, { key: key.trim(), model }); TP.toast('اتحفظ ✓', 'ok'); TP.rerender(); }
     catch (e) { TP.toast('مقدرتش أحفظ', 'warn'); }
   }
 
@@ -107,7 +101,7 @@ ${txt}`);
     <section class="card"><div class="card-head"><h3>⚙️ إعدادات كريم</h3></div>
       <p class="small muted">مفتاح Gemini المجاني من aistudio.google.com/apikey بحساب الشركة. المفتاح بيتحفظ هنا بس، ما تبعتهوش في أي شات.</p>
       <input id="kKey" type="password" placeholder="${hasKey ? 'المفتاح محفوظ ✓ (اكتب جديد لو عايز تغيّره)' : 'الصق مفتاح Gemini هنا'}" style="width:100%;margin:6px 0">
-      <input id="kModel" type="text" value="${esc((st.cfg && st.cfg.model) || 'gemini-2.5-flash')}" style="width:100%;margin:6px 0">
+      <input id="kModel" type="text" value="${esc((st.cfg && st.cfg.model && !/2\.5/.test(st.cfg.model)) ? st.cfg.model : 'gemini-3-flash-preview')}" style="width:100%;margin:6px 0">
       <button class="btn" id="kSave">حفظ</button>
     </section>`;
     const q = s => root.querySelector(s);

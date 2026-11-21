@@ -80,20 +80,31 @@
     'تسلم على ثقتك. اللي كتبته وصل لأستاذ أحمد، وكمل وانت مطمن.'
   ];
 
+
+  // Gemini text models change names over time: try a short list, first that answers wins (20 s each).
+  const MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  async function gem(body, c) {
+    const list = c.model && !/2\.5/.test(c.model) ? [c.model].concat(MODELS.filter(m => m !== c.model)) : MODELS;
+    for (const m of list) {
+      const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 20000);
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(c.key)}`, { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        clearTimeout(tm);
+        if (!r.ok) { console.warn('karim ai', m, r.status); continue; }
+        const j = await r.json();
+        const t = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
+        if (t) return t;
+      } catch (e) { clearTimeout(tm); console.warn('karim ai', m, e && e.name); }
+    }
+    return null;
+  }
+  TP.karimGem = gem;
+
   async function ask(history) {
     const c = await loadCfg();
     if (!c.key || c.on === false) return null;
     const contents = history.slice(-20).filter(m => m.f !== 'a').map(m => ({ role: m.f === 'c' ? 'user' : 'model', parts: [{ text: m.t }] }));
-    try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model || 'gemini-2.5-flash')}:generateContent?key=${encodeURIComponent(c.key)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: system() }] }, contents, generationConfig: { temperature: 0.8, maxOutputTokens: 600 } })
-      });
-      if (!r.ok) { console.warn('karim ai', r.status); return null; }
-      const j = await r.json();
-      const t = j && j.candidates && j.candidates[0] && j.candidates[0].content && (j.candidates[0].content.parts || []).map(p => p.text || '').join('').trim();
-      return t || null;
-    } catch (e) { console.warn('karim ai', e); return null; }
+    return gem({ systemInstruction: { parts: [{ text: system() }] }, contents, generationConfig: { temperature: 0.8, maxOutputTokens: 2048 } }, c);
   }
 
   async function save(d) {
@@ -150,13 +161,7 @@
         busy = true; draw(true);
         const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
         const c = await loadCfg(); let text = null;
-        try {
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model || 'gemini-2.5-flash')}:generateContent?key=${encodeURIComponent(c.key || '')}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ inlineData: { mimeType: type.split(';')[0], data: b64 } }, { text: 'اكتب بالظبط الكلام اللي اتقال في التسجيل ده باللغة اللي اتقال بيها (غالباً عربي مصري)، من غير أي إضافة أو تعليق. لو مفيش كلام واضح اكتب: ...' }] }], generationConfig: { temperature: 0 } })
-          });
-          if (res.ok) { const j = await res.json(); text = (((j.candidates || [])[0] || {}).content || {}).parts ? j.candidates[0].content.parts.map(p => p.text || '').join('').trim() : null; }
-        } catch (e) { console.warn('karim stt', e); }
+        if (c.key) text = await gem({ contents: [{ parts: [{ inlineData: { mimeType: type.split(';')[0], data: b64 } }, { text: 'اكتب بالظبط الكلام اللي اتقال في التسجيل ده باللغة اللي اتقال بيها (غالباً عربي مصري)، من غير أي إضافة أو تعليق. لو مفيش كلام واضح اكتب: ...' }] }], generationConfig: { temperature: 0, maxOutputTokens: 2048 } }, c);
         busy = false;
         if (!text || text === '...') { draw(); TP.toast('مقدرتش أسمع الرسالة كويس، جرّب تاني'); return; }
         voiceTurn = true; send('🎤 ' + text);
