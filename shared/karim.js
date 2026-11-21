@@ -85,7 +85,7 @@
   // Gemini text models change names over time: try a short list, first that answers wins (20 s each).
   const MODELS = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];
   async function gem(body, c) {
-    let good = null; try { good = localStorage.getItem('kGood'); } catch (e) {}
+    let good = null; try { good = localStorage.getItem('kGood2'); } catch (e) {}
     let list = MODELS.slice();
     if (good && list.includes(good)) list = [good].concat(list.filter(m => m !== good));
     const fast = JSON.parse(JSON.stringify(body));
@@ -100,7 +100,7 @@
           if (!r.ok) { last = 'HTTP ' + r.status; console.warn('karim ai', m, r.status); if (r.status === 400 && b === fast) continue; break; }
           const j = await r.json();
           const t = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
-          if (t) { try { localStorage.setItem('kGood', m); } catch (e) {} return t; }
+          if (t) { try { localStorage.setItem('kGood2', m); } catch (e) {} return t; }
           last = 'empty'; break;
         } catch (e) { clearTimeout(tm); last = (e && e.name) || 'net'; console.warn('karim ai', m, last); break; }
       }
